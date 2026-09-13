@@ -25,6 +25,13 @@ export function createUsageService({
       key = found.key;
       base.keyFrom = found.from;
     }
+    if (provider.oauth) {
+      const found = credentials.oauthToken(provider.oauth);
+      if (!found) return { ...base, ...empty, ok: false, configured: false, error: `没有找到登录：${describeKeySources({ openCodeIds: provider.oauth.openCodeIds })}` };
+      if (found.expired) return { ...base, ...empty, ok: false, configured: true, error: `${found.from} 的登录已过期，请重新登录` };
+      key = found.key;
+      base.keyFrom = found.from;
+    }
     try {
       const result = await provider.fetch({ fetchImpl, key, exec, env, homedir });
       const entry = {

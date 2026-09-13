@@ -30,6 +30,19 @@ export function createCredentials({ env = process.env, homedir = os.homedir() } 
     }
   }
 
+  // An OpenCode OAuth access token (Cursor, OpenAI). Returns { key, from } or null; a token that has already
+  // expired is treated as missing so the page shows "please sign in again" instead of a 401.
+  function oauthToken({ openCodeIds = [], now = Date.now() } = {}) {
+    for (const id of openCodeIds) {
+      const entry = openCodeEntry(id);
+      if (entry && entry.type === 'oauth' && typeof entry.access === 'string' && entry.access.trim()) {
+        if (typeof entry.expires === 'number' && entry.expires <= now) return { expired: true, from: `OpenCode 登录（${id}）` };
+        return { key: entry.access.trim(), from: `OpenCode 登录（${id}）` };
+      }
+    }
+    return null;
+  }
+
   // Returns { key, from } where `from` names the source (never the key), or null.
   function apiKey({ envNames = [], openCodeIds = [] }) {
     for (const name of envNames) {
@@ -56,5 +69,5 @@ export function createCredentials({ env = process.env, homedir = os.homedir() } 
     ];
   }
 
-  return { apiKey, presence, authFile };
+  return { apiKey, oauthToken, presence, authFile };
 }

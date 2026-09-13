@@ -5,7 +5,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { tmpDir } from '../helpers.js';
 import { createUsageService } from '../../src/usage/service.js';
-import { codex, deepseek, kimi, openrouter, siliconflow, volcano } from '../../src/usage/providers.js';
+import { codex, cursor, deepseek, kimi, openrouter, siliconflow, volcano } from '../../src/usage/providers.js';
 import { parseJsonDocuments, windowLabel } from '../../src/usage/common.js';
 import { createUsageRoutes } from '../../src/server/usageRoutes.js';
 import { routeParts } from '../../src/server/http.js';
@@ -113,6 +113,28 @@ describe('usage providers', () => {
     clock = 61000;
     await usage.report();
     assert.equal(calls, 3);
+  });
+
+  it('reads Cursor with the OpenCode oauth token, and reports an expired login', async () => {
+    const good = fakeHome({ auth: { cursor: { type: 'oauth', access: SECRET, refresh: 'r', expires: Date.now() + 3600000 } } });
+    const fetchImpl = async (url, options) => {
+      assert.equal(new URL(url).host, 'api2.cursor.sh');
+      assert.equal(options.headers.authorization, `Bearer ${SECRET}`);
+      return json(200, { 'gpt-4': { numRequests: 30, maxRequestUsage: 120 }, 'no-cap': { numRequests: 5 }, startOfMonth: '2026-09-01T00:00:00Z' });
+    };
+    const [c] = (await createUsageService({ homedir: good, env: {}, fetchImpl, providers: [cursor] }).report()).providers;
+    assert.deepEqual(c.windows, [{ label: 'gpt-4（本月请求）', usedPercent: 25, resetsAt: null }]);
+    assert.equal(c.keyFrom, 'OpenCode 登录（cursor）');
+    assert.match(c.note, /2026-09-01/);
+
+    const expired = fakeHome({ auth: { cursor: { type: 'oauth', access: SECRET, expires: Date.now() - 1000 } } });
+    const [e] = (await createUsageService({ homedir: expired, env: {}, fetchImpl: async () => json(200, {}), providers: [cursor] }).report()).providers;
+    assert.equal(e.ok, false);
+    assert.equal(e.configured, true);
+    assert.match(e.error, /登录已过期/);
+
+    const none = (await createUsageService({ homedir: fakeHome(), env: {}, fetchImpl: async () => json(200, {}), providers: [cursor] }).report()).providers[0];
+    assert.equal(none.configured, false);
   });
 
   it('labels windows and splits concatenated JSON documents', () => {

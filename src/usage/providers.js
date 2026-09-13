@@ -118,6 +118,28 @@ export const volcano = {
   },
 };
 
+// Cursor's own usage endpoint, read with the OAuth token OpenCode already stores — Cursor's local database is
+// never touched. Counts are per model against a monthly request cap.
+export const cursor = {
+  id: 'cursor',
+  name: 'Cursor',
+  source: 'api',
+  oauth: { openCodeIds: ['cursor'] },
+  async fetch({ fetchImpl, key }) {
+    const body = await getJson(fetchImpl, 'https://api2.cursor.sh/auth/usage', key);
+    const windows = [];
+    for (const [model, info] of Object.entries(body || {})) {
+      if (!info || typeof info !== 'object' || model === 'startOfMonth') continue;
+      const used = toNumber(info.numRequests);
+      const limit = toNumber(info.maxRequestUsage);
+      if (used !== null && limit !== null && limit > 0) windows.push({ label: `${model}（本月请求）`, usedPercent: percent(used, limit), resetsAt: null });
+    }
+    if (!windows.length) throw new UsageError('Cursor 没有返回带上限的用量');
+    const start = typeof body.startOfMonth === 'string' ? body.startOfMonth.slice(0, 10) : '';
+    return { windows, note: start ? `本月从 ${start} 起算` : '' };
+  },
+};
+
 export const siliconflow = {
   id: 'siliconflow',
   name: '硅基流动',
@@ -127,4 +149,4 @@ export const siliconflow = {
 
 const later = (id, name) => ({ id, name, source: 'local-app', unavailable: '还没接入（下一步做：读本机登录信息，只在内存里用）' });
 
-export const PROVIDERS = [codex, kimi, deepseek, openrouter, volcano, siliconflow, later('agy', 'Antigravity（agy）'), later('cursor', 'Cursor'), later('mimo', '小米 MiMo')];
+export const PROVIDERS = [codex, kimi, deepseek, openrouter, cursor, volcano, siliconflow, later('agy', 'Antigravity（agy）'), later('mimo', '小米 MiMo')];
