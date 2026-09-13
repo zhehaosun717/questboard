@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "No page gets desktop permissions. The splash status is pushed from Rust with window.eval, and the board page is loaded from the local board server.",
+  "windows": ["main"],
+  "permissions": []
+}

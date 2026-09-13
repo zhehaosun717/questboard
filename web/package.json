@@ -1,0 +1,27 @@
+{
+  "name": "questboard-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.11.6",
+    "dagre": "0.8.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/dagre": "0.7.54",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.0",
+    "vitest": "5.0.0"
+  }
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>questboard</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #110f0c; color: #e6d8b8; font: 15px/1.6 "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+  body { display: flex; align-items: center; justify-content: center; }
+  .plate { width: min(520px, 86vw); padding: 28px 30px; background: linear-gradient(175deg, #efe4ca, #ddcfae); color: #241c13; transform: rotate(-.6deg); box-shadow: 0 24px 60px rgba(0,0,0,.7); }
+  .eyebrow { margin: 0; font: 700 12px/1 Impact, sans-serif; letter-spacing: .34em; color: #9e421b; }
+  h1 { margin: 8px 0 14px; font-size: 30px; letter-spacing: .06em; }
+  #status { min-height: 3.2em; }
+  #status.error { color: #b3321f; font-weight: 700; }
+  .stripe { height: 6px; margin: 18px -30px -28px; background: repeating-linear-gradient(-45deg, #f2b134 0 12px, #15120e 12px 24px); }
+  .dots::after { content: ""; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+</style>
+</head>
+<body>
+  <div class="plate">
+    <p class="eyebrow">QUESTBOARD · SALVAGE GUILD</p>
+    <h1>悬赏板</h1>
+    <div id="status" class="dots">正在准备</div>
+    <div class="stripe"></div>
+  </div>
+  <script>
+    // Called by the desktop shell (window.eval) while it finds the project and starts the board server.
+    window.setStatus = function (text, isError) {
+      var el = document.getElementById('status');
+      el.textContent = text;
+      el.className = isError ? 'error' : 'dots';
+    };
+  </script>
+</body>
+</html>

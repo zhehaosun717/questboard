@@ -2,6 +2,7 @@ node_modules/
 dist/
 target/
 src-tauri/target/
+desktop/src-tauri/gen/schemas/
 .env
 .env.*
 *.log

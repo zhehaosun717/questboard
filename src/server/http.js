@@ -60,11 +60,20 @@ export function writeRefusal(request) {
   return null;
 }
 
-// Resolves a request path under a root, or null when it would escape the root.
+// Resolves a request path under a root, or null when it would escape the root — lexically, or through a
+// symlink or junction inside the root that points outside it.
 export function safeJoin(root, relative) {
   const base = path.resolve(root);
   const file = path.resolve(base, relative);
-  return file.startsWith(base + path.sep) ? file : null;
+  if (!file.startsWith(base + path.sep)) return null;
+  if (!fs.existsSync(file)) return file;
+  try {
+    const realBase = fs.realpathSync(base);
+    const real = fs.realpathSync(file);
+    return real.startsWith(realBase + path.sep) ? real : null;
+  } catch {
+    return null;
+  }
 }
 
 export function sendFile(response, file, { csp } = {}) {

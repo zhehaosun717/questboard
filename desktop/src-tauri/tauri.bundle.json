@@ -1,0 +1,13 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm --prefix ../web run build"
+  },
+  "bundle": {
+    "resources": {
+      "../../src": "questboard/src",
+      "../../public": "questboard/public",
+      "../../web/dist": "questboard/web/dist",
+      "../../package.json": "questboard/package.json"
+    }
+  }
+}

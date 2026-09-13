@@ -122,6 +122,31 @@ web page you visit could otherwise make your browser dispatch paid workers. Revi
 CSP that only allows saving annotations. Brief paths are restricted to the configured folders because a
 brief's contents are sent to third-party models.
 
+## Board app and desktop app
+
+The board page is a React app in `web/` (Vite, React Flow + dagre for the relationship graph). The board
+server serves its build (`web/dist`) at `/`; without a build it serves the classic page, which also stays
+available at `/classic`.
+
+```text
+cd web && npm install && npm run build      # build the app the server serves
+cd web && npm run dev                       # develop against a running board server (proxy to :6097)
+```
+
+`desktop/` is a Tauri 2 shell. Double-click it and it finds your project, starts that project's board
+server if it is not already running, and shows the board in a native window; it stops only the server it
+started. It needs Node 22 on the machine. The first launch asks for the project folder (the one with
+`questboard.config.json`) and remembers it.
+
+```text
+cd desktop && npm install
+npm run dev          # run from this checkout
+npm run build        # Windows installer; builds web/ first and bundles the server
+```
+
+The window loads the server's own page, so the board keeps the server's same-origin write rules and the
+page gets no desktop permissions.
+
 ## Tests
 
 ```text

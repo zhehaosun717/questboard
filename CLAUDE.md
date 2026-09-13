@@ -19,7 +19,9 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
 | `src/lanes/` | Collector: reads the project registry and each worker's state (file lanes, server lanes, verification) |
 | `src/server/` | HTTP: pages, quest API, dispatcher, message board, annotations |
 | `src/cli/` | `questboard` CLI |
-| `public/` | Board UI (to be replaced by the Tauri app) |
+| `public/` | Classic board UI (served at `/classic`, and at `/` when there is no web build) |
+| `web/` | React board app (Vite, React Flow, dagre); build output `web/dist` is served at `/` |
+| `desktop/` | Tauri 2 shell: finds or starts the project's board server, opens it in a native window |
 | `examples/` | Project configs |
 | `test/` | `node --test` suites mirroring `src/` |
 
@@ -63,6 +65,10 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
 
 1. ~~Core, server and CLI in this repo~~ (done: 67 tests).
 2. ~~MCP server over the core~~ (done: `questboard mcp`, 13 tools, 74 tests).
-3. Tauri desktop app (Vite + React + React Flow + dagre) in the same salvage-guild style.
+3. Tauri desktop app (Vite + React + React Flow + dagre) in the same salvage-guild style. In progress:
+   `desktop/` shell done (9 Rust tests: health matches project name and folder, spawned server owned before
+   the ready wait so closing never orphans it); `web/` board, drawer and relationship graph ported from
+   `public/quests.app.js` (18 vitest tests, pointer-based graph drop target). Next: run the desktop app end
+   to end, component interaction tests.
 4. Integrated tabs: message board, review pages, model config, history, settings, usage panel.
 5. Parallel run, data migration, switch the first-generation board off.

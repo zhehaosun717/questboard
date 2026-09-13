@@ -14,7 +14,7 @@ import { createCollector } from '../lanes/collector.js';
 export const HOST = '127.0.0.1';
 const POLL_MS = 15000;
 
-export function createServer({ config, home = homePaths(), runners, getLanes, evidenceWaitMs, writeDelivery, fetchImpl } = {}) {
+export function createServer({ config, home = homePaths(), runners, getLanes, evidenceWaitMs, writeDelivery, fetchImpl, webDist } = {}) {
   if (!config) throw new Error('createServer needs a project config');
   const boardStore = new BoardStore(config.paths.data);
   const store = new QuestStore(config);
@@ -23,7 +23,7 @@ export function createServer({ config, home = homePaths(), runners, getLanes, ev
   let lanesCache = null;
   const lanes = getLanes || (() => lanesCache);
   const quests = createQuestRoutes({ config, store, boardStore, statusLog, rosterFile: home.roster, getLanes: lanes, runners, evidenceWaitMs, writeDelivery });
-  const routes = [createPageRoutes({ config }), quests, createBoardRoutes({ config, boardStore })];
+  const routes = [createPageRoutes({ config, ...(webDist ? { webDist } : {}) }), quests, createBoardRoutes({ config, boardStore })];
 
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${HOST}`);

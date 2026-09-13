@@ -28,6 +28,16 @@ describe('message board', () => {
   });
 });
 
+describe('health', () => {
+  it('names the project and its root so the desktop shell can tell same-named projects apart', async () => {
+    const health = await fx.api('/api/health');
+    assert.equal(health.status, 200);
+    assert.equal(health.body.ok, true);
+    assert.equal(typeof health.body.project, 'string');
+    assert.ok(health.body.root && typeof health.body.root === 'string');
+  });
+});
+
 describe('annotations', () => {
   it('saves and folds annotations with CORS for file:// review pages', async () => {
     const items = [{ id: 'a', verdict: '用新的', note: '好', updatedAt: new Date().toISOString() }];
