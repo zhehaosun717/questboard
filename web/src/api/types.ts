@@ -66,6 +66,9 @@ export interface Card {
   maxParallel?: number;
   strengths?: string[];
   notes?: string;
+  // Non-secret values passed to this card's lane command (a base URL, an account id), so one generic lane can
+  // serve several providers. Keys belong in the machine environment; the server refuses key-shaped values.
+  env?: Record<string, string>;
   status: CardStatus;
   statusSince: string | null;
   statusReason: string;

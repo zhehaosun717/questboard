@@ -33,6 +33,11 @@ export function RosterCardFormModal({
   );
   const [strengths, setStrengths] = useState(card?.strengths?.join(', ') ?? '');
   const [notes, setNotes] = useState(card?.notes ?? '');
+  const [env, setEnv] = useState(
+    Object.entries(card?.env ?? {})
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n'),
+  );
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -55,6 +60,7 @@ export function RosterCardFormModal({
       maxParallel,
       strengths,
       notes,
+      env,
     };
 
     const validated = validateCardForm(values, lanes);
@@ -259,6 +265,20 @@ export function RosterCardFormModal({
               value={notes}
               placeholder="使用说明或特性记录..."
               onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="card-env">
+              环境变量（可选，每行 NAME=值；不要放密钥）
+              {errors.env ? <span className="field-error"> · {errors.env}</span> : null}
+            </label>
+            <textarea
+              id="card-env"
+              rows={3}
+              value={env}
+              placeholder={'OPENAI_BASE_URL=https://api.example.com/v1\n# 密钥请放系统环境变量，通道命令会继承'}
+              onChange={(e) => setEnv(e.target.value)}
             />
           </div>
 

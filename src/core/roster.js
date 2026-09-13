@@ -11,6 +11,26 @@ function fail(message) {
   throw new Error(`roster: ${message}`);
 }
 
+const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
+// Obvious key shapes. This cannot catch every secret, which is exactly why the rule is "no secrets here":
+// the roster is a plain file that travels between projects.
+const LOOKS_LIKE_A_SECRET = /^(sk-|sk_|ghp_|gho_|github_pat_|xox[baprs]-|AIza|AKIA|glpat-)/;
+const MAX_ENV = 10;
+
+// A card may carry non-secret environment values (a base URL, an account id) so one generic lane can serve
+// several providers. Keys belong in the machine environment, which the lane command already inherits.
+export function validateCardEnv(entry, at) {
+  if (entry.env === undefined) return;
+  if (!entry.env || typeof entry.env !== 'object' || Array.isArray(entry.env)) fail(`${at}.env must be an object of NAME: value`);
+  const names = Object.keys(entry.env);
+  if (names.length > MAX_ENV) fail(`${at}.env may set at most ${MAX_ENV} variables`);
+  for (const [name, value] of Object.entries(entry.env)) {
+    if (!ENV_NAME.test(name)) fail(`${at}.env name "${name}" must be UPPER_SNAKE_CASE (letters, digits, underscore)`);
+    if (typeof value !== 'string' || value.length > 200) fail(`${at}.env.${name} must be a string of at most 200 characters`);
+    if (LOOKS_LIKE_A_SECRET.test(value)) fail(`${at}.env.${name} looks like a key. Put keys in the machine environment (the lane command inherits it); the roster is shared between projects and is not the place for secrets`);
+  }
+}
+
 export function validateAdventurer(entry, where = 'adventurer') {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail(`${where} must be an object`);
   if (!ID_PATTERN.test(entry.id || '')) fail(`${where}.id must match ${ID_PATTERN}`);
@@ -28,6 +48,7 @@ export function validateAdventurer(entry, where = 'adventurer') {
   if (entry.notes !== undefined && (typeof entry.notes !== 'string' || entry.notes.length > 300)) fail(`${at}.notes must be a string of at most 300 characters`);
   if (entry.variant !== undefined && typeof entry.variant !== 'string') fail(`${at}.variant must be a string`);
   if (entry.agent !== undefined && typeof entry.agent !== 'string') fail(`${at}.agent must be a string`);
+  validateCardEnv(entry, at);
   return entry;
 }
 

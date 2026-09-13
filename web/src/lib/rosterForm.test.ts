@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { validateCardForm } from './rosterForm';
+import { parseCardEnv, validateCardForm } from './rosterForm';
 
 describe('rosterForm validation', () => {
   const lanes = ['code', 'review', 'art'];
+
+  it('reads env lines, drops the field when empty, and refuses key-shaped values', () => {
+    expect(parseCardEnv('OPENAI_BASE_URL=https://api.example.test/v1\n# 说明\n\nORG_ID=acme')).toEqual({
+      env: { OPENAI_BASE_URL: 'https://api.example.test/v1', ORG_ID: 'acme' },
+      error: null,
+    });
+    expect(parseCardEnv('no-equals-sign').error).toMatch(/NAME=/);
+    expect(parseCardEnv('lower=x').error).toMatch(/大写字母/);
+    expect(parseCardEnv('OPENAI_API_KEY=sk-abcdef0123456789').error).toMatch(/密钥/);
+
+    const base = { id: 'a-card', name: 'A', provider: 'P', lane: 'code', model: 'm', family: 'm' };
+    expect(validateCardForm({ ...base, env: '' }, lanes).value).not.toHaveProperty('env');
+    expect(validateCardForm({ ...base, env: 'OPENAI_BASE_URL=https://x.test' }, lanes).value?.env).toEqual({
+      OPENAI_BASE_URL: 'https://x.test',
+    });
+    expect(validateCardForm({ ...base, env: 'bad line' }, lanes).errors.env).toBeTruthy();
+  });
 
   it('valid card returns parsed AdventurerInput and no errors', () => {
     const res = validateCardForm(

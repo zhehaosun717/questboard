@@ -13,6 +13,7 @@ export interface CardFormValues {
   maxParallel?: number | string;
   strengths?: string | string[];
   notes?: string;
+  env?: string;
 }
 
 export interface ValidationResult {
@@ -22,6 +23,28 @@ export interface ValidationResult {
 
 const VALID_BILLINGS = new Set(['subscription', 'plan', 'payg', 'free']);
 const ID_PATTERN = /^[a-z0-9-]+$/;
+const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
+// The same shapes the server refuses, so the owner is told before sending rather than after.
+const LOOKS_LIKE_A_SECRET = /^(sk-|sk_|ghp_|gho_|github_pat_|xox[baprs]-|AIza|AKIA|glpat-)/;
+
+// One `NAME=value` per line; blank lines and # comments are ignored.
+export function parseCardEnv(text: string): { env: Record<string, string>; error: string | null } {
+  const env: Record<string, string> = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const split = line.indexOf('=');
+    if (split <= 0) return { env, error: `每行要写成 NAME=值，这行不对：${line.slice(0, 40)}` };
+    const name = line.slice(0, split).trim();
+    const value = line.slice(split + 1).trim();
+    if (!ENV_NAME.test(name)) return { env, error: `变量名「${name}」只能用大写字母、数字和下划线` };
+    if (value.length > 200) return { env, error: `${name} 的值太长（最多 200 字）` };
+    if (LOOKS_LIKE_A_SECRET.test(value)) return { env, error: `${name} 看起来是密钥。密钥放系统环境变量里，名册会在项目之间共享` };
+    env[name] = value;
+  }
+  if (Object.keys(env).length > 10) return { env, error: '最多 10 个环境变量' };
+  return { env, error: null };
+}
 
 export function validateCardForm(
   values: CardFormValues,
@@ -109,6 +132,11 @@ export function validateCardForm(
       .filter(Boolean);
   }
 
+  const parsedEnv = parseCardEnv(values.env ?? '');
+  if (parsedEnv.error) {
+    errors.env = parsedEnv.error;
+  }
+
   if (Object.keys(errors).length > 0) {
     return { errors, value: null };
   }
@@ -146,6 +174,10 @@ export function validateCardForm(
 
   if (rawNotes) {
     value.notes = rawNotes;
+  }
+
+  if (Object.keys(parsedEnv.env).length > 0) {
+    value.env = parsedEnv.env;
   }
 
   return { errors: {}, value };

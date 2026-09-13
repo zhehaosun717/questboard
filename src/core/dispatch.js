@@ -30,7 +30,11 @@ export function planDispatch(config, quest, adventurer, name) {
   if (!lane) throw new Error(`this project has no lane ${adventurer.lane}`);
   const values = { name, brief: quest.brief, model: adventurer.model, variant: adventurer.variant, agent: adventurer.agent, package: quest.id };
   const field = `lanes.${adventurer.lane}`;
-  const env = lane.env ? Object.fromEntries(Object.entries(lane.env).map(([k, v]) => [k, fillTemplate([v], values, `${field}.env.${k}`)[0]])) : {};
+  const laneEnv = lane.env ? Object.fromEntries(Object.entries(lane.env).map(([k, v]) => [k, fillTemplate([v], values, `${field}.env.${k}`)[0]])) : {};
+  // A card's own values win over the lane's, so one generic lane can serve several providers (a different
+  // base URL per card). Secrets are refused at validation; the real key comes from the machine environment.
+  const cardEnv = adventurer.env ? Object.fromEntries(Object.entries(adventurer.env).map(([k, v]) => [k, fillTemplate([v], values, `card ${adventurer.id}.env.${k}`)[0]])) : {};
+  const env = { ...laneEnv, ...cardEnv };
   const steps = [];
   if (lane.session) {
     steps.push({ kind: 'session', command: fillTemplate(lane.session.run, values, `${field}.session.run`), saveTo: fillTemplate([lane.session.saveTo], values, `${field}.session.saveTo`)[0], env });

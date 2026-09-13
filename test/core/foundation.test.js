@@ -83,6 +83,15 @@ describe('roster', () => {
     assert.equal(loadRoster(file).adventurers[0].notes, 'same plan as Codex');
     assert.throws(() => loadRoster(path.join(tmp('no-'), 'roster.json')), /questboard roster import/);
   });
+
+  it('takes non-secret env values on a card and refuses key-shaped ones', () => {
+    const base = 'https://api.example.test/v1';
+    assert.deepEqual(validateRoster({ adventurers: [{ ...card, env: { OPENAI_BASE_URL: base } }] }).adventurers[0].env, { OPENAI_BASE_URL: base });
+    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: { 'lower case': 'x' } }] }), /UPPER_SNAKE_CASE/);
+    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: { OPENAI_API_KEY: 'sk-abcdef0123456789' } }] }), /looks like a key/);
+    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: 'OPENAI_BASE_URL=x' }] }), /must be an object/);
+    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: { LONG: 'x'.repeat(201) } }] }), /at most 200/);
+  });
 });
 
 describe('legacy import', () => {

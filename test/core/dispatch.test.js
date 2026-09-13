@@ -29,6 +29,14 @@ describe('planDispatch', () => {
     assert.deepEqual(send.env, { OC_AGENT: 'build' });
   });
 
+  it("gives a card's own env to its lane command, overriding the lane's", () => {
+    const { config } = makeProject();
+    const [, send] = planDispatch(config, q, card('oc-mimo', { env: { OPENAI_BASE_URL: 'https://api.example.test/v1', OC_AGENT: 'from-card' } }), 'artwire2h');
+    assert.deepEqual(send.env, { OC_AGENT: 'from-card', OPENAI_BASE_URL: 'https://api.example.test/v1' }, 'the card wins, and adds its own');
+    const filled = planDispatch(config, q, card('codex-luna', { env: { UPSTREAM_MODEL: '{model}' } }), 'artwire2h')[0];
+    assert.deepEqual(filled.env, { UPSTREAM_MODEL: 'gpt-5.6-luna' }, 'a card env value fills placeholders like the lane does');
+  });
+
   it('refuses a missing agent or an unknown lane instead of guessing', () => {
     const { config } = makeProject();
     assert.throws(() => planDispatch(config, q, card('oc-mimo', { agent: undefined }), 'n'), /needs \{agent\}/);
