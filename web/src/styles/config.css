@@ -1,10 +1,23 @@
 /* questboard — roster, usage & settings tab styling (salvage-guild style). */
 
 /* ── common tab container ────────────────────────────────── */
-.roster-view-container, .usage-view-container, .settings-view-container { display: flex; flex-direction: column; gap: 20px; min-height: 72vh; }
+.roster-view-container, .usage-view-container { display: flex; flex-direction: column; gap: 20px; min-height: 72vh; }
+.settings-view-container { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 24px; align-items: start; min-height: 72vh; }
+.settings-main { min-width: 0; display: flex; flex-direction: column; gap: 20px; padding-bottom: 92px; }
+.settings-group-content { display: flex; flex-direction: column; gap: 20px; }
+.settings-read-only-note { padding: 9px 12px; border-left: 3px solid var(--dim); background: rgba(255, 255, 255, 0.03); color: var(--dim); font: 11px var(--mono); }
+.settings-nav { position: sticky; top: 18px; align-self: start; padding: 12px 0; }
+.settings-nav-heading { margin: 0 0 10px; color: var(--dim); font: 700 11px var(--display); letter-spacing: 0.14em; }
+.settings-nav nav { display: flex; flex-direction: column; gap: 4px; }
+.settings-nav-item { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; padding: 11px 12px; border: 1px solid transparent; border-left: 3px solid transparent; background: transparent; color: var(--cream); text-align: left; cursor: pointer; }
+.settings-nav-item:hover { border-color: #30281f; background: rgba(255, 255, 255, 0.03); }
+.settings-nav-item.active { border-color: #3a2e22; border-left-color: var(--amber); background: linear-gradient(90deg, rgba(242, 177, 52, 0.14), rgba(242, 177, 52, 0.02)); }
+.settings-nav-label { display: flex; align-items: center; gap: 7px; color: var(--cream); font: 700 13px var(--body); }
+.settings-nav-hint { color: var(--dim); font-size: 11px; }
+.settings-nav-error { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: var(--blood); color: var(--cream); font: 700 11px var(--mono); }
 .roster-view-header, .usage-view-header, .settings-view-header { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
 .roster-view-header h2, .usage-view-header h2, .settings-view-header h2 { margin: 4px 0 0; font: 400 30px/1.1 var(--han); color: var(--tag); letter-spacing: 0.05em; }
-.settings-top-notice { margin: 6px 0 0; color: var(--amber); font-size: 12px; font-family: var(--mono); }
+.settings-group-caption { margin: 6px 0 0; color: var(--amber); font-size: 12px; font-family: var(--mono); }
 
 /* ── tables ──────────────────────────────────────────────── */
 .roster-table-wrap {
@@ -147,3 +160,19 @@
 .policy-inputs-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .policy-input-row { display: flex; align-items: center; gap: 8px; width: 100%; }
 .settings-error-banner { margin-bottom: 8px; }
+.settings-save-bar { position: sticky; bottom: 10px; z-index: 5; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 14px; border: 1px solid #000; border-top: 2px solid var(--amber); border-radius: 3px; background: linear-gradient(180deg, rgba(39, 32, 25, 0.98), rgba(20, 16, 12, 0.98)); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55); }
+.settings-save-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.settings-save-copy strong { color: var(--cream); font-size: 12px; }
+.settings-save-copy span { color: var(--dim); font: 11px var(--mono); }
+.settings-save-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+@media (max-width: 760px) {
+  .settings-view-container { grid-template-columns: 1fr; gap: 12px; }
+  .settings-nav { position: static; padding: 0; }
+  .settings-nav-heading { margin-bottom: 6px; }
+  .settings-nav nav { flex-direction: row; overflow-x: auto; padding-bottom: 2px; }
+  .settings-nav-item { flex: 1 0 150px; min-height: 60px; }
+  .settings-save-bar { align-items: stretch; flex-direction: column; }
+  .settings-save-actions { justify-content: stretch; }
+  .settings-save-actions .btn { flex: 1 1 0; }
+}
