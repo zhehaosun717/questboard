@@ -10,3 +10,5 @@ src-tauri/target/
 CLAUDE.local.md
 # migration staging copy of the first version (holds project data); never commit
 _import/
+# machine-local project configs and notes (e.g. configs pointing at private game repos); never commit
+local/
