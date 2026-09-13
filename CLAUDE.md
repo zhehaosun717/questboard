@@ -68,7 +68,8 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
 3. Tauri desktop app (Vite + React + React Flow + dagre) in the same salvage-guild style. In progress:
    `desktop/` shell done (9 Rust tests: health matches project name and folder, spawned server owned before
    the ready wait so closing never orphans it); `web/` board, drawer and relationship graph ported from
-   `public/quests.app.js` (18 vitest tests, pointer-based graph drop target). Next: run the desktop app end
-   to end, component interaction tests.
+   `public/quests.app.js` (18 vitest tests, pointer-based graph drop target). `tauri dev` verified end to
+   end: starts the project's server, loads the board, closing the window stops that server. Next: component
+   interaction tests, then Phase 4.
 4. Integrated tabs: message board, review pages, model config, history, settings, usage panel.
 5. Parallel run, data migration, switch the first-generation board off.
