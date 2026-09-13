@@ -55,6 +55,8 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
 - Adopted workers: their registry row predates the adoption; match them by worker name.
 - Timers started at module load keep test processes alive forever; start background work explicitly.
 - Some shells do not expand `test/**`; `npm test` passes the glob to Node.
+- Test files run serially (`--test-concurrency=1`): with Node's default parallel files, the suite hung
+  intermittently on Windows (several files spawn cmd.exe or bind sockets at once). Each file alone is fine.
 
 ## Working rules
 

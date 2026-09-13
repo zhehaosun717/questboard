@@ -8,7 +8,7 @@
     "questboard": "src/cli/questboard.js"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
     "serve": "node src/cli/questboard.js serve"
   },
   "engines": {

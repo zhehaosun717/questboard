@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CURRENCY_PATTERN, UsageError, getJson, isoOrNull, parseJsonDocuments, percent, safeLabel, toNumber, windowLabel } from './common.js';
+import { createAntigravityProvider } from './antigravity.js';
 
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
   .flatMap((entry) => (entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]));
@@ -152,6 +153,8 @@ export const siliconflow = {
   unavailable: '硅基流动 2026-08-14 下线了查余额的接口，新接口还没公布',
 };
 
-const later = (id, name) => ({ id, name, source: 'local-app', unavailable: '还没接入（下一步做：读本机登录信息，只在内存里用）' });
+export const antigravity = createAntigravityProvider();
 
-export const PROVIDERS = [codex, kimi, deepseek, openrouter, cursor, volcano, siliconflow, later('agy', 'Antigravity（agy）'), later('mimo', '小米 MiMo')];
+export const mimo = { id: 'mimo', name: '小米 MiMo', source: 'api', unavailable: '小米 MiMo 平台没有查用量或余额的接口，只能从 worker 报错里看' };
+
+export const PROVIDERS = [codex, kimi, deepseek, openrouter, cursor, antigravity, volcano, siliconflow, mimo];
