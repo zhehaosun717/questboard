@@ -141,6 +141,69 @@ export interface Snapshot {
   openQuestions: number;
 }
 
+// Message board (src/server/boardStore.js). Thread lists carry no messages; a single thread does.
+export interface Thread {
+  id: string;
+  title: string;
+  tags: string[];
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+  pinned: boolean;
+  closed: boolean;
+  messageCount: number;
+  lastMessageAt: string | null;
+}
+
+export interface Message {
+  id: string;
+  threadId: string;
+  body: string;
+  author: string;
+  createdAt: string;
+}
+
+export interface ThreadDetail extends Thread {
+  messages: Message[];
+}
+
+export type ThreadStatusFilter = 'open' | 'all' | 'closed';
+
+// Dispatch history (src/lanes/collector.js via GET /api/lanes).
+export type LaneHistoryEntry =
+  | { at: string; event: 'dispatch'; lane: string; model: string }
+  | { at: string; event: 'note'; text: string };
+
+export interface LanePackage {
+  package: string;
+  lane: string;
+  model: string;
+  variant: string;
+  name: string;
+  session: string | null;
+  dispatchedAt: string;
+  elapsed: number;
+  state: string;
+  reason: string;
+  stale: boolean;
+  edits: number;
+  editLabel?: string;
+  tokens: { input: number; output: number } | null;
+  toolCounts?: Record<string, number>;
+  lastText: string;
+  bounceUntil: string | null;
+  modelSource?: 'session' | 'inferred';
+  history: LaneHistoryEntry[];
+}
+
+export interface LanesReport {
+  packages: LanePackage[];
+  laneLimits: Record<string, { since: string; until: string | null }>;
+  verification: Verification | null;
+  generatedAt?: string;
+  board: { openQuestions: number };
+}
+
 export interface QuestEvent {
   at: string;
   event: string;

@@ -6,22 +6,41 @@ import { Chips } from './components/Chips';
 import { GraphView } from './components/GraphView';
 import { Guild } from './components/Guild';
 import { Header } from './components/Header';
+import { HistoryView } from './components/HistoryView';
 import { QuestDrawer } from './components/QuestDrawer';
-import { ReviewShelf } from './components/ReviewShelf';
+import { ReviewView } from './components/ReviewView';
+import { ThreadsView } from './components/ThreadsView';
 import { Toasts } from './components/Toasts';
 import { WorkOrderModal } from './components/WorkOrderModal';
 import { useBoard } from './hooks/useBoard';
+import { formatRoute, parseRoute, type Route, type Tab } from './lib/route';
+import './styles/tabs.css';
 
 export function App() {
-  const { snap, connected, error, toasts, refresh, pushToast, setDragging } = useBoard();
+  const { snap, connected, error, toasts, refresh, pushToast, setDragging } =
+    useBoard();
 
-  const [view, setView] = useState<'board' | 'graph'>('board');
+  const [route, setRoute] = useState<Route>(() =>
+    parseRoute(window.location.hash),
+  );
   const [selectedQuestId, setSelectedQuestId] = useState<string | null>(null);
   const [pickingCardId, setPickingCardId] = useState<string | null>(null);
-  const [workOrder, setWorkOrder] = useState<{ questId: string; cardId: string } | null>(null);
+  const [workOrder, setWorkOrder] = useState<{
+    questId: string;
+    cardId: string;
+  } | null>(null);
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   const [rulingDrafts, setRulingDrafts] = useState<Record<string, string>>({});
+  const [isNewThreadOpen, setIsNewThreadOpen] = useState(false);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setRoute(parseRoute(window.location.hash));
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   useEffect(() => {
     if (snap?.project?.name) {
@@ -30,14 +49,19 @@ export function App() {
   }, [snap?.project?.name]);
 
   useEffect(() => {
-    document.body.classList.toggle('picking', Boolean(pickingCardId));
-  }, [pickingCardId]);
+    const isPicking =
+      (route.tab === 'board' || route.tab === 'graph') &&
+      Boolean(pickingCardId);
+    document.body.classList.toggle('picking', isPicking);
+  }, [pickingCardId, route.tab]);
 
   useEffect(() => {
-    const isDragging = Boolean(draggingCardId);
+    const isDragging =
+      (route.tab === 'board' || route.tab === 'graph') &&
+      Boolean(draggingCardId);
     document.body.classList.toggle('dragging', isDragging);
     setDragging(isDragging);
-  }, [draggingCardId, setDragging]);
+  }, [draggingCardId, route.tab, setDragging]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -45,6 +69,8 @@ export function App() {
         if (workOrder || editingCardId) {
           setWorkOrder(null);
           setEditingCardId(null);
+        } else if (isNewThreadOpen) {
+          setIsNewThreadOpen(false);
         } else if (selectedQuestId) {
           setSelectedQuestId(null);
         }
@@ -52,7 +78,19 @@ export function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [workOrder, editingCardId, selectedQuestId]);
+  }, [workOrder, editingCardId, isNewThreadOpen, selectedQuestId]);
+
+  const handleTabChange = (tab: Tab) => {
+    window.location.hash = formatRoute({ tab });
+  };
+
+  const handleSelectThread = (threadId: string | null) => {
+    window.location.hash = formatRoute({ tab: 'threads', threadId });
+  };
+
+  const handleSelectReviewPage = (url: string | null) => {
+    window.location.hash = formatRoute({ tab: 'review', reviewUrl: url });
+  };
 
   const workOrderQuest = snap?.quests.find((q) => q.id === workOrder?.questId);
   const workOrderCard = snap?.roster.find((c) => c.id === workOrder?.cardId);
@@ -63,53 +101,83 @@ export function App() {
     <>
       <Header
         projectName={snap?.project?.name}
-        view={view}
-        onViewChange={setView}
+        tab={route.tab}
+        onTabChange={handleTabChange}
+        openQuestions={snap?.openQuestions}
       />
       <Chips snap={snap} connected={connected} error={error} />
-      <div className="layout">
-        <main>
-          {view === 'graph' ? (
-            snap ? (
-              <GraphView
+
+      {route.tab === 'board' || route.tab === 'graph' ? (
+        <div className="layout">
+          <main>
+            {route.tab === 'graph' ? (
+              snap ? (
+                <GraphView
+                  snap={snap}
+                  focusId={selectedQuestId}
+                  onSelectQuest={setSelectedQuestId}
+                  onOpenWorkOrder={(questId, cardId) =>
+                    setWorkOrder({ questId, cardId })
+                  }
+                  setDragging={setDragging}
+                />
+              ) : null
+            ) : snap ? (
+              <Board
                 snap={snap}
-                focusId={selectedQuestId}
+                pickingCardId={pickingCardId}
                 onSelectQuest={setSelectedQuestId}
-                onOpenWorkOrder={(questId, cardId) => setWorkOrder({ questId, cardId })}
-                setDragging={setDragging}
+                onDropCard={(questId, cardId) =>
+                  setWorkOrder({ questId, cardId })
+                }
               />
-            ) : null
-          ) : snap ? (
-            <Board
+            ) : null}
+            <BriefShelf unpostedBriefs={snap?.unpostedBriefs} />
+          </main>
+          {snap && (
+            <Guild
+              roster={snap.roster}
               snap={snap}
-              pickingCardId={pickingCardId}
-              onSelectQuest={setSelectedQuestId}
-              onDropCard={(questId, cardId) => setWorkOrder({ questId, cardId })}
+              draggingCardId={draggingCardId}
+              onEditCard={setEditingCardId}
+              onHoverCard={(id) => {
+                if (!draggingCardId) setPickingCardId(id);
+              }}
+              onDragStart={(id) => {
+                setDraggingCardId(id);
+                setPickingCardId(id);
+              }}
+              onDragEnd={() => {
+                setDraggingCardId(null);
+                setPickingCardId(null);
+              }}
             />
-          ) : null}
-          <ReviewShelf reviewPages={snap?.reviewPages} />
-          <BriefShelf unpostedBriefs={snap?.unpostedBriefs} />
-        </main>
-        {snap && (
-          <Guild
-            roster={snap.roster}
-            snap={snap}
-            draggingCardId={draggingCardId}
-            onEditCard={setEditingCardId}
-            onHoverCard={(id) => {
-              if (!draggingCardId) setPickingCardId(id);
-            }}
-            onDragStart={(id) => {
-              setDraggingCardId(id);
-              setPickingCardId(id);
-            }}
-            onDragEnd={() => {
-              setDraggingCardId(null);
-              setPickingCardId(null);
-            }}
-          />
-        )}
-      </div>
+          )}
+        </div>
+      ) : (
+        <div className="layout tab-full">
+          <main>
+            {route.tab === 'threads' && (
+              <ThreadsView
+                activeThreadId={route.threadId}
+                onSelectThread={handleSelectThread}
+                isNewModalOpen={isNewThreadOpen}
+                onOpenNewModal={() => setIsNewThreadOpen(true)}
+                onCloseNewModal={() => setIsNewThreadOpen(false)}
+              />
+            )}
+            {route.tab === 'review' && (
+              <ReviewView
+                reviewPages={snap?.reviewPages}
+                selectedUrl={route.reviewUrl}
+                onSelectPage={handleSelectReviewPage}
+              />
+            )}
+            {route.tab === 'history' && <HistoryView />}
+          </main>
+        </div>
+      )}
+
       {selectedQuest && snap && (
         <QuestDrawer
           quest={selectedQuest}

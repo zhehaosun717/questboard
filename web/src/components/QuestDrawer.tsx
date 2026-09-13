@@ -234,9 +234,8 @@ export function QuestDrawer({
           {threads.map((t) => (
             <div key={t.id} className="rec">
               <a
-                href={`/board?thread=${encodeURIComponent(t.id)}`}
-                target="_blank"
-                rel="noreferrer"
+                href={`#/threads/${encodeURIComponent(t.id)}`}
+                onClick={onClose}
               >
                 {t.title}
               </a>{' '}

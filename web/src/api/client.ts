@@ -1,5 +1,8 @@
 // The only module that talks to the board server. Errors carry the server's refusal reasons.
-import type { Card, CardStatus, Quest, QuestEvent, QuestStatus, Reason, Snapshot } from './types';
+import type {
+  Card, CardStatus, LanesReport, Message, Quest, QuestEvent, QuestStatus, Reason, Snapshot, Thread, ThreadDetail,
+  ThreadStatusFilter,
+} from './types';
 
 export class ApiError extends Error {
   readonly reasons: Reason[];
@@ -25,6 +28,7 @@ async function call<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: unkn
 }
 
 const quest = (id: string) => `/api/quests/${encodeURIComponent(id)}`;
+const thread = (id: string) => `/api/threads/${encodeURIComponent(id)}`;
 
 export const api = {
   snapshot: () => call<Snapshot>('/api/quests'),
@@ -33,6 +37,22 @@ export const api = {
   setQuestStatus: (questId: string, status: QuestStatus, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, by: 'owner' }),
   setCardStatus: (cardId: string, status: CardStatus, reason: string) =>
     call<{ status: Pick<Card, 'status'> }>(`/api/roster/${encodeURIComponent(cardId)}/status`, 'POST', { status, reason, setBy: 'owner' }),
+
+  lanes: () => call<LanesReport>('/api/lanes'),
+
+  threads: (filter: { status: ThreadStatusFilter; q?: string }) => {
+    const params = new URLSearchParams({ status: filter.status });
+    if (filter.q?.trim()) params.set('q', filter.q.trim());
+    return call<{ threads: Thread[] }>(`/api/threads?${params}`);
+  },
+  thread: (id: string) => call<ThreadDetail>(thread(id)),
+  // Validation failures reject with ApiError whose fields name the bad inputs (title, body, author, tag).
+  createThread: (input: { title: string; body: string; tags: string[]; author: string }) =>
+    call<{ thread: ThreadDetail; message: Message }>('/api/threads', 'POST', input),
+  reply: (id: string, input: { body: string; author: string }) =>
+    call<{ message: Message; thread: ThreadDetail }>(`${thread(id)}/messages`, 'POST', input),
+  pinThread: (id: string, pinned: boolean) => call<Thread>(`${thread(id)}/pin`, 'POST', { pinned }),
+  closeThread: (id: string, closed: boolean) => call<Thread>(`${thread(id)}/close`, 'POST', { closed }),
 };
 
 // Live events. Returns a function that closes the stream.
