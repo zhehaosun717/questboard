@@ -2,6 +2,8 @@
 
 A local quest board for dispatching AI coding agents across CLIs and providers.
 
+中文说明见 [README.zh-CN.md](README.zh-CN.md)。
+
 You write a brief. It appears on the board as a quest. Every model you can use — through Codex CLI, Claude
 Code, OpenCode, Google's agy, the DeepSeek harness, or any script you configure — is a card. Drag a card onto
 a quest and questboard runs that lane's script headless. **Before you drop, it shows whether the card may
