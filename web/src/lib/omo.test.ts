@@ -114,8 +114,25 @@ describe('omo helpers', () => {
   });
 
   it('returns role hint for known names and null for unknown', () => {
-    expect(getRoleHint('sisyphus')).toBe('主控编排');
+    expect(getRoleHint('sisyphus')).toBe('主控编排（primary）');
     expect(getRoleHint('oracle')).toBe('架构/调试顾问');
     expect(getRoleHint('unknown-robot')).toBeNull();
+  });
+
+  it('names every agent role, hyphenated ones included', () => {
+    expect(getRoleHint('hephaestus')).toBe('深工执行（primary）');
+    expect(getRoleHint('prometheus')).toBe('计划构建（primary）');
+    expect(getRoleHint('atlas')).toBe('计划执行（primary）');
+    expect(getRoleHint('momus')).toBe('计划审查');
+    expect(getRoleHint('metis')).toBe('需求分析顾问');
+    expect(getRoleHint('librarian')).toBe('外部文档/代码搜索');
+    expect(getRoleHint('explore')).toBe('代码库快速检索');
+    expect(getRoleHint('multimodal-looker')).toBe('图片/PDF 多模态分析');
+    expect(getRoleHint('sisyphus-junior')).toBe('委派执行单元');
+  });
+
+  it('matches a name whatever case the config file spells it in', () => {
+    expect(getRoleHint('Sisyphus')).toBe('主控编排（primary）');
+    expect(getRoleHint('Multimodal-Looker')).toBe('图片/PDF 多模态分析');
   });
 });
