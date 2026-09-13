@@ -124,6 +124,35 @@ describe('OMO and settings routes', () => {
     });
   });
 
+  it('saves the whole config only when it would still load, keeping a backup', async () => {
+    const routes = createSettingsRoutes({ config: fx.project.config, home: fx.home });
+    const file = path.join(fx.project.root, 'questboard.config.json');
+    const original = JSON.parse(fs.readFileSync(file, 'utf8'));
+    try {
+      await serve(routes, async (call) => {
+        const before = await call('/api/settings');
+        assert.equal(before.body.raw.name, 'Test Game', 'the page edits the file as written, not the resolved view');
+
+        const edited = { ...original, policy: { ...original.policy, bannedAgents: ['Sisyphus', 'Momus'] } };
+        const saved = await call('/api/settings', { method: 'POST', body: JSON.stringify({ raw: edited }) });
+        assert.equal(saved.status, 200, saved.body && saved.body.error);
+        assert.equal(saved.body.restartRequired, true, 'the running server captured its config at startup');
+        assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).policy.bannedAgents, ['Sisyphus', 'Momus']);
+        assert.ok(fs.readdirSync(fx.project.root).some((name) => name.startsWith('questboard.config.json.bak-')), 'the previous file is kept');
+
+        const broken = await call('/api/settings', { method: 'POST', body: JSON.stringify({ raw: { ...original, lanes: {} } }) });
+        assert.equal(broken.status, 400);
+        assert.match(broken.body.error, /lanes/);
+        assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).policy.bannedAgents, ['Sisyphus', 'Momus'], 'a refused save changes nothing on disk');
+
+        assert.equal((await call('/api/settings', { method: 'POST', headers: { origin: 'http://evil.example' }, body: '{}' })).status, 403);
+        assert.equal((await call('/api/settings', { method: 'POST', body: JSON.stringify({ raw: 'not an object' }) })).status, 400);
+      });
+    } finally {
+      fs.writeFileSync(file, `${JSON.stringify(original, null, 2)}\n`);
+    }
+  });
+
   it('describes the project and says which key sources exist without returning keys', async () => {
     const homedir = tmpDir('qb-settings-home-');
     fs.mkdirSync(path.join(homedir, '.local', 'share', 'opencode'), { recursive: true });

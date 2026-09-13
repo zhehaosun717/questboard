@@ -72,6 +72,10 @@ export const api = {
   omoModels: (refresh = false) => call<{ models: string[] }>(refresh ? '/api/omo/models?refresh=1' : '/api/omo/models'),
 
   settings: () => call<SettingsReport>('/api/settings'),
+  // Saves the whole questboard.config.json. Refused (400) with the offending field when it would not load;
+  // nothing takes effect until the board server restarts.
+  saveSettings: (raw: Record<string, unknown>) =>
+    call<{ ok: true; restartRequired: boolean; raw: Record<string, unknown> }>('/api/settings', 'POST', { raw }),
 };
 
 // Live events. Returns a function that closes the stream.

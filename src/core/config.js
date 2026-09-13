@@ -111,6 +111,35 @@ export function resolveConfig(root, raw) {
   };
 }
 
+const KEEP_CONFIG_BACKUPS = 8;
+
+// Writes a new project config, but only after it passes the same validation the board starts with: a board
+// that refuses to start is worse than a setting you could not change from the page. The previous file is kept
+// as a timestamped backup, newest eight.
+export function saveProjectConfig(root, raw, { now = Date.now() } = {}) {
+  const resolved = resolveConfig(root, raw);
+  const file = path.join(root, CONFIG_FILE);
+  if (fs.existsSync(file)) {
+    fs.copyFileSync(file, `${file}.bak-${new Date(now).toISOString().replace(/[:.]/g, '-')}`);
+    const prefix = `${CONFIG_FILE}.bak-`;
+    const old = fs.readdirSync(root).filter((name) => name.startsWith(prefix)).sort().reverse().slice(KEEP_CONFIG_BACKUPS);
+    for (const name of old) fs.rmSync(path.join(root, name), { force: true });
+  }
+  fs.writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+  return resolved;
+}
+
+// The file as written, which is what the settings page edits; resolveConfig's output has absolute paths and
+// compiled patterns and cannot be written back.
+export function readRawConfig(root) {
+  try {
+    const value = JSON.parse(fs.readFileSync(path.join(root, CONFIG_FILE), 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function findProjectRoot(start = process.cwd()) {
   let dir = path.resolve(start);
   for (;;) {

@@ -279,6 +279,9 @@ export interface SettingsReport {
     lanes: Array<{ id: string; run: string[]; outputDir: string | null; api: string | null; serialize: boolean; defaultModel: string | null }>;
     policy: { bannedModelPatterns: string[]; bannedAgents: string[] };
   };
+  // questboard.config.json exactly as written — what the settings page edits. `project` above is the resolved
+  // view (absolute paths, compiled patterns) and cannot be written back.
+  raw: Record<string, unknown> | null;
   home: { dir: string; roster: string; rosterExists: boolean; status: string };
   usageKeys: Array<{ id: string; name: string; sources: Array<{ kind: 'env' | 'opencode'; name: string; present: boolean }> }>;
   openCodeAuthFile: { file: string; exists: boolean };
