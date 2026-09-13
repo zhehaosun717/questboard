@@ -13,6 +13,7 @@
 //   questboard roster path | roster import <old roster.json> [--force]
 //   questboard board post|reply|list|read|close|inbox [options]
 //   questboard watch [--from-start]                                 (one JSON event per line; for Monitor)
+//   questboard mcp [--author coordinator] [--url http://127.0.0.1:6097]   (MCP server over stdio)
 //
 // Every command finds questboard.config.json in the current folder or a parent, or takes --project <dir>.
 import { commands } from './commands.js';

@@ -62,7 +62,7 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
 ## Plan
 
 1. ~~Core, server and CLI in this repo~~ (done: 67 tests).
-2. MCP server over the core.
+2. ~~MCP server over the core~~ (done: `questboard mcp`, 13 tools, 74 tests).
 3. Tauri desktop app (Vite + React + React Flow + dagre) in the same salvage-guild style.
 4. Integrated tabs: message board, review pages, model config, history, settings, usage panel.
 5. Parallel run, data migration, switch the first-generation board off.

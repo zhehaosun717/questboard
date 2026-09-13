@@ -77,6 +77,38 @@ questboard board post|reply|list|read|close|inbox
 questboard watch [--from-start]
 ```
 
+## MCP
+
+`questboard mcp` is an MCP server over stdio, so any agent can use the board as tools instead of shell
+commands: `questboard_list_quests`, `questboard_get_quest` (with who may take it and why not),
+`questboard_post_quest`, `questboard_set_quest_status`, `questboard_record_ruling`, `questboard_assign`,
+`questboard_adopt`, `questboard_list_cards`, `questboard_set_card_status`, `questboard_events`,
+`questboard_board_post`, `questboard_board_reply`, `questboard_board_inbox`. Writes go through the running
+board server; start it with `questboard serve` first.
+
+Claude Code:
+
+```text
+claude mcp add questboard -- node /path/to/questboard/src/cli/questboard.js mcp --project /path/to/game --author coordinator
+```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.questboard]
+command = "node"
+args = ["/path/to/questboard/src/cli/questboard.js", "mcp", "--project", "/path/to/game", "--author", "coordinator"]
+```
+
+OpenCode (`opencode.json`):
+
+```json
+{ "mcp": { "questboard": { "type": "local", "command": ["node", "/path/to/questboard/src/cli/questboard.js", "mcp", "--project", "/path/to/game"] } } }
+```
+
+MCP cannot push events, so a coordinator that wants to react the moment a worker delivers should still
+tail the events file with `questboard watch`; `questboard_events` with `since` is the polling alternative.
+
 ## Events
 
 `<events file>` gets one line per change: `{at, event, package, lane, model, variant, name, by, detail}`.

@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveConfig } from '../src/core/config.js';
+import { resolveConfig, CONFIG_FILE } from '../src/core/config.js';
 
 export const tmpDir = (prefix = 'qb-') => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 
@@ -24,13 +24,16 @@ export const LANES = {
 export function makeProject(overrides = {}) {
   const root = tmpDir('qb-project-');
   fs.mkdirSync(path.join(root, 'docs', 'briefs'), { recursive: true });
-  const config = resolveConfig(root, {
+  const raw = {
     name: 'Test Game',
     lanes: LANES,
     briefs: { ownerDirs: ['docs/design'] },
     policy: { bannedModelPatterns: ['-fast(\\b|-)', 'gpt-5\\.5'], bannedAgents: ['Sisyphus'] },
     ...overrides,
-  });
+  };
+  const config = resolveConfig(root, raw);
+  // On disk too, so processes that load the config from the project folder (CLI, MCP) see the same project.
+  fs.writeFileSync(path.join(root, CONFIG_FILE), JSON.stringify(raw, null, 2));
   const write = (relative, text) => {
     const file = path.join(root, relative);
     fs.mkdirSync(path.dirname(file), { recursive: true });

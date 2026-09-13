@@ -141,6 +141,12 @@ export const commands = {
     }
   },
 
+  async mcp(args) {
+    const { config, base } = context(args);
+    const { runMcp } = await import('../mcp/server.js');
+    runMcp({ config, base, author: option(args, '--author') || 'coordinator' });
+  },
+
   async watch(args) {
     const config = projectConfig(args);
     watchEvents(config.paths.events, { fromStart: args.includes('--from-start'), write: (line) => out(line) });
