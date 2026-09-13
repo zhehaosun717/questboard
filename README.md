@@ -82,9 +82,10 @@ questboard watch [--from-start]
 `questboard mcp` is an MCP server over stdio, so any agent can use the board as tools instead of shell
 commands: `questboard_list_quests`, `questboard_get_quest` (with who may take it and why not),
 `questboard_post_quest`, `questboard_set_quest_status`, `questboard_record_ruling`, `questboard_assign`,
-`questboard_adopt`, `questboard_list_cards`, `questboard_set_card_status`, `questboard_events`,
-`questboard_board_post`, `questboard_board_reply`, `questboard_board_inbox`. Writes go through the running
-board server; start it with `questboard serve` first.
+`questboard_adopt`, `questboard_release_worker` (free a stalled quest once you confirmed its process is
+gone), `questboard_list_cards`, `questboard_set_card_status`, `questboard_events`, `questboard_board_post`,
+`questboard_board_reply`, `questboard_board_inbox`. Writes go through the running board server; start it
+with `questboard serve` first.
 
 Claude Code:
 
