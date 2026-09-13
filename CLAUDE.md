@@ -83,4 +83,5 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
    `release`).
 6. ~~Hardening from the design review: idempotent assignment (request keys, quest revisions), ordered event
    ids with a resumable cursor, a working generic wrapper in `examples/basic`, a `doctor` command~~ (done).
-   Next: more usage providers (Antigravity via its language server), component interaction tests.
+   Antigravity usage reads the local language server (`src/usage/antigravity.js`). Next: component
+   interaction tests; more providers as the owner adds them (GLM, MiniMax, Qwen).
