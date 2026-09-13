@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>questboard 派遣历史</title>
+  <style>
+    :root{--ink:#18201d;--muted:#68736d;--paper:#f3f0e8;--panel:#fbfaf6;--line:#d9d5c9;--accent:#d85f35;--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--orange:#f97316;--grey:#9ca3af}
+    *{box-sizing:border-box}
+    body{margin:0;color:var(--ink);background:var(--paper);font:13px/1.5 "Segoe UI","Noto Sans SC",sans-serif}
+    .shell{max-width:1440px;margin:0 auto;padding:20px 24px}
+    h1{margin:0 0 4px;font-size:28px;font-family:Georgia,"Noto Serif SC",serif;letter-spacing:-.03em}
+    .sub{color:var(--muted);font-size:12px;margin-bottom:18px}
+    .strip{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;font-size:12px}
+    .chip{padding:4px 10px;border-radius:6px;background:var(--panel);border:1px solid var(--line)}
+    .chip.ok{background:#dcfce7;border-color:#86efac}
+    .chip.err{background:#fee2e2;border-color:#fca5a5}
+    .chip.warn{background:#fef3c7;border-color:#fcd34d}
+    table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:16px}
+    th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-size:12px}
+    th{background:rgba(232,229,217,.58);font-weight:700;position:sticky;top:0}
+    tr:last-child td{border-bottom:none}
+    tr.row{cursor:pointer}
+    tr.row:hover{background:rgba(255,254,249,.7)}
+    .state{display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px;color:#fff}
+    .state.running{background:var(--blue)}
+    .state.delivered{background:var(--green)}
+    .state.failed{background:var(--red)}
+    .state.bounced{background:var(--orange)}
+    .state.stalled{background:var(--grey)}
+    .state.unknown{background:#a3a3a3}
+    .state.stale{background:#d1d5db;color:#6b7280}
+    .detail{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:4px 0 10px;font-size:12px;display:none}
+    .detail.open{display:block}
+    .detail pre{margin:4px 0;white-space:pre-wrap;word-break:break-all;max-height:180px;overflow-y:auto;font-size:11px;background:#f5f3eb;padding:8px;border-radius:6px}
+    .steps{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+    .step{padding:3px 8px;border-radius:5px;font:11px ui-monospace,SFMono-Regular,Consolas,monospace}
+    .step.pass{background:#dcfce7;border:1px solid #86efac}
+    .step.fail{background:#fee2e2;border:1px solid #fca5a5}
+    .step.info{background:#e0f2fe;border:1px solid #7dd3fc}
+    .events{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;max-height:320px;overflow-y:auto}
+    .events h3{margin:0 0 8px;font-size:14px}
+    .evt{font-size:11px;padding:3px 0;border-bottom:1px solid #eee}
+    .evt:last-child{border-bottom:none}
+    .evt-time{color:var(--muted);margin-right:8px;font-family:ui-monospace,monospace}
+    .empty{color:var(--muted);padding:20px;text-align:center}
+    #stale-toggle:hover{background:rgba(255,254,249,.7)}
+    .pkg-link{color:var(--accent);text-decoration:underline;cursor:pointer}
+    @media(max-width:760px){.shell{padding:12px}table{font-size:11px}th,td{padding:5px 6px}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <h1>questboard 派遣历史</h1>
+  <p class="sub" id="ts">加载中…</p>
+
+  <div id="health" class="strip"></div>
+  <div id="verification" class="steps"></div>
+
+  <table>
+    <thead><tr>
+      <th>包</th><th>通道</th><th>模型</th><th>状态</th><th>运行时长</th><th>工具调用</th><th>最近一句话</th><th>简报</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <div class="events">
+    <h3>今日事件</h3>
+    <div id="evtlist"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmtMs = ms => {
+  if (ms < 60000) return Math.round(ms/1000) + 's';
+  if (ms < 3600000) return Math.round(ms/60000) + 'm';
+  return (ms/3600000).toFixed(1) + 'h';
+};
+const fmtTime = iso => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+};
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const laneLabel = l => ({opencode:'OpenCode',codex:'Codex',agy:'Gemini'}[l] || l);
+const eventLabel = e => {
+  if (e.event === 'dispatch') return '调度 → ' + esc(laneLabel(e.lane)) + ' ' + esc(e.model || '');
+  if (e.event === 'nudge') return '接力 → ' + esc(e.text || '');
+  return esc(e.text || '');
+};
+
+let lastData = null;
+
+async function poll() {
+  try {
+    const res = await fetch('/api/lanes');
+    const data = await res.json();
+    lastData = data;
+    render(data);
+  } catch (e) {
+    $('#ts').textContent = '请求失败: ' + e.message;
+  }
+}
+
+function render(data) {
+  const age = data.ageSeconds != null ? ' (缓存 ' + data.ageSeconds + 's)' : '';
+  $('#ts').textContent = '更新: ' + fmtTime(data.generatedAt || data.collectedAt) + age;
+
+  // health strip
+  const health = [];
+  health.push('<span class="chip ' + (data.board && !data.board.error ? 'ok' : 'err') + '">看板 ' + (data.board && !data.board.error ? '在线' : '离线') + '</span>');
+  if (data.board && data.board.openQuestions) health.push('<span class="chip warn">待答问题 ' + data.board.openQuestions + '</span>');
+  if (data.codexBouncedAt) {
+    const bouncedAt = new Date(data.codexBouncedAt);
+    const started = String(bouncedAt.getHours()).padStart(2, '0') + ':' + String(bouncedAt.getMinutes()).padStart(2, '0');
+    const restored = data.codexBounceUntil ? '，' + esc(data.codexBounceUntil) + ' 恢复' : '';
+    health.push('<span class="chip warn">Codex 限额中（' + started + ' 起）' + restored + '</span>');
+  }
+  if (data.error) health.push('<span class="chip err">' + esc(data.error) + '</span>');
+  $('#health').innerHTML = health.join('');
+
+  // verification
+  const v = data.verification || {};
+  const vSteps = (v.steps || []).map(s => {
+    if (s.kind === 'done') return '<span class="step pass">DONE</span>';
+    const pass = s.kind === 'exit' && s.value === '0';
+    return '<span class="step ' + (pass ? 'pass' : 'fail') + '">' + esc(s.name) + ':' + esc(s.value) + '</span>';
+  });
+  if (v.editXml) vSteps.push('<span class="step info">Edit ' + v.editXml.passed + '/' + v.editXml.total + '</span>');
+  if (v.playXml) vSteps.push('<span class="step info">Play ' + v.playXml.passed + '/' + v.playXml.total + '</span>');
+  $('#verification').innerHTML = vSteps.join('');
+
+  // package rows — split into active and stale
+  const pkgs = data.packages || [];
+  const active = pkgs.filter(p => !p.stale);
+  const stale = pkgs.filter(p => p.stale);
+  if (!pkgs.length) { $('#rows').innerHTML = '<tr><td colspan="8" class="empty">暂无调度记录</td></tr>'; return; }
+
+  function renderRow(p) {
+    let h = '';
+    const detailId = 'd-' + p.package.replace(/[^a-zA-Z0-9_-]/g, '_');
+    h += '<tr class="row" data-pkg="' + esc(p.package) + '" data-detail="' + detailId + '">';
+    h += '<td><span class="pkg-link">' + esc(p.package) + '</span></td>';
+    h += '<td>' + esc(laneLabel(p.lane)) + '</td>';
+    // "unknown" comes from backfilled registry rows whose model was never recorded; say so plainly.
+    h += '<td>' + (p.model === 'unknown' ? '<span style="color:var(--muted)">未记录</span>' : esc(p.model)) + (p.variant ? '/' + esc(p.variant) : '') + (p.modelSource ? ' <span style="color:var(--muted);font-size:10px">(' + (p.modelSource === 'inferred' ? '推断' : '从会话恢复') + ')</span>' : '') + '</td>';
+    h += '<td><span class="state ' + esc(p.state === 'superseded' ? 'stale' : p.state) + '">' + esc(p.state) + '</span>' + (p.reason ? ' <span style="color:var(--muted);font-size:10px">' + esc(p.reason) + '</span>' : '') + '</td>';
+    h += '<td>' + fmtMs(p.elapsed) + '</td>';
+    h += '<td>' + p.edits + ' <span style="color:var(--muted);font-size:10px">(' + esc(p.editLabel || '') + ')</span></td>';
+    h += '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc((p.lastText || '').slice(-80)) + '</td>';
+    h += '<td>' + esc(p.name || '') + '</td>';
+    h += '</tr>';
+    h += '<tr id="' + detailId + '" style="display:none"><td colspan="8">';
+    h += '<div class="detail open">';
+    h += '<strong>完整输出</strong><pre>' + esc(p.lastText || '(无)') + '</pre>';
+    if (p.tokens) h += '<div style="margin:6px 0">Tokens: 输入 ' + p.tokens.input + ' / 输出 ' + p.tokens.output + '</div>';
+    if (Object.keys(p.toolCounts || {}).length) {
+      h += '<div style="margin:6px 0">工具: ' + Object.entries(p.toolCounts).map(([k,v]) => esc(k) + ':' + v).join(', ') + '</div>';
+    }
+    if (p.history && p.history.length) {
+      h += '<div style="margin-top:8px"><strong>调度历史</strong></div>';
+      for (const ev of p.history) {
+        h += '<div class="evt"><span class="evt-time">' + fmtTime(ev.at) + '</span>' + eventLabel(ev) + '</div>';
+      }
+    }
+    h += '</div></td></tr>';
+    return h;
+  }
+
+  let html = '';
+  for (const p of active) html += renderRow(p);
+  if (stale.length) {
+    html += '<tr id="stale-toggle" class="row"><td colspan="8" style="text-align:center;color:var(--muted);cursor:pointer;padding:10px">▼ 三天前的记录 (' + stale.length + ')</td></tr>';
+    html += '<tbody id="stale-body" style="display:none">';
+    for (const p of stale) html += renderRow(p);
+    html += '</tbody>';
+  }
+  $('#rows').innerHTML = html;
+
+  // bind row clicks
+  document.querySelectorAll('tr.row').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const detailId = tr.dataset.detail;
+      const detail = document.getElementById(detailId);
+      if (!detail) return;
+      const isOpen = detail.style.display !== 'none';
+      document.querySelectorAll('[id^="d-"]').forEach(d => d.style.display = 'none');
+      if (!isOpen) detail.style.display = '';
+    });
+  });
+
+  // stale toggle
+  const staleToggle = document.getElementById('stale-toggle');
+  if (staleToggle) {
+    staleToggle.addEventListener('click', () => {
+      const body = document.getElementById('stale-body');
+      if (!body) return;
+      const visible = body.style.display !== 'none';
+      body.style.display = visible ? 'none' : '';
+      staleToggle.cells[0].textContent = (visible ? '▼' : '▲') + ' 三天前的记录 (' + stale.length + ')';
+    });
+  }
+
+  // events
+  const allEvents = [];
+  for (const p of pkgs) {
+    for (const h of (p.history || [])) {
+      allEvents.push({ ...h, package: p.package });
+    }
+  }
+  allEvents.sort((a, b) => b.at.localeCompare(a.at));
+  const evtHtml = allEvents.slice(0, 30).map(e => {
+    return '<div class="evt"><span class="evt-time">' + fmtTime(e.at) + '</span><strong>' + esc(e.package) + '</strong> ' + eventLabel(e) + '</div>';
+  }).join('');
+  $('#evtlist').innerHTML = evtHtml || '<div class="empty">暂无事件</div>';
+}
+
+poll();
+setInterval(poll, 5000);
+</script>
+</body>
+</html>

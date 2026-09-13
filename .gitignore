@@ -1,0 +1,12 @@
+node_modules/
+dist/
+target/
+src-tauri/target/
+.env
+.env.*
+*.log
+.questboard-data/
+.claude/
+CLAUDE.local.md
+# migration staging copy of the first version (holds project data); never commit
+_import/

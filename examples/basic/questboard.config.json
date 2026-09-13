@@ -1,0 +1,39 @@
+{
+  "name": "My Game",
+  "port": 6097,
+  "dataDir": ".questboard-data",
+  "events": ".questboard-data/events.jsonl",
+  "registry": ".questboard-data/registry.jsonl",
+  "lockFile": ".questboard-data/dispatch.lock",
+  "briefs": {
+    "dispatchDirs": ["docs/briefs"],
+    "ownerDirs": ["docs/design"],
+    "packagePattern": "^[A-Z]+(?:-[A-Z]+)*-\\d+[A-Z]?",
+    "fileListHeading": "^#{1,6}\\s*files you may (edit|touch)",
+    "recentDays": 7
+  },
+  "reviewPages": { "dir": "docs/review" },
+  "lanes": {
+    "codex": {
+      "run": ["scripts/codex-run.sh", "{name}", "{brief}", "{model}", "{variant}"],
+      "outputDir": ".questboard-data/workers/codex"
+    },
+    "claude": {
+      "run": ["scripts/claude-run.sh", "{name}", "{brief}", "{model}", "{variant}"],
+      "outputDir": ".questboard-data/workers/claude",
+      "editCounter": "stream-json"
+    },
+    "opencode": {
+      "session": { "run": ["node", "scripts/opencode-session.js", "{package} {name}"], "saveTo": ".questboard-data/workers/opencode/{name}.session" },
+      "run": ["scripts/opencode-send.sh", "{name}", "{brief}", "{model}", "{variant}"],
+      "env": { "OC_AGENT": "{agent}" },
+      "api": "http://127.0.0.1:4096",
+      "deliveryDir": ".questboard-data/workers/opencode",
+      "serialize": true
+    }
+  },
+  "policy": {
+    "bannedModelPatterns": ["-fast(\\b|-)"],
+    "bannedAgents": []
+  }
+}

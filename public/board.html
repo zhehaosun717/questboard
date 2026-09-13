@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>questboard 留言板</title>
+  <style>
+    :root {
+      --ink: #18201d;
+      --muted: #68736d;
+      --paper: #f3f0e8;
+      --panel: #fbfaf6;
+      --line: #d9d5c9;
+      --accent: #d85f35;
+      --accent-dark: #9c351f;
+      --olive: #66745a;
+      --shadow: 0 18px 45px rgba(35, 42, 36, .09);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: "Segoe UI", "Noto Sans SC", sans-serif;
+      line-height: 1.5;
+    }
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      content: "";
+      opacity: .22;
+      background-image: radial-gradient(#7c866f 0.6px, transparent 0.6px);
+      background-size: 7px 7px;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    .shell { width: min(1440px, 100%); margin: 0 auto; padding: 24px; }
+    .masthead {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 8px 4px 22px;
+    }
+    .eyebrow {
+      margin: 0 0 4px;
+      color: var(--accent-dark);
+      font: 700 11px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1, h2, h3 { font-family: Georgia, "Noto Serif SC", serif; }
+    h1 { margin-bottom: 0; font-size: clamp(30px, 5vw, 52px); line-height: .98; letter-spacing: -.04em; }
+    .subtitle { max-width: 420px; margin: 0 0 4px; color: var(--muted); text-align: right; font-size: 13px; }
+    .board {
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+      min-height: 690px;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+    }
+    .sidebar { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--line); background: rgba(232, 229, 217, .58); }
+    .sidebar-head, .thread-head { padding: 22px; }
+    .sidebar-head { border-bottom: 1px solid var(--line); }
+    .head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .head-row h2 { margin-bottom: 0; font-size: 22px; }
+    .count { color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .filters { display: grid; gap: 9px; margin-top: 18px; }
+    input, textarea, select {
+      width: 100%;
+      color: var(--ink);
+      background: #fffef9;
+      border: 1px solid #c9c7bd;
+      border-radius: 8px;
+      outline: none;
+    }
+    input, select { min-height: 39px; padding: 8px 11px; }
+    textarea { min-height: 118px; padding: 11px; resize: vertical; }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(216, 95, 53, .13); }
+    .thread-list { flex: 1; overflow-y: auto; padding: 9px; }
+    .thread-card {
+      position: relative;
+      display: block;
+      width: 100%;
+      margin: 0 0 5px;
+      padding: 14px 13px 13px;
+      color: inherit;
+      text-align: left;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 10px;
+    }
+    .thread-card:hover { background: rgba(255, 254, 249, .7); }
+    .thread-card.active { background: var(--panel); border-color: var(--line); box-shadow: 0 5px 14px rgba(35, 42, 36, .05); }
+    .thread-card.unread::before { position: absolute; top: 17px; left: 3px; width: 5px; height: 5px; content: ""; background: var(--accent); border-radius: 50%; }
+    .thread-card.unread { padding-left: 17px; }
+    .thread-card strong { display: block; overflow: hidden; font-family: Georgia, "Noto Serif SC", serif; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+    .thread-meta, .thread-tags { display: flex; align-items: center; gap: 7px; margin-top: 6px; color: var(--muted); font-size: 11px; }
+    .thread-meta { justify-content: space-between; }
+    .thread-tags { flex-wrap: wrap; }
+    .tag { padding: 2px 6px; color: var(--olive); background: #e4e8da; border-radius: 4px; font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .pin { color: var(--accent-dark); font-size: 12px; }
+    .empty { padding: 24px 14px; color: var(--muted); text-align: center; font-size: 13px; }
+    .main { display: flex; min-width: 0; flex-direction: column; }
+    .thread-head { display: flex; align-items: start; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); }
+    .thread-head h2 { margin-bottom: 7px; font-size: clamp(24px, 4vw, 35px); line-height: 1.08; }
+    .thread-info { color: var(--muted); font-size: 12px; }
+    .actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 7px; }
+    .button, .icon-button {
+      min-height: 35px;
+      padding: 7px 11px;
+      color: var(--ink);
+      background: transparent;
+      border: 1px solid #c9c7bd;
+      border-radius: 7px;
+      font-size: 12px;
+    }
+    .icon-button { white-space: nowrap; }
+    .button:hover, .icon-button:hover { border-color: var(--accent); }
+    .button.primary { color: white; background: var(--accent); border-color: var(--accent); }
+    .button.primary:hover { background: var(--accent-dark); }
+    .messages { flex: 1; overflow-y: auto; padding: 28px clamp(18px, 5vw, 68px); }
+    .message { max-width: 760px; margin: 0 auto 26px; }
+    .message:last-child { margin-bottom: 0; }
+    .message-bar { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 7px; }
+    .message-author { font-weight: 700; }
+    .message-time { color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .message-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .message-body a { color: var(--accent-dark); text-decoration-thickness: 1px; }
+    .composer { padding: 18px clamp(18px, 5vw, 68px) 24px; border-top: 1px solid var(--line); background: rgba(247, 245, 237, .75); }
+    .composer-inner { max-width: 760px; margin: 0 auto; }
+    .composer-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+    .composer-label { font-size: 12px; font-weight: 700; }
+    .hint { color: var(--muted); font-size: 11px; }
+    .composer textarea { min-height: 78px; }
+    .composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; }
+    .status { min-height: 20px; color: var(--muted); font-size: 12px; }
+    .status.error { color: var(--accent-dark); }
+    .welcome { display: grid; place-items: center; flex: 1; padding: 45px; color: var(--muted); text-align: center; }
+    .welcome h2 { color: var(--ink); font-size: 30px; }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; padding: 18px; background: rgba(24, 32, 29, .35); }
+    .modal { width: min(540px, 100%); padding: 23px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+    .modal h2 { margin-bottom: 16px; font-size: 25px; }
+    .field { margin-bottom: 13px; }
+    .field label { display: block; margin-bottom: 5px; font-size: 12px; font-weight: 700; }
+    .field-error { min-height: 17px; margin-top: 3px; color: var(--accent-dark); font-size: 11px; }
+    .modal-foot { display: flex; justify-content: end; gap: 8px; margin-top: 17px; }
+    [hidden] { display: none !important; }
+    @media (max-width: 760px) {
+      .shell { padding: 12px; }
+      .masthead { align-items: start; flex-direction: column; padding: 8px 3px 16px; }
+      .subtitle { text-align: left; }
+      .board { display: block; min-height: calc(100vh - 150px); border-radius: 13px; }
+      .sidebar { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--line); }
+      .thread-list { max-height: 25vh; }
+      .thread-head { padding: 18px; }
+      .thread-head .actions { max-width: 132px; align-items: stretch; flex-direction: column; }
+      .messages { min-height: 260px; padding: 22px 18px; }
+      .composer { padding: 16px 18px 19px; }
+      .hint { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">local field notes / 本地讨论板</p>
+        <h1>questboard 留言板</h1>
+      </div>
+      <p class="subtitle">A quiet place for decisions, discoveries, and the things that should not be lost.</p>
+      <p class="subtitle"><a href="/dashboard">→ 悬赏板 / Quest board</a></p>
+    </header>
+    <main class="board">
+      <aside class="sidebar" aria-label="Threads">
+        <div class="sidebar-head">
+          <div class="head-row">
+            <h2>Threads</h2>
+            <span id="thread-count" class="count">0</span>
+          </div>
+          <div class="filters">
+            <input id="search" type="search" placeholder="Search / 搜索" aria-label="Search threads">
+            <select id="status-filter" aria-label="Thread status">
+              <option value="open">Open / 开放</option>
+              <option value="all">All / 全部</option>
+              <option value="closed">Closed / 已关闭</option>
+            </select>
+            <button id="new-thread" class="button primary" type="button">+ New thread / 新主题</button>
+          </div>
+        </div>
+        <div id="thread-list" class="thread-list" aria-live="polite"></div>
+      </aside>
+      <section class="main" aria-live="polite">
+        <div id="thread-view" class="welcome">
+          <div>
+            <p class="eyebrow">start here / 从这里开始</p>
+            <h2>Choose a thread</h2>
+            <p>Select a note from the left, or open a new one.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="new-thread-modal" class="modal-backdrop" hidden>
+    <form id="new-thread-form" class="modal">
+      <h2>New thread / 新主题</h2>
+      <div class="field">
+        <label for="new-title">Title / 标题</label>
+        <input id="new-title" name="title" maxlength="120" required>
+        <div id="error-title" class="field-error"></div>
+      </div>
+      <div class="field">
+        <label for="new-body">First note / 第一条消息</label>
+        <textarea id="new-body" name="body" maxlength="20000" required></textarea>
+        <div id="error-body" class="field-error"></div>
+      </div>
+      <div class="field">
+        <label for="new-tags">Tags / 标签 <span class="hint">comma separated</span></label>
+        <input id="new-tags" name="tags" placeholder="research, playtest">
+        <div id="error-tag" class="field-error"></div>
+      </div>
+      <div class="modal-foot">
+        <button id="cancel-new" class="button" type="button">Cancel / 取消</button>
+        <button class="button primary" type="submit">Post thread / 发布</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    (() => {
+      const state = { threads: [], activeId: null, author: localStorage.getItem('board.author') || '' };
+      const list = document.querySelector('#thread-list');
+      const view = document.querySelector('#thread-view');
+      const search = document.querySelector('#search');
+      const statusFilter = document.querySelector('#status-filter');
+      const modal = document.querySelector('#new-thread-modal');
+      const form = document.querySelector('#new-thread-form');
+      const formatDate = (value) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '';
+      const shortDate = (value) => value ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value)) : '';
+      const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+      const linkify = (value) => escapeHtml(value).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noreferrer">$1</a>');
+      const setStatus = (element, message, isError = false) => { element.textContent = message; element.classList.toggle('error', isError); };
+      const api = async (path, options = {}) => {
+        const response = await fetch(path, { headers: { 'content-type': 'application/json' }, ...options });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) { const error = new Error(payload.error || `HTTP ${response.status}`); error.fields = payload.fields || {}; throw error; }
+        return payload;
+      };
+      const isUnread = (thread) => {
+        const lastSeen = localStorage.getItem(`board.seen.${thread.id}`);
+        return Boolean(thread.lastMessageAt && (!lastSeen || thread.lastMessageAt > lastSeen));
+      };
+      const renderList = () => {
+        document.querySelector('#thread-count').textContent = String(state.threads.length);
+        if (!state.threads.length) { list.innerHTML = '<div class="empty">No threads yet.<br>还没有主题。</div>'; return; }
+        list.innerHTML = state.threads.map((thread) => `
+          <button class="thread-card ${thread.id === state.activeId ? 'active' : ''} ${isUnread(thread) ? 'unread' : ''}" data-thread-id="${escapeHtml(thread.id)}" type="button">
+            <strong>${thread.pinned ? '<span class="pin" aria-label="Pinned">●</span> ' : ''}${escapeHtml(thread.title)}</strong>
+            <div class="thread-meta"><span>${escapeHtml(thread.author)} · ${shortDate(thread.updatedAt)}</span><span>${thread.messageCount} msg</span></div>
+            <div class="thread-tags">${thread.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>
+          </button>`).join('');
+        list.querySelectorAll('[data-thread-id]').forEach((button) => button.addEventListener('click', () => openThread(button.dataset.threadId)));
+      };
+      const renderThread = (thread) => {
+        if (!thread) { view.className = 'welcome'; view.innerHTML = '<div><p class="eyebrow">start here / 从这里开始</p><h2>Choose a thread</h2><p>Select a note from the left, or open a new one.</p></div>'; return; }
+        view.className = 'main';
+        view.innerHTML = `
+          <header class="thread-head">
+            <div><p class="eyebrow">thread / 主题</p><h2>${escapeHtml(thread.title)}</h2><div class="thread-info">${escapeHtml(thread.author)} · ${formatDate(thread.createdAt)}${thread.closed ? ' · closed / 已关闭' : ''}${thread.tags.length ? ` · ${thread.tags.map(escapeHtml).join(', ')}` : ''}</div></div>
+            <div class="actions"><button id="pin-thread" class="icon-button" type="button">${thread.pinned ? 'Unpin' : 'Pin'} / ${thread.pinned ? '取消置顶' : '置顶'}</button><button id="close-thread" class="icon-button" type="button">${thread.closed ? 'Reopen' : 'Close'} / ${thread.closed ? '重新打开' : '关闭'}</button></div>
+          </header>
+          <div class="messages">${thread.messages.map((message) => `<article class="message"><div class="message-bar"><span class="message-author">${escapeHtml(message.author)}</span><time class="message-time" datetime="${escapeHtml(message.createdAt)}">${formatDate(message.createdAt)}</time></div><p class="message-body">${linkify(message.body)}</p></article>`).join('')}</div>
+          ${thread.closed ? '<div class="composer"><div class="composer-inner"><div class="status">This thread is closed. / 此主题已关闭。</div></div></div>' : `<form id="reply-form" class="composer"><div class="composer-inner"><div class="composer-top"><span class="composer-label">Reply / 回复</span><span class="hint">Ctrl + Enter to send</span></div><textarea name="body" maxlength="20000" placeholder="Write a reply... / 写下回复..." required></textarea><div class="composer-foot"><div id="reply-status" class="status"></div><button class="button primary" type="submit">Send / 发送</button></div></div></form>`}`;
+        document.querySelector('#pin-thread').addEventListener('click', () => mutateThread(`/api/threads/${thread.id}/pin`, { pinned: !thread.pinned }));
+        document.querySelector('#close-thread').addEventListener('click', () => mutateThread(`/api/threads/${thread.id}/close`, { closed: !thread.closed }));
+        const replyForm = document.querySelector('#reply-form');
+        if (replyForm) {
+          const textarea = replyForm.querySelector('textarea');
+          textarea.addEventListener('keydown', (event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); replyForm.requestSubmit(); } });
+          replyForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const status = replyForm.querySelector('.status');
+            if (!ensureAuthor()) return;
+            setStatus(status, 'Sending...');
+            try { await api(`/api/threads/${thread.id}/messages`, { method: 'POST', body: JSON.stringify({ body: textarea.value, author: state.author }) }); await openThread(thread.id); } catch (error) { setStatus(status, error.message, true); }
+          });
+          textarea.focus();
+        }
+      };
+      const loadThreads = async () => {
+        const params = new URLSearchParams({ status: statusFilter.value });
+        if (search.value.trim()) params.set('q', search.value.trim());
+        const payload = await api(`/api/threads?${params}`);
+        state.threads = payload.threads;
+        renderList();
+      };
+      const openThread = async (threadId) => {
+        const thread = await api(`/api/threads/${encodeURIComponent(threadId)}`);
+        state.activeId = thread.id;
+        localStorage.setItem(`board.seen.${thread.id}`, thread.lastMessageAt || thread.updatedAt);
+        renderThread(thread); renderList();
+      };
+      const mutateThread = async (path, payload) => { try { await api(path, { method: 'POST', body: JSON.stringify(payload) }); await loadThreads(); await openThread(state.activeId); } catch (error) { window.alert(error.message); } };
+      const ensureAuthor = () => {
+        if (state.author) return true;
+        const author = window.prompt('Name / 昵称');
+        if (!author || !author.trim()) return false;
+        state.author = author.trim(); localStorage.setItem('board.author', state.author); return true;
+      };
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!ensureAuthor()) return;
+        const data = new FormData(form);
+        const tags = String(data.get('tags') || '').split(',').map((tag) => tag.trim()).filter(Boolean);
+        try { const result = await api('/api/threads', { method: 'POST', body: JSON.stringify({ title: data.get('title'), body: data.get('body'), tags, author: state.author }) }); modal.hidden = true; form.reset(); await loadThreads(); await openThread(result.thread.id); } catch (error) { ['title', 'body', 'tag'].forEach((field) => { document.querySelector(`#error-${field}`).textContent = error.fields[field] || ''; }); }
+      });
+      document.querySelector('#new-thread').addEventListener('click', () => { modal.hidden = false; document.querySelector('#new-title').focus(); });
+      document.querySelector('#cancel-new').addEventListener('click', () => { modal.hidden = true; form.reset(); });
+      modal.addEventListener('click', (event) => { if (event.target === modal) modal.hidden = true; });
+      search.addEventListener('input', () => loadThreads().catch(() => {}));
+      statusFilter.addEventListener('change', () => loadThreads().catch(() => {}));
+      // The quest board links here as /?thread=<id>.
+      loadThreads().then(() => {
+        const linked = new URLSearchParams(window.location.search).get('thread');
+        if (linked) return openThread(linked);
+        return null;
+      }).catch((error) => { list.innerHTML = `<div class="empty">${escapeHtml(error.message)}<br>Start the board server first.</div>`; });
+    })();
+  </script>
+</body>
+</html>

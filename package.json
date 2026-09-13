@@ -1,0 +1,17 @@
+{
+  "name": "questboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local quest board for dispatching AI coding agents across CLIs and providers, with rules checked before the drop.",
+  "type": "module",
+  "bin": {
+    "questboard": "src/cli/questboard.js"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "serve": "node src/cli/questboard.js serve"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

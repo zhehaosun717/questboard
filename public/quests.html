@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>questboard 悬赏板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@700;900&family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+QingKe+HuangYou&display=swap">
+<link rel="stylesheet" href="/assets/quests.css">
+<script src="/assets/quests.app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <p class="eyebrow" id="projectName">QUESTBOARD · SALVAGE GUILD</p>
+    <h1>悬赏板</h1>
+    <p class="motto">把冒险者拖到委托上。能不能接，放下之前就知道。</p>
+  </div>
+  <nav class="nav" aria-label="视图">
+    <button class="plate tab on" data-view="board" type="button">委托墙</button>
+    <button class="plate tab" data-view="graph" type="button">关系图</button>
+    <a class="plate" href="/board" target="_blank" rel="noreferrer">留言板</a>
+    <a class="plate" href="/history" target="_blank" rel="noreferrer">派遣历史</a>
+  </nav>
+</header>
+<div id="chips" class="chips" aria-live="polite"></div>
+
+<div class="layout">
+  <main>
+    <div id="boardView" class="columns"></div>
+    <div id="graphView" class="graph-wrap" hidden></div>
+    <section class="reviews" aria-labelledby="reviewsTitle">
+      <header class="sec-head"><span class="eyebrow">INSPECTION</span><h2 id="reviewsTitle">美术评审页</h2></header>
+      <div id="reviews" class="rv-list"></div>
+    </section>
+    <section class="reviews" aria-labelledby="briefsTitle">
+      <header class="sec-head"><span class="eyebrow">DRAFTS</span><h2 id="briefsTitle">还没上板的 brief</h2></header>
+      <p class="hint">最近 7 天写好、还没发布也没派过的 brief。coordinator 发布后才能指派。</p>
+      <div id="briefs" class="bf-list"></div>
+    </section>
+  </main>
+  <aside class="guild" aria-labelledby="guildTitle">
+    <header class="sec-head"><span class="eyebrow">ROSTER</span><h2 id="guildTitle">冒险者公会</h2></header>
+    <p class="hint">拖动或悬停一张工牌：能接的委托会亮起，不能接的会写明原因。点工牌改状态。</p>
+    <div id="guild"></div>
+  </aside>
+</div>
+
+<div id="drawer" class="drawer" hidden></div>
+<div id="modal" class="modal-back" hidden></div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>
