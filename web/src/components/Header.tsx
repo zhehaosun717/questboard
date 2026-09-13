@@ -26,8 +26,9 @@ export function Header({
             ? `${projectName} · SALVAGE GUILD`
             : 'QUESTBOARD · SALVAGE GUILD'}
         </p>
+        {/* No standing motto here: this header is on every tab, so a board-only instruction was showing on
+            设置 and 用量 too. The guild sidebar says how to dispatch, where the dispatching happens. */}
         <h1>悬赏板</h1>
-        <p className="motto">把冒险者拖到委托上。能不能接，放下之前就知道。</p>
       </div>
       <nav className="nav" aria-label="视图">
         <button
