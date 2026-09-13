@@ -268,7 +268,8 @@ textarea:focus, select:focus, input:focus { outline: 2px solid var(--amber); out
 .order-lines dt { font: 700 11px/1.9 var(--display); letter-spacing: .2em; color: var(--ink-soft); }
 .order-lines dd { font-size: 13px; word-break: break-all; }
 .order-lines code { font-size: 12px; }
-.warn-tape { margin-top: 10px; padding: 6px 9px; font-weight: 700; font-size: 12px; background: repeating-linear-gradient(-45deg, #f2c35f 0 10px, #e5ad3f 10px 20px); }
+/* The tape paints its own yellow ground, so it must name its own ink: inherited cream is unreadable here. */
+.warn-tape { margin-top: 10px; padding: 6px 9px; font-weight: 700; font-size: 12px; color: #3a2a08; background: repeating-linear-gradient(-45deg, #f2c35f 0 10px, #e5ad3f 10px 20px); }
 .order label { display: block; margin-top: 10px; font: 700 11px var(--display); letter-spacing: .2em; color: var(--ink-soft); }
 .order input, .order select { color: var(--ink); background: #f7f0de; border-color: rgba(36, 28, 19, .45); }
 .reasons { margin: 10px 0 0; padding-left: 18px; color: var(--blood); font-weight: 700; }

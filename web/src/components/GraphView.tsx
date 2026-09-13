@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   Background, Controls, MiniMap, ReactFlow, ReactFlowProvider,
   useEdgesState, useNodesInitialized, useNodesState, useReactFlow, type Edge, type Node,
@@ -61,6 +61,9 @@ function GraphViewInner({
 }: GraphViewProps) {
   const reactFlow = useReactFlow();
   const nodesInitialized = useNodesInitialized();
+  // The drawer shows a second, compact graph while the main one is mounted. React Flow names its background
+  // pattern after this id, and two <pattern> elements sharing an id collide, so give every instance its own.
+  const backgroundId = useId().replace(/:/g, '');
 
   const targetQuestIds = useMemo(() => {
     return questIds ?? getGraphQuestIds(snap);
@@ -325,7 +328,7 @@ function GraphViewInner({
       minZoom={0.2}
       maxZoom={2}
     >
-      <Background color="#c9b48f" gap={24} size={1} />
+      <Background id={backgroundId} color="#c9b48f" gap={24} size={1} />
       {!compact && <Controls />}
       {!compact && (
         <MiniMap

@@ -39,12 +39,15 @@ export function Guild({
     }
 
     return Array.from(map.entries())
-      .map(([provider, members]) => ({
-        provider,
-        members: [...members].sort(
+      .map(([provider, members]) => {
+        const sorted = [...members].sort(
           (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status],
-        ),
-      }))
+        );
+        // Groups are by provider, so only name a lane when every card in the group really uses it.
+        const firstLane = sorted[0]?.lane;
+        const sameLane = firstLane !== undefined && sorted.every((m) => m.lane === firstLane);
+        return { provider, members: sorted, lane: sameLane ? firstLane : '' };
+      })
       .sort((a, b) => {
         const firstA = a.members[0];
         const firstB = b.members[0];
@@ -72,7 +75,7 @@ export function Guild({
           <div key={group.provider}>
             <h4 className="guild-group">
               {group.provider}
-              <span>{group.members[0]?.lane}</span>
+              {group.lane ? <span>{group.lane}</span> : null}
             </h4>
             {group.members.map((card) => (
               <CardBadge
