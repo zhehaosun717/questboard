@@ -49,6 +49,7 @@ export function describeEvent(event: QuestEvent): string {
     bounced: `${event.package} 限额退回${who}`,
     stalled: `${event.package} 卡住了${who}`,
     cancelled: `${event.package} 已取消`,
+    released: `${event.package} 的 worker 已释放，可以重新派`,
     owner_ruling: `${event.package} 已裁决`,
     delivery_write_failed: `${event.package} 交付文件没写成：${event.detail}`,
   };

@@ -75,6 +75,16 @@ describe('sync', () => {
     assert.deepEqual(liveByName(old, [running]), {});
   });
 
+  it('watches a stalled quest: back to work when output resumes, finished on exit, held otherwise', () => {
+    const silent = { ...running, status: 'stalled' };
+    const resumed = deriveTransitions([silent], [{ name: 'run4', state: 'running', dispatchedAt: at }], later(30));
+    assert.deepEqual([resumed[0].status, /run4 又有动静了/.test(resumed[0].detail)], ['dispatched', true]);
+    assert.equal(deriveTransitions([silent], [{ name: 'run4', state: 'delivered', dispatchedAt: at }], later(30))[0].status, 'delivered');
+    assert.equal(deriveTransitions([silent], [{ name: 'run4', state: 'failed', reason: 'exit 1', dispatchedAt: at }], later(30))[0].status, 'failed');
+    assert.deepEqual(deriveTransitions([silent], [{ name: 'run4', state: 'stalled', dispatchedAt: at }], later(30)), [], 'no repeated stall');
+    assert.deepEqual(deriveTransitions([silent], [], later(30)), [], 'a missing row does not free it');
+  });
+
   it('stalls a quest whose worker never registered', () => {
     assert.deepEqual(deriveTransitions([running], [], later(5)), []);
     assert.equal(deriveTransitions([running], [], later(11))[0].status, 'stalled');

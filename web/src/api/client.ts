@@ -35,6 +35,8 @@ export const api = {
   assign: (questId: string, adventurer: string) => call<{ quest: Quest }>(`${quest(questId)}/assign`, 'POST', { adventurer, by: 'owner' }),
   rule: (questId: string, text: string) => call<{ quest: Quest }>(`${quest(questId)}/ruling`, 'POST', { text, by: 'owner' }),
   setQuestStatus: (questId: string, status: QuestStatus, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, by: 'owner' }),
+  // Frees a stalled quest after the owner confirmed its worker is gone; refused (409) for anything else.
+  releaseWorker: (questId: string, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/release`, 'POST', { detail, by: 'owner' }),
   setCardStatus: (cardId: string, status: CardStatus, reason: string) =>
     call<{ status: Pick<Card, 'status'> }>(`/api/roster/${encodeURIComponent(cardId)}/status`, 'POST', { status, reason, setBy: 'owner' }),
 

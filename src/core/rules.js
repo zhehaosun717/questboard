@@ -22,6 +22,7 @@ const MESSAGES = {
   // Most packages in a design round share a partial, so a conflict reads as a queue, not an error.
   conflict_running: (quest, adventurer, detail) => `排队：${detail.id} 正在改同一批文件${detail.file ? `（${detail.file.split('/').filter(Boolean).pop() || detail.file}）` : ''}，一次一个`,
   needs_artist: () => '美术委托只派给会画图的模型（strengths 含 art）',
+  worker_unconfirmed: (quest) => `上一个 worker（${quest.assignee.name}）只是没动静，可能还在跑：确认它停了，先在档案里释放，再派`,
   tree_locked: () => 'coordinator 正在跑验证（锁文件存在），暂停派遣',
   brief_missing: (quest) => `找不到 brief 文件：${quest.brief || '（未填写）'}`,
 };
@@ -35,8 +36,13 @@ function matchesAny(value, patterns) {
   return (patterns || []).some((pattern) => new RegExp(pattern, 'i').test(value));
 }
 
+// A stalled worker has gone quiet, not away: it keeps its slot and its files until it is released.
+export function holdsSlot(quest) {
+  return Boolean(quest.assignee) && (quest.status === RUNNING_STATUS || quest.status === 'stalled');
+}
+
 function busyCount(adventurerId, quests) {
-  return quests.filter((q) => q.status === RUNNING_STATUS && q.assignee && q.assignee.adventurerId === adventurerId).length;
+  return quests.filter((q) => holdsSlot(q) && q.assignee.adventurerId === adventurerId).length;
 }
 
 // One underlying model reached through two providers is one author, so cards carry a family.
@@ -70,7 +76,7 @@ function runningConflict(quest, quests) {
   const own = new Set(quest.conflicts || []);
   const files = new Set(quest.files || []);
   for (const other of quests) {
-    if (other.id === quest.id || other.status !== RUNNING_STATUS) continue;
+    if (other.id === quest.id || !holdsSlot(other)) continue;
     if (own.has(other.id) || (other.conflicts || []).includes(quest.id)) return { id: other.id, file: null };
     const shared = (other.files || []).find((file) => files.has(file));
     if (shared) return { id: other.id, file: shared };
@@ -97,6 +103,7 @@ export function canDispatch({ quest, adventurer, quests, policy, env }) {
   if (quest.kind === 'owner') reasons.push(reason('owner_quest', quest, adventurer));
   if (quest.kind === 'art' && !(adventurer.strengths || []).includes('art')) reasons.push(reason('needs_artist', quest, adventurer));
   if (!OPEN_STATUSES.has(quest.status)) reasons.push(reason('quest_not_open', quest, adventurer));
+  if (quest.status === 'stalled' && quest.assignee) reasons.push(reason('worker_unconfirmed', quest, adventurer));
   if (quest.needsOwner) reasons.push(reason('needs_owner', quest, adventurer));
   const missing = (quest.parents || []).find((id) => !byId.has(id));
   if (missing) reasons.push(reason('parent_missing', quest, adventurer, missing));

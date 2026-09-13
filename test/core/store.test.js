@@ -57,6 +57,18 @@ describe('QuestStore', () => {
     assert.equal(events().at(-1).event, 'dispatched');
   });
 
+  it('keeps the worker through a stall and frees it only on release', () => {
+    store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+    store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
+    assert.throws(() => store.release('RUN-4', {}), /running/);
+    assert.equal(store.setStatus('RUN-4', 'stalled', { detail: 'no output' }).assignee.name, 'run4');
+    const freed = store.release('RUN-4', { by: 'owner', detail: 'process gone' });
+    assert.deepEqual([freed.assignee, freed.status], [null, 'stalled']);
+    assert.deepEqual([events().at(-1).event, events().at(-1).name, events().at(-1).detail], ['released', 'run4', 'process gone']);
+    assert.throws(() => store.release('RUN-4', {}), /no worker/);
+    assert.equal(store.setStatus('RUN-4', 'failed', { detail: 'exit 3' }).assignee, null, 'an exit still clears the worker');
+  });
+
   it('keeps the assignee in the event when a status clears it, and replays after restart', () => {
     store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
     store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });

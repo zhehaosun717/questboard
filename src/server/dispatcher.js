@@ -14,9 +14,10 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   const queues = new Map();
   const pendingDeliveries = new Set();
 
+  // A stalled quest still belongs to its worker, so a late delivery from it counts.
   const stillOurs = (questId, name) => {
     const current = store.get(questId);
-    return current && current.status === 'dispatched' && current.assignee && current.assignee.name === name ? current : null;
+    return current && (current.status === 'dispatched' || current.status === 'stalled') && current.assignee && current.assignee.name === name ? current : null;
   };
 
   // Lanes marked serialize run one dispatch at a time (OpenCode's send script shares a session file);
@@ -84,6 +85,16 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     return { status: 200, body: { quest: store.assign(questId, { adventurer, name, by, detail: `接管已在跑的 worker ${name}`, event: 'dispatched', adopted: true }) } };
   }
 
+  // Frees a stalled quest after someone confirmed its worker is gone; refuses everything else.
+  function release(questId, by, detail) {
+    if (!store.get(questId)) return { status: 404, body: { error: 'quest not found' } };
+    try {
+      return { status: 200, body: { quest: store.release(questId, { by, detail }) } };
+    } catch (error) {
+      return { status: 409, body: { error: error.message } };
+    }
+  }
+
   function deliverFromApi(quest, transition) {
     const { name, lane } = quest.assignee;
     pendingDeliveries.add(quest.id);
@@ -110,5 +121,5 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     }
   }
 
-  return { assign, adopt, applyLanes };
+  return { assign, adopt, release, applyLanes };
 }

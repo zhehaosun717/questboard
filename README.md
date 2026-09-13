@@ -113,7 +113,13 @@ tail the events file with `questboard watch`; `questboard_events` with `since` i
 
 `<events file>` gets one line per change: `{at, event, package, lane, model, variant, name, by, detail}`.
 Events: `posted`, `review_posted`, `assigned`, `dispatched`, `delivered`, `failed`, `bounced`, `stalled`,
-`cancelled`, `owner_ruling`, `delivery_write_failed`, `status_<status>`.
+`released`, `cancelled`, `owner_ruling`, `delivery_write_failed`, `status_<status>`.
+
+A `stalled` quest keeps its worker: silence is not a confirmed exit, so its parallel slot and file
+reservations stay held and nobody can be dispatched onto it. When output resumes it goes back to
+`dispatched`; when an exit file appears it finishes normally. Once someone has confirmed the process is
+gone, `POST /api/quests/<id>/release` (or the `questboard_release_worker` MCP tool, or the drawer button)
+frees it with a `released` event.
 
 ## Safety
 

@@ -83,6 +83,27 @@ describe('quest API', () => {
     assert.equal((await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'done' })).body.quest.status, 'done');
   });
 
+  it('holds a silent worker: refuses re-dispatch until it is released', async () => {
+    fx.project.write('docs/briefs/HAZ-1-x.md', 'x');
+    await fx.api('/api/quests', 'POST', { package: 'HAZ-1', brief: 'docs/briefs/HAZ-1-x.md' });
+    assert.equal((await fx.api('/api/quests/HAZ-1/assign', 'POST', { adventurer: 'codex-luna' })).status, 200);
+    await tick();
+    assert.equal((await fx.api('/api/quests/HAZ-1/release', 'POST', { detail: 'too early' })).status, 409, 'a running quest is cancelled, not released');
+    const stalled = await fx.api('/api/quests/HAZ-1/status', 'POST', { status: 'stalled', detail: 'no output' });
+    assert.equal(stalled.body.quest.assignee.name, 'haz1', 'the stall keeps the worker');
+    const refused = await fx.api('/api/quests/HAZ-1/assign', 'POST', { adventurer: 'oc-deepseek' });
+    assert.equal(refused.status, 409);
+    assert.ok(refused.body.reasons.some((r) => r.code === 'worker_unconfirmed'), JSON.stringify(refused.body));
+    const snapshot = (await fx.api('/api/quests')).body;
+    assert.equal(snapshot.eligibility['HAZ-1']['oc-deepseek'].ok, false, 'the refusal shows before the drop');
+    const released = await fx.api('/api/quests/HAZ-1/release', 'POST', { detail: 'process gone' });
+    assert.equal(released.status, 200, released.text);
+    assert.equal(released.body.quest.assignee, null);
+    assert.equal(fx.events().at(-1).event, 'released');
+    assert.equal((await fx.api('/api/quests/HAZ-1/assign', 'POST', { adventurer: 'oc-deepseek' })).status, 200);
+    await tick();
+  });
+
   it('applies lane results: API deliveries are written first, bounces heal instead of being stored', async () => {
     fx.project.write('docs/briefs/MOD-1-x.md', 'x');
     await fx.api('/api/quests', 'POST', { package: 'MOD-1', brief: 'docs/briefs/MOD-1-x.md' });

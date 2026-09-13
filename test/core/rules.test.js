@@ -57,6 +57,18 @@ describe('canDispatch', () => {
     assert.ok(codes(check(quest(), luna, [{ ...running, files: [], conflicts: ['RUN-4'] }, quest()])).includes('conflict_running'));
   });
 
+  it("holds a stalled worker's slot and files until it is released", () => {
+    const silent = quest({ id: 'RUN-5', status: 'stalled', assignee: { adventurerId: 'codex-luna', name: 'run5' }, files: ['Assets/Hud.cs'] });
+    const verdict = check(silent, card('agy-gemini'), [silent]);
+    assert.ok(codes(verdict).includes('worker_unconfirmed'));
+    assert.match(verdict.reasons.find((r) => r.code === 'worker_unconfirmed').message, /run5/);
+    assert.ok(codes(check(quest(), luna, [silent, quest()])).includes('adventurer_busy'), 'the stalled worker still counts against its card');
+    assert.ok(codes(check(quest({ files: ['Assets/Hud.cs'] }), card('agy-gemini'), [silent, quest({ files: ['Assets/Hud.cs'] })])).includes('conflict_running'));
+    const released = { ...silent, assignee: null };
+    assert.equal(check(released, card('agy-gemini'), [released]).ok, true);
+    assert.equal(check(quest(), luna, [released, quest()]).ok, true);
+  });
+
   it('sends art only to cards that draw, and pauses on the lock or a missing brief', () => {
     assert.ok(codes(check(quest({ kind: 'art' }))).includes('needs_artist'));
     assert.equal(check(quest({ kind: 'art' }), card('codex-astra')).ok, true);

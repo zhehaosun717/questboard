@@ -134,6 +134,17 @@ export function createTools({ config, base, author, home, request }) {
       },
     },
     {
+      name: 'questboard_release_worker',
+      title: 'Release a silent worker',
+      description: 'Free a stalled quest whose worker you have confirmed is gone (process exited, session dead). Silence alone does not free a quest: until released, its slot and file reservations stay held and nobody can be dispatched onto it. Say in detail how you confirmed it stopped.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' }, detail: { type: 'string', description: 'How you confirmed the worker stopped' } }, required: ['id', 'detail'] },
+      annotations: write,
+      handler: async (args) => {
+        required(args, ['id', 'detail']);
+        return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/release`, 'POST', { detail: args.detail, by: author })).quest);
+      },
+    },
+    {
       name: 'questboard_list_cards',
       title: 'List cards',
       description: 'Every card (model) with its lane, model id, parallel limit and current status — including why and since when, and limits detected from worker output.',

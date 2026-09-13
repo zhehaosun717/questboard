@@ -35,8 +35,10 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
 ## Contracts
 
 - Events file: one JSON line per change, `{at, event, package, lane, model, variant, name, by, detail}`.
-  Events: posted, review_posted, assigned, dispatched, delivered, failed, bounced, stalled, cancelled,
-  owner_ruling, delivery_write_failed, status_<status>. Coordinators depend on these names.
+  Events: posted, review_posted, assigned, dispatched, delivered, failed, bounced, stalled, released,
+  cancelled, owner_ruling, delivery_write_failed, status_<status>. Coordinators depend on these names.
+- Silence does not free a quest: `stalled` keeps the assignee, its slot and its file reservations until
+  `release` confirms the worker is gone. Only exit files (failed/bounced/delivered) end a worker by themselves.
 - Registry file: written by the project's own dispatch scripts, one `event: "dispatch"` line per worker.
 - Lock file present → no dispatch.
 - Lane templates fill `{name} {brief} {model} {variant} {agent} {package}`; a missing value is an error.
@@ -64,7 +66,7 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
 ## Plan
 
 1. ~~Core, server and CLI in this repo~~ (done: 67 tests).
-2. ~~MCP server over the core~~ (done: `questboard mcp`, 13 tools, 74 tests).
+2. ~~MCP server over the core~~ (done: `questboard mcp`, 14 tools).
 3. Tauri desktop app (Vite + React + React Flow + dagre) in the same salvage-guild style. In progress:
    `desktop/` shell done (9 Rust tests: health matches project name and folder, spawned server owned before
    the ready wait so closing never orphans it); `web/` board, drawer and relationship graph ported from

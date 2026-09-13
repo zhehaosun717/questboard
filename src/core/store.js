@@ -137,9 +137,22 @@ export class QuestStore extends EventEmitter {
     if (!QUEST_STATUSES.has(status)) throw new Error(`status must be one of ${[...QUEST_STATUSES].join('|')}`);
     const quest = this.quests.get(id);
     if (!quest) return null;
-    const stillAssigned = ['dispatched', 'delivered', 'reviewing'].includes(status);
+    // A stall is silence, not a confirmed exit: the worker keeps the quest (and its slot and file
+    // reservations) until release() says the process is gone. failed/bounced come from exit files.
+    const stillAssigned = ['dispatched', 'delivered', 'reviewing', 'stalled'].includes(status);
     const next = this.save({ ...quest, status, assignee: stillAssigned ? quest.assignee : null, lastDetail: String(detail).slice(0, 2000), updatedAt: now() });
     this.emitEvent(next, STATUS_EVENTS[status] || `status_${status}`, { by, detail, assignee: quest.assignee || {} });
+    return next;
+  }
+
+  // Frees a stalled quest once someone has confirmed its worker is gone. A running quest is cancelled, not released.
+  release(id, { by = 'owner', detail = '' } = {}) {
+    const quest = this.quests.get(id);
+    if (!quest) return null;
+    if (!quest.assignee) throw new Error(`${id} has no worker to release`);
+    if (quest.status !== 'stalled') throw new Error(`${id} is ${quest.status === 'dispatched' ? 'running; cancel it instead of releasing it' : `${quest.status}; only a stalled quest is released`}`);
+    const next = this.save({ ...quest, assignee: null, lastDetail: String(detail).slice(0, 2000), updatedAt: now() });
+    this.emitEvent(next, 'released', { by, detail: detail || `worker ${quest.assignee.name} 已确认停止，释放`, assignee: quest.assignee });
     return next;
   }
 

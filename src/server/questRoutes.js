@@ -89,6 +89,11 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       sendJson(response, result.status, result.body);
       return;
     }
+    if (parts[3] === 'release') {
+      const result = dispatcher.release(questId, by, String(body.detail || '').slice(0, 2000));
+      sendJson(response, result.status, result.body);
+      return;
+    }
     if (parts[3] === 'status') {
       if (!MANUAL_STATUSES.has(body.status)) { sendJson(response, 400, { error: `status must be one of ${[...MANUAL_STATUSES].join('|')}; dispatch goes through assign` }); return; }
       sendJson(response, 200, { quest: store.setStatus(questId, body.status, { detail: body.detail || '', by }) });

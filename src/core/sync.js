@@ -27,16 +27,23 @@ export function deriveTransitions(quests, laneRows, now = Date.now()) {
   for (const row of laneRows || []) if (row && row.name) byName.set(row.name, row);
   const transitions = [];
   for (const quest of quests) {
-    if (quest.status !== 'dispatched' || !quest.assignee || !quest.assignee.name) continue;
+    // A stalled quest still has its worker: watch it too, so it goes back to work when output resumes
+    // and finishes when an exit file appears.
+    const silent = quest.status === 'stalled';
+    if ((quest.status !== 'dispatched' && !silent) || !quest.assignee || !quest.assignee.name) continue;
     const row = byName.get(quest.assignee.name);
     if (!row || !isCurrentRow(row, quest.assignee)) {
-      if (now - Date.parse(quest.assignee.at) > NO_ROW_MS) {
+      if (!silent && now - Date.parse(quest.assignee.at) > NO_ROW_MS) {
         transitions.push({ id: quest.id, status: 'stalled', detail: `派出 10 分钟后登记表里仍没有 worker ${quest.assignee.name}：脚本没有登记，或这个包被手动重派了` });
       }
       continue;
     }
+    if (silent && row.state === 'running') {
+      transitions.push({ id: quest.id, status: 'dispatched', detail: `worker ${quest.assignee.name} 又有动静了` });
+      continue;
+    }
     const status = LANE_TO_QUEST[row.state];
-    if (status) transitions.push({ id: quest.id, status, detail: detailFor(row) });
+    if (status && !(silent && status === 'stalled')) transitions.push({ id: quest.id, status, detail: detailFor(row) });
   }
   return transitions;
 }

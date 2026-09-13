@@ -91,6 +91,19 @@ export function QuestDrawer({
     }
   };
 
+  const handleRelease = async () => {
+    const name = quest.assignee?.name ?? '';
+    if (!window.confirm(`确认 worker ${name} 已经停了？释放后这个委托可以重新派；如果它其实还在跑，会有两个 worker 同时改文件。`)) {
+      return;
+    }
+    try {
+      await api.releaseWorker(quest.id, `owner 在任务板上确认 worker ${name} 已停止`);
+      refresh();
+    } catch (err) {
+      pushToast(`释放失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   return (
     <div id="drawer" className="drawer">
       <button className="close" type="button" onClick={onClose}>
@@ -269,6 +282,16 @@ export function QuestDrawer({
 
       {!['done', 'superseded', 'cancelled'].includes(quest.status) && (
         <DrawerSection en="SCRAP" zh="操作">
+          {quest.status === 'stalled' && quest.assignee && (
+            <p className="hint">
+              worker {quest.assignee.name} 没动静了，但可能还在跑。它的位置和文件仍被占着，释放之前不能重新派。
+            </p>
+          )}
+          {quest.status === 'stalled' && quest.assignee && (
+            <button className="btn" type="button" onClick={handleRelease} style={{ marginRight: 8 }}>
+              确认已停，释放 worker
+            </button>
+          )}
           <button className="btn danger" type="button" onClick={handleCancel}>
             取消这个委托
           </button>
