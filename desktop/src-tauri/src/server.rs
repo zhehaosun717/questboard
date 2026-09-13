@@ -87,6 +87,31 @@ pub fn locate_questboard(candidates: &[PathBuf]) -> Result<PathBuf, String> {
         })
 }
 
+/// The arguments that set up a project folder. Separate so a test can check them without running Node.
+pub fn init_args(questboard_root: &Path, project: &Path) -> Vec<String> {
+    vec![
+        questboard_root.join("src").join("cli").join("questboard.js").to_string_lossy().into_owned(),
+        "init".into(),
+        project.to_string_lossy().into_owned(),
+    ]
+}
+
+/// Runs `questboard init` on a folder and waits for it. Returns what it printed, so the window can say what
+/// was written; the CLI is the only place that knows how to set a project up.
+pub fn run_init(node: &str, questboard_root: &Path, project: &Path) -> Result<String, String> {
+    let mut command = Command::new(node);
+    command.args(init_args(questboard_root, project)).current_dir(questboard_root).stdin(Stdio::null());
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().map_err(|e| format!("启动 Node 失败（{node}）：{e}。需要安装 Node 22"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let reason = stderr.lines().find(|line| !line.trim().is_empty()).unwrap_or("questboard init 没有说明原因");
+        return Err(format!("建项目失败：{}", reason.trim()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 pub fn spawn_server(node: &str, questboard_root: &Path, project: &Path, log_file: &Path) -> Result<Child, String> {
     if let Some(dir) = log_file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("无法创建日志目录：{e}"))?;
@@ -177,6 +202,15 @@ mod tests {
     fn waiting_stops_when_the_server_is_reported_gone() {
         let result = wait_until_ready(1, "x", Path::new("x"), Duration::from_secs(5), || Some("closing".into()));
         assert_eq!(result.unwrap_err(), "closing");
+    }
+
+    #[test]
+    fn builds_the_setup_command_for_the_picked_folder() {
+        let args = init_args(Path::new("E:/questboard"), Path::new("D:/my game"));
+        assert_eq!(args[1], "init");
+        assert_eq!(args[2], "D:/my game", "a folder with a space is one argument, not two");
+        assert!(args[0].ends_with("questboard.js"));
+        assert!(args[0].contains("cli"));
     }
 
     #[test]

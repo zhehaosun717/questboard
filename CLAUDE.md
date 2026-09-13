@@ -30,6 +30,8 @@ wrapper and a sample brief, and creates the roster. Lanes come from `--lane name
 own agent CLI, not a fixed list** — falling back to the CLIs it can drive and finds installed. `questboard
 card add` adds the first card without the server running, and `questboard doctor` checks the result. Keep
 that path working: it is how anyone but the author starts, and never hardcode a preferred vendor into it.
+The desktop app runs the same command when the owner picks a folder with no config, so `examples/` has to
+stay in the bundle resources (`desktop/src-tauri/tauri.bundle.json`) or setup from the app breaks.
 
 ## Data layers — keep them separate
 

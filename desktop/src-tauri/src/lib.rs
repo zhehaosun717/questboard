@@ -4,12 +4,12 @@
 mod server;
 mod settings;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{Manager, RunEvent, Url, WebviewWindow};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 use server::Health;
 use settings::{ProjectInfo, Settings};
@@ -37,7 +37,30 @@ fn settings_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path().app_config_dir().map(|dir| dir.join("desktop.json")).map_err(|e| e.to_string())
 }
 
-fn choose_project(app: &tauri::AppHandle, stored: &Settings) -> Result<ProjectInfo, String> {
+// A folder with no config is not a dead end: offer to set it up here, so someone who only ever double-clicks
+// never has to open a terminal. The CLI does the writing — the window only asks and reports.
+fn offer_setup(app: &tauri::AppHandle, window: &WebviewWindow, stored: &Settings, folder: &Path) -> Result<(), String> {
+    let wanted = app
+        .dialog()
+        .message(format!(
+            "{} 里还没有 questboard 项目。\n\n要现在在这里建一个吗？会写入 questboard.config.json、一份示例委托和 worker 包装脚本，并按这台机器上装了哪些 agent CLI 配好通道。",
+            folder.display()
+        ))
+        .title("在这个文件夹建项目？")
+        .buttons(MessageDialogButtons::OkCancelCustom("在这里建".into(), "算了".into()))
+        .blocking_show();
+    if !wanted {
+        return Err(format!("{} 里没有 questboard.config.json。关掉再打开可以重新选文件夹。", folder.display()));
+    }
+    show_status(window, "正在建项目", false);
+    let root = server::locate_questboard(&questboard_candidates(app, stored))?;
+    let node = stored.node.clone().unwrap_or_else(|| "node".into());
+    server::run_init(&node, &root, folder)?;
+    Ok(())
+}
+
+fn choose_project(app: &tauri::AppHandle, window: &WebviewWindow, stored: &Settings) -> Result<ProjectInfo, String> {
+    // An explicit env var is for scripts: no dialogs, fail plainly.
     if let Ok(env_project) = std::env::var("QUESTBOARD_PROJECT") {
         return settings::read_project(&PathBuf::from(env_project));
     }
@@ -49,10 +72,13 @@ fn choose_project(app: &tauri::AppHandle, stored: &Settings) -> Result<ProjectIn
     let picked = app
         .dialog()
         .file()
-        .set_title("选择游戏项目文件夹（里面要有 questboard.config.json）")
+        .set_title("选择项目文件夹（没有配置也行，可以在里面新建）")
         .blocking_pick_folder()
         .ok_or("没有选择项目文件夹。关掉再打开可以重新选。")?;
     let folder = picked.into_path().map_err(|e| e.to_string())?;
+    if !settings::has_config(&folder) {
+        offer_setup(app, window, stored, &folder)?;
+    }
     let info = settings::read_project(&folder)?;
     let file = settings_file(app)?;
     settings::save(&file, &Settings { project: Some(folder), ..stored.clone() })?;
@@ -79,7 +105,7 @@ fn start(app: &tauri::AppHandle, window: &WebviewWindow) -> Result<Url, String> 
     let file = settings_file(app)?;
     let stored = settings::load(&file);
     show_status(window, "正在找项目", false);
-    let project = choose_project(app, &stored)?;
+    let project = choose_project(app, window, &stored)?;
     let url = format!("http://127.0.0.1:{}/", project.port).parse::<Url>().map_err(|e| e.to_string())?;
     match server::check_health(project.port, &project.name, &project.root) {
         Health::Ours => return Ok(url),

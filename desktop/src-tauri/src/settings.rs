@@ -36,6 +36,12 @@ pub struct ProjectInfo {
     pub port: u16,
 }
 
+/// Whether this folder is already a questboard project. A folder without the config is not an error: the
+/// app offers to set it up in place, so someone who only ever double-clicks never needs a terminal.
+pub fn has_config(root: &Path) -> bool {
+    root.join(CONFIG_FILE).is_file()
+}
+
 pub fn read_project(root: &Path) -> Result<ProjectInfo, String> {
     let file = root.join(CONFIG_FILE);
     let text = fs::read_to_string(&file).map_err(|_| format!("{} 里没有 {CONFIG_FILE}", root.display()))?;
@@ -69,6 +75,16 @@ mod tests {
         let info = parse_project(Path::new("E:/game"), r#"{"name":"My Game","lanes":{}}"#).unwrap();
         assert_eq!(info.name, "My Game");
         assert_eq!(info.port, 6097);
+    }
+
+    #[test]
+    fn tells_a_project_folder_from_an_empty_one() {
+        let dir = std::env::temp_dir().join(format!("qb-has-config-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        assert!(!has_config(&dir), "an empty folder is offered a setup, not refused");
+        fs::write(dir.join(CONFIG_FILE), r#"{"name":"g","lanes":{}}"#).unwrap();
+        assert!(has_config(&dir));
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

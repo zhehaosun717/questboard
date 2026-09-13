@@ -79,9 +79,9 @@ cursor-agent) so you can add it with `--lane`. Check your CLI's `--help` for how
 that wants the prompt as an argument, or needs a session first, needs a small script of your own in `run` —
 see "Project config" below.
 
-Prefer not to touch a terminal? `desktop/` builds a Windows installer that bundles the server and the UI, so
-the only requirement on the machine is Node 22 — but the app still opens a project folder, so run
-`questboard init` once first.
+Prefer not to touch a terminal? `desktop/` builds a Windows installer that bundles the server, the UI and
+this setup command, so the only requirement on the machine is Node 22. Pick a folder that is not a project
+yet and the app offers to set it up for you, then opens the board — no commands at all.
 
 ## Three kinds of data
 
