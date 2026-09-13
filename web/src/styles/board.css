@@ -197,7 +197,9 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: #1a1206; backg
 .meter i.on { background: var(--amber); box-shadow: 0 0 5px rgba(242, 177, 52, .6); }
 
 /* ── graph ───────────────────────────────────────────────── */
-.graph-wrap { overflow: auto; min-height: 320px; border: 1px solid #000; border-radius: 3px; background-color: #13110d; background-image: linear-gradient(rgba(201, 180, 143, .05) 1px, transparent 1px), linear-gradient(90deg, rgba(201, 180, 143, .05) 1px, transparent 1px); background-size: 24px 24px; }
+/* No grid image here: React Flow's own <Background> draws the 24px pattern and pans and zooms with the
+   canvas. A CSS grid stays nailed to the viewport, so the two slide against each other while dragging. */
+.graph-wrap { overflow: auto; min-height: 320px; border: 1px solid #000; border-radius: 3px; background-color: #13110d; }
 .graph-wrap .hint { padding: 10px 14px 0; }
 .g-id { font: 900 15px var(--display); letter-spacing: .03em; }
 .g-sub { font: 11px var(--body); }
