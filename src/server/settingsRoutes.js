@@ -38,7 +38,11 @@ export function createSettingsRoutes({ config, home, env = process.env, homedir,
     sendJson(response, 200, {
       project: describeProject(config),
       home: { dir: home.home, roster: home.roster, rosterExists: fs.existsSync(home.roster), status: home.status },
-      usageKeys: PROVIDERS.filter((p) => p.keys).map((p) => ({ id: p.id, name: p.name, sources: credentials.presence(p.keys) })),
+      usageKeys: PROVIDERS.filter((p) => p.keys || p.oauth).map((p) => ({
+        id: p.id,
+        name: p.name,
+        sources: credentials.presence({ ...(p.keys || {}), oauthIds: p.oauth ? p.oauth.openCodeIds : [] }),
+      })),
       openCodeAuthFile: { file: openCodeAuthFile({ env, ...(homedir ? { homedir } : {}) }), exists: fs.existsSync(openCodeAuthFile({ env, ...(homedir ? { homedir } : {}) })) },
       omo: { file: omoFile, exists: fs.existsSync(omoFile) },
     });

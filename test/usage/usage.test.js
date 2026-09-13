@@ -137,6 +137,15 @@ describe('usage providers', () => {
     assert.equal(none.configured, false);
   });
 
+  it('shows a usage-based Cursor plan as a request count, not an error', async () => {
+    const homedir = fakeHome({ auth: { cursor: { type: 'oauth', access: SECRET, expires: Date.now() + 3600000 } } });
+    const fetchImpl = async () => json(200, { 'gpt-4': { numRequests: 12, maxRequestUsage: null }, startOfMonth: '2026-09-01T00:00:00Z' });
+    const [c] = (await createUsageService({ homedir, env: {}, fetchImpl, providers: [cursor] }).report()).providers;
+    assert.equal(c.ok, true);
+    assert.deepEqual(c.windows, []);
+    assert.match(c.note, /12 次请求/);
+  });
+
   it('labels windows and splits concatenated JSON documents', () => {
     assert.deepEqual([windowLabel(300), windowLabel(10080), windowLabel(90), windowLabel(null)], ['5 小时', '7 天', '90 分钟', '额度窗口']);
     assert.deepEqual(parseJsonDocuments('noise {"a":"}"} text [1,2]'), [{ a: '}' }, [1, 2]]);

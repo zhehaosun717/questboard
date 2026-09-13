@@ -9,12 +9,16 @@ import { Header } from './components/Header';
 import { HistoryView } from './components/HistoryView';
 import { QuestDrawer } from './components/QuestDrawer';
 import { ReviewView } from './components/ReviewView';
+import { RosterView } from './components/RosterView';
+import { SettingsView } from './components/SettingsView';
 import { ThreadsView } from './components/ThreadsView';
 import { Toasts } from './components/Toasts';
+import { UsageView } from './components/UsageView';
 import { WorkOrderModal } from './components/WorkOrderModal';
 import { useBoard } from './hooks/useBoard';
 import { formatRoute, parseRoute, type Route, type Tab } from './lib/route';
 import './styles/tabs.css';
+import './styles/config.css';
 
 export function App() {
   const { snap, connected, error, toasts, refresh, pushToast, setDragging } =
@@ -174,6 +178,15 @@ export function App() {
               />
             )}
             {route.tab === 'history' && <HistoryView />}
+            {route.tab === 'roster' && snap && (
+              <RosterView
+                snap={snap}
+                refresh={refresh}
+                pushToast={pushToast}
+              />
+            )}
+            {route.tab === 'usage' && <UsageView />}
+            {route.tab === 'settings' && <SettingsView />}
           </main>
         </div>
       )}

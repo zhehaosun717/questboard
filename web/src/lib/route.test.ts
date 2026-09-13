@@ -20,6 +20,9 @@ describe('route parsing and formatting', () => {
         expectedHash: '#/review?page=%2Freview%2Fchapter1.html',
       },
       { route: { tab: 'history' }, expectedHash: '#/history' },
+      { route: { tab: 'roster' }, expectedHash: '#/roster' },
+      { route: { tab: 'usage' }, expectedHash: '#/usage' },
+      { route: { tab: 'settings' }, expectedHash: '#/settings' },
     ];
 
     for (const c of cases) {

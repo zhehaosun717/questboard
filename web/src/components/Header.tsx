@@ -70,6 +70,30 @@ export function Header({
         >
           派遣记录
         </button>
+        <button
+          className={`plate tab${tab === 'roster' ? ' on' : ''}`}
+          data-view="roster"
+          type="button"
+          onClick={() => onTabChange('roster')}
+        >
+          冒险者
+        </button>
+        <button
+          className={`plate tab${tab === 'usage' ? ' on' : ''}`}
+          data-view="usage"
+          type="button"
+          onClick={() => onTabChange('usage')}
+        >
+          用量
+        </button>
+        <button
+          className={`plate tab${tab === 'settings' ? ' on' : ''}`}
+          data-view="settings"
+          type="button"
+          onClick={() => onTabChange('settings')}
+        >
+          设置
+        </button>
       </nav>
     </header>
   );

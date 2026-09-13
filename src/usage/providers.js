@@ -128,15 +128,20 @@ export const cursor = {
   async fetch({ fetchImpl, key }) {
     const body = await getJson(fetchImpl, 'https://api2.cursor.sh/auth/usage', key);
     const windows = [];
+    let uncapped = 0;
     for (const [model, info] of Object.entries(body || {})) {
       if (!info || typeof info !== 'object' || model === 'startOfMonth') continue;
       const used = toNumber(info.numRequests);
       const limit = toNumber(info.maxRequestUsage);
-      if (used !== null && limit !== null && limit > 0) windows.push({ label: `${model}（本月请求）`, usedPercent: percent(used, limit), resetsAt: null });
+      if (used === null) continue;
+      if (limit !== null && limit > 0) windows.push({ label: `${model}（本月请求）`, usedPercent: percent(used, limit), resetsAt: null });
+      else uncapped += used;
     }
-    if (!windows.length) throw new UsageError('Cursor 没有返回带上限的用量');
     const start = typeof body.startOfMonth === 'string' ? body.startOfMonth.slice(0, 10) : '';
-    return { windows, note: start ? `本月从 ${start} 起算` : '' };
+    const from = start ? `本月从 ${start} 起算` : '';
+    // A usage-based plan reports counts with no cap; show the count instead of a bar rather than call it an error.
+    if (!windows.length) return { windows, note: [`本月已用 ${uncapped} 次请求（这个套餐没有请求上限）`, from].filter(Boolean).join('，') };
+    return { windows, note: from };
   },
 };
 

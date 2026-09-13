@@ -1,6 +1,14 @@
 import { isSafeReviewUrl } from './board';
 
-export type Tab = 'board' | 'graph' | 'threads' | 'review' | 'history';
+export type Tab =
+  | 'board'
+  | 'graph'
+  | 'threads'
+  | 'review'
+  | 'history'
+  | 'roster'
+  | 'usage'
+  | 'settings';
 
 export interface ParsedRoute {
   tab: Tab;
@@ -26,6 +34,18 @@ export function parseRoute(hash: string): ParsedRoute {
 
   if (path === '/history') {
     return { tab: 'history', threadId: null, reviewUrl: null };
+  }
+
+  if (path === '/roster') {
+    return { tab: 'roster', threadId: null, reviewUrl: null };
+  }
+
+  if (path === '/usage') {
+    return { tab: 'usage', threadId: null, reviewUrl: null };
+  }
+
+  if (path === '/settings') {
+    return { tab: 'settings', threadId: null, reviewUrl: null };
   }
 
   if (path === '/threads') {
@@ -79,6 +99,12 @@ export function formatRoute(route: {
         : '#/review';
     case 'history':
       return '#/history';
+    case 'roster':
+      return '#/roster';
+    case 'usage':
+      return '#/usage';
+    case 'settings':
+      return '#/settings';
     case 'board':
     default:
       return '#/';

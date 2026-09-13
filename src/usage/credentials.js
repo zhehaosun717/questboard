@@ -58,13 +58,17 @@ export function createCredentials({ env = process.env, homedir = os.homedir() } 
     return null;
   }
 
-  // Which sources hold a key, as booleans, for the settings page. Never the key itself.
-  function presence({ envNames = [], openCodeIds = [] }) {
+  // Which sources hold a key or login, as booleans, for the settings page. Never the secret itself.
+  function presence({ envNames = [], openCodeIds = [], oauthIds = [] }) {
     return [
       ...envNames.map((name) => ({ kind: 'env', name, present: typeof env[name] === 'string' && Boolean(env[name].trim()) })),
       ...openCodeIds.map((id) => {
         const entry = openCodeEntry(id);
         return { kind: 'opencode', name: id, present: Boolean(entry && entry.type === 'api' && typeof entry.key === 'string' && entry.key.trim()) };
+      }),
+      ...oauthIds.map((id) => {
+        const entry = openCodeEntry(id);
+        return { kind: 'opencode', name: id, present: Boolean(entry && entry.type === 'oauth' && typeof entry.access === 'string' && entry.access.trim()) };
       }),
     ];
   }

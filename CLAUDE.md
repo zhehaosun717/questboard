@@ -71,5 +71,7 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
    `public/quests.app.js` (18 vitest tests, pointer-based graph drop target). `tauri dev` verified end to
    end: starts the project's server, loads the board, closing the window stops that server. Next: component
    interaction tests, then Phase 4.
-4. Integrated tabs: message board, review pages, model config, history, settings, usage panel.
+4. ~~Integrated tabs: message board, review pages, model config, history, settings, usage panel~~ (done:
+   eight hash-routed tabs; usage reads Codex/Kimi/DeepSeek/OpenRouter/Cursor/Volcano; keys stay in server
+   memory. Antigravity and MiMo usage not yet read).
 5. Parallel run, data migration, switch the first-generation board off.
