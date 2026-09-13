@@ -76,4 +76,9 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
 4. ~~Integrated tabs: message board, review pages, model config, history, settings, usage panel~~ (done:
    eight hash-routed tabs; usage reads Codex/Kimi/DeepSeek/OpenRouter/Cursor/Volcano; keys stay in server
    memory. Antigravity and MiMo usage not yet read).
-5. Parallel run, data migration, switch the first-generation board off.
+5. ~~Parallel run, data migration, switch the first-generation board off~~ (done: the first real project
+   switched; its legacy data was read in place, no conversion. A stalled quest keeps its worker until
+   `release`).
+6. Hardening from the design review: idempotent assignment (request keys, quest revisions), ordered event
+   ids with a resumable cursor, a working generic wrapper in `examples/basic`, a `doctor` command. Then more
+   usage providers (Antigravity via its language server).
