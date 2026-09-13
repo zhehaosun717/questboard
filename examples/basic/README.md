@@ -4,9 +4,16 @@ This directory provides a minimal, working project template for `questboard`.
 
 ## Files in this example
 
-- `questboard.config.json`: The project configuration file. It defines the project name, port, data directories, brief discovery paths, policy rules, and three lanes (`codex`, `claude`, `opencode`).
+Most people should not copy this by hand — `questboard init <dir>` writes the same thing, with lanes matching
+the agent CLIs actually installed on the machine. This folder is the reference for what it produces.
+
+- `questboard.config.json`: The project configuration file. It defines the project name, port, data directories, brief discovery paths, policy rules, and three lanes (`codex`, `claude`, `claude-review`).
 - `scripts/run-worker.mjs`: A generic, cross-platform Node.js worker wrapper. It records dispatches to the registry, initializes output files, streams stdout/stderr, feeds the brief on stdin, and records exit codes.
-- `scripts/opencode-session.js`: Referenced as a placeholder in `lanes.opencode.session.run`. Session creation in OpenCode is project-specific (e.g., calling your own server or authentication endpoints to initialize a session ID). If your project does not use OpenCode sessions, you can omit the `session` block from `questboard.config.json`.
+**Lanes for other CLIs.** The lanes here are for agent CLIs that read their instructions from stdin, which is
+what the wrapper pipes (`codex exec -m <model>` with no prompt argument, `claude --print --model <model>`).
+A CLI that takes the prompt as an argument (OpenCode's `opencode run "<message>"`, Google's agy `--print=`)
+needs a lane you write yourself: either a small script of your own in `run`, or a server lane with `api`,
+`session` and `deliveryDir` — see "Project config" in the main README.
 
 ## Trying the board in five commands
 
@@ -69,10 +76,11 @@ In `questboard.config.json`, the command arguments after `--` in each lane's `"r
 ```
 
 Replace the command after `--` with your preferred tool:
-- **Codex CLI**: `codex exec -m {model} -` (the `-` reads the brief from stdin)
-- **Claude Code**: `claude --print --model {model}` (the prompt comes from stdin)
-- **OpenCode**: `opencode run`
+- **Codex CLI**: `codex exec -m {model}` — with no prompt argument it reads the brief from stdin
+- **Claude Code**: `claude --print --model {model}` — the prompt comes from stdin
 - **Custom scripts or binaries**: `python scripts/my-agent.py --model {model}`
+
+Check your CLI's `--help` for how it takes a prompt before trusting a lane you wrote.
 
 The brief is always piped to the command's stdin; it never appears on the command line. On Windows a bare
 command name is looked up on `PATH`, and npm's `.cmd` shims (`codex`, `claude`, `opencode`) are started

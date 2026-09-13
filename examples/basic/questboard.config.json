@@ -15,7 +15,7 @@
   "reviewPages": { "dir": "docs/review" },
   "lanes": {
     "codex": {
-      "run": ["node", "scripts/run-worker.mjs", "--lane", "codex", "--name", "{name}", "--brief", "{brief}", "--model", "{model}", "--variant", "{variant}", "--package", "{package}", "--", "codex", "exec", "-m", "{model}", "-"],
+      "run": ["node", "scripts/run-worker.mjs", "--lane", "codex", "--name", "{name}", "--brief", "{brief}", "--model", "{model}", "--variant", "{variant}", "--package", "{package}", "--", "codex", "exec", "-m", "{model}"],
       "outputDir": ".questboard-data/workers/codex"
     },
     "claude": {
@@ -23,10 +23,10 @@
       "outputDir": ".questboard-data/workers/claude",
       "editCounter": "stream-json"
     },
-    "opencode": {
-      "run": ["node", "scripts/run-worker.mjs", "--lane", "opencode", "--name", "{name}", "--brief", "{brief}", "--model", "{model}", "--variant", "{variant}", "--package", "{package}", "--", "opencode", "run"],
-      "env": { "OC_AGENT": "{agent}" },
-      "outputDir": ".questboard-data/workers/opencode",
+    "claude-review": {
+      "run": ["node", "scripts/run-worker.mjs", "--lane", "claude-review", "--name", "{name}", "--brief", "{brief}", "--model", "{model}", "--variant", "{variant}", "--package", "{package}", "--", "claude", "--print", "--model", "{model}"],
+      "outputDir": ".questboard-data/workers/claude-review",
+      "editCounter": "stream-json",
       "serialize": true
     }
   },

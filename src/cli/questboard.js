@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // questboard — local quest board for dispatching AI coding agents.
 //
+//   questboard init [<dir>] [--name "My Game"] [--port 6097] [--force]   (config + wrapper + brief + roster)
+//        [--lane aider="aider --model {model}"]      add a lane for your own agent CLI; repeat for more
 //   questboard serve [--project <dir>] [--port <n>]
 //   questboard post --package RUN-4 --brief docs/briefs/RUN-4-x.md [--kind code|review|art|tool|owner]
 //        [--parents A-1,B-2] [--conflicts C-3] [--lanes codex,agy] [--priority 1|2|3] [--needs-owner "question"] [--title "..."]
@@ -10,7 +12,8 @@
 //   questboard assign RUN-4 --adventurer codex-luna [--request-key run4-a] [--if-revision 3]
 //   questboard adopt RUN-3 --adventurer codex-luna --name run3      (a worker started by hand; runs nothing)
 //   questboard doctor                                               (read-only setup check)
-//   questboard card list | card status <id> <status> [--reason "..."] [--by who]
+//   questboard card list | card add --id x --name X --provider P --lane codex --model m [--family m] [--variant high]
+//   questboard card status <id> <status> [--reason "..."] [--by who]
 //   questboard roster path | roster import <old roster.json> [--force]
 //   questboard board post|reply|list|read|close|inbox [options]
 //   questboard watch [--from-start]                                 (one JSON event per line; for Monitor)

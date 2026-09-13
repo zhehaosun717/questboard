@@ -6,6 +6,13 @@ export function option(args, name) {
   return index >= 0 && index + 1 < args.length ? args[index + 1] : undefined;
 }
 
+// Every value of a flag that may be repeated, e.g. `--lane a=... --lane b=...`.
+export function optionAll(args, name) {
+  const values = [];
+  for (let index = 0; index < args.length - 1; index += 1) if (args[index] === name) values.push(args[index + 1]);
+  return values;
+}
+
 export function projectConfig(args, env = process.env) {
   const dir = option(args, '--project') || env.QUESTBOARD_PROJECT || findProjectRoot();
   if (!dir) throw new Error('no questboard.config.json here or in any parent folder; run inside a project or pass --project <dir>');

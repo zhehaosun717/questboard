@@ -22,8 +22,14 @@ It must stay **reusable across projects**: nothing project-specific in `src/`.
 | `public/` | Classic board UI (served at `/classic`, and at `/` when there is no web build) |
 | `web/` | React board app (Vite, React Flow, dagre); build output `web/dist` is served at `/` |
 | `desktop/` | Tauri 2 shell: finds or starts the project's board server, opens it in a native window |
-| `examples/` | Project configs |
+| `examples/` | Project config and the generic worker wrapper `init` copies |
 | `test/` | `node --test` suites mirroring `src/` |
+
+Setting up a new machine is one command: `questboard init <dir>` writes the config, copies the worker
+wrapper and a sample brief, and creates the roster. Lanes come from `--lane name="<command>"` — **anyone's
+own agent CLI, not a fixed list** — falling back to the CLIs it can drive and finds installed. `questboard
+card add` adds the first card without the server running, and `questboard doctor` checks the result. Keep
+that path working: it is how anyone but the author starts, and never hardcode a preferred vendor into it.
 
 ## Data layers — keep them separate
 

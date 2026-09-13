@@ -2,16 +2,26 @@
 // and `card status` work on local files so they keep working while the server restarts.
 import fs from 'node:fs';
 import path from 'node:path';
-import { option, projectConfig, serverUrl, request } from './client.js';
+import { option, optionAll, projectConfig, serverUrl, request } from './client.js';
 import { startServer } from '../server/server.js';
 import { homePaths } from '../core/home.js';
 import { splitLegacyRoster } from '../core/legacy.js';
-import { saveRoster, validateRoster } from '../core/roster.js';
+import { loadRosterOrEmpty, saveRoster, upsertAdventurer, validateRoster } from '../core/roster.js';
 import { StatusLog, validateStatusRecord } from '../core/status.js';
 import { appendJsonLine } from '../core/jsonl.js';
 import { watchEvents } from './watch.js';
 
 const out = (text) => process.stdout.write(`${text}\n`);
+
+// The first bare word, skipping flags and the values they take.
+function positional(args, flagsWithValues = []) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith('--')) return arg;
+    if (flagsWithValues.includes(arg)) index += 1;
+  }
+  return undefined;
+}
 
 function questLine(quest) {
   const who = quest.assignee ? ` <- ${quest.assignee.model} (${quest.assignee.name})` : '';
@@ -25,6 +35,30 @@ function context(args) {
 }
 
 export const commands = {
+  // Makes a folder ready to use, so a new machine needs one command instead of six.
+  async init(args) {
+    const { runInit, parseLaneFlag } = await import('./init.js');
+    const result = runInit({
+      dir: positional(args, ['--name', '--port', '--lane']),
+      name: option(args, '--name'),
+      port: option(args, '--port') ? Number(option(args, '--port')) : undefined,
+      force: args.includes('--force'),
+      extraLanes: optionAll(args, '--lane').map(parseLaneFlag),
+      home: homePaths(),
+    });
+    out(`项目已就绪：${result.root}`);
+    for (const file of result.created) out(`  + ${file}`);
+    if (result.rosterCreated) out(`  + ${result.rosterFile}（空名册）`);
+    if (result.custom.length) out(`按你指定的写了通道：${result.custom.join('、')}`);
+    if (result.detected.length) out(`检测到已安装：${result.detected.join('、')}，已写好对应通道`);
+    if (!result.custom.length && !result.detected.length) out('没检测到 codex 或 claude，先按它们写了通道；装好就能用，或者用 --lane 指定你自己的工具');
+    if (result.manual.length) out(`另外检测到 ${result.manual.join('、')}：它们不是从 stdin 读提示词，要用 --lane ${result.manual[0]}="<你的命令>" 自己指定（见 README 的 Project config 一节）`);
+    out('\n接下来：');
+    out(`  questboard card add --id my-codex --name Codex --provider OpenAI --lane ${result.lanes[0]} --model <模型 id>`);
+    out(`  questboard serve --project ${result.root}`);
+    out('  然后打开 http://127.0.0.1:' + (option(args, '--port') || 6097) + '/ ，把卡拖到任务上');
+  },
+
   async serve(args) {
     const config = projectConfig(args);
     const port = option(args, '--port') ? Number(option(args, '--port')) : undefined;
@@ -92,7 +126,28 @@ export const commands = {
       for (const a of adventurers) out(`${a.id.padEnd(20)} ${a.status.padEnd(10)} ${a.lane.padEnd(9)} ${a.model}${a.statusReason ? `  ${a.statusReason}` : ''}`);
       return;
     }
-    throw new Error('usage: questboard card list | card status <id> <available|limited|broke|paused|disabled> [--reason "..."] [--by who]');
+    // Writes the roster file directly, like `card status`, so it works before the server is running.
+    if (sub === 'add') {
+      const model = option(args, '--model');
+      const entry = {
+        id: option(args, '--id'),
+        name: option(args, '--name'),
+        provider: option(args, '--provider'),
+        lane: option(args, '--lane'),
+        model,
+        // One underlying model reached through two providers is one author; default it to the model id.
+        family: option(args, '--family') || model,
+      };
+      for (const [field, value] of Object.entries({ variant: option(args, '--variant'), agent: option(args, '--agent'), billing: option(args, '--billing'), notes: option(args, '--notes') })) {
+        if (value !== undefined) entry[field] = value;
+      }
+      if (option(args, '--max-parallel') !== undefined) entry.maxParallel = Number(option(args, '--max-parallel'));
+      if (option(args, '--strengths') !== undefined) entry.strengths = String(option(args, '--strengths')).split(',').map((s) => s.trim()).filter(Boolean);
+      saveRoster(home.roster, upsertAdventurer(loadRosterOrEmpty(home.roster), entry));
+      out(`${entry.id}  ${entry.lane}  ${entry.model} -> ${home.roster}`);
+      return;
+    }
+    throw new Error('usage: questboard card list | card add --id x --name X --provider P --lane codex --model m [--family m] [--variant high] [--agent build] [--billing subscription|plan|payg|free] [--max-parallel 1] [--strengths code,review] [--notes "..."] | card status <id> <available|limited|broke|paused|disabled> [--reason "..."] [--by who]');
   },
 
   async roster(args) {

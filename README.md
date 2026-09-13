@@ -33,41 +33,55 @@ settings) and the Tauri desktop shell all work and are tested.
 ## Quickstart
 
 ```bash
-git clone https://github.com/zhehaosun717/questboard && cd questboard && npm run setup
+git clone https://github.com/zhehaosun717/questboard && cd questboard && npm install -g . && npm run setup
 ```
 
-`npm run setup` installs and builds the board UI (`web/dist`); without it the server falls back to the
-classic single-file page. Then, in your own project:
+`npm install -g .` gives you the `questboard` command; `npm run setup` builds the board UI (`web/dist`), and
+without it the server falls back to the classic single-file page. Then set up a project — this writes the
+config, the worker wrapper, a sample brief and the machine roster in one go, with lanes matching the agent
+CLIs it finds installed:
 
 ```bash
-cp -r /path/to/questboard/examples/basic/. /path/to/your-project/
+questboard init ~/my-game
 ```
 
-That gives you `questboard.config.json`, a sample brief, and `scripts/run-worker.mjs` — a wrapper that runs
-any agent CLI and leaves the files the board watches. Create the machine-level roster once, check the setup,
-and start the board:
+Add your first card (one model you can actually run), then start the board:
 
 ```bash
-node /path/to/questboard/src/cli/questboard.js roster init
-```
-
-```bash
-node /path/to/questboard/src/cli/questboard.js doctor --project /path/to/your-project
+questboard card add --id my-codex --name Codex --provider OpenAI --lane codex --model gpt-5.6-luna --variant high
 ```
 
 ```bash
-node /path/to/questboard/src/cli/questboard.js serve --project /path/to/your-project
+questboard serve --project ~/my-game
 ```
 
-Open `http://127.0.0.1:6097/`, add your first card on the 冒险者 tab (id, name, provider, lane, model), post
-the sample quest, and drag the card onto it:
+Open `http://127.0.0.1:6097/`, post the sample quest, and drag the card onto it:
 
 ```bash
-node /path/to/questboard/src/cli/questboard.js post --package RUN-1 --brief docs/briefs/RUN-1-first-task.md --project /path/to/your-project
+questboard post --package RUN-1 --brief docs/briefs/RUN-1-first-task.md --project ~/my-game
 ```
 
-`questboard doctor` is the thing to run when something looks wrong: it checks Node, paths, lane scripts, Git
-Bash, lane APIs, the roster, key sources (presence only) and whether a board is already on the port.
+`questboard doctor --project ~/my-game` is the thing to run when something looks wrong: it checks Node,
+paths, lane scripts, Git Bash, lane APIs, the roster, key sources (presence only) and whether a board is
+already on the port.
+
+**Your own tools.** A lane is just a command, so tell `init` about whatever you use — repeat `--lane` for
+each one:
+
+```bash
+questboard init ~/my-game --lane aider="aider --model {model} --yes" --lane mytool="python tools/agent.py"
+```
+
+The brief is piped to that command's stdin and `{model} {variant} {name} {package}` are filled in. Without
+`--lane`, `init` writes lanes for the CLIs it knows how to drive and finds installed (`codex exec -m
+<model>`, `claude --print --model <model>`), and names any other CLI it found (OpenCode, agy, Gemini,
+cursor-agent) so you can add it with `--lane`. Check your CLI's `--help` for how it takes a prompt: a tool
+that wants the prompt as an argument, or needs a session first, needs a small script of your own in `run` —
+see "Project config" below.
+
+Prefer not to touch a terminal? `desktop/` builds a Windows installer that bundles the server and the UI, so
+the only requirement on the machine is Node 22 — but the app still opens a project folder, so run
+`questboard init` once first.
 
 ## Three kinds of data
 
