@@ -93,3 +93,7 @@ stay in the bundle resources (`desktop/src-tauri/tauri.bundle.json`) or setup fr
    ids with a resumable cursor, a working generic wrapper in `examples/basic`, a `doctor` command~~ (done).
    Antigravity usage reads the local language server (`src/usage/antigravity.js`). Next: component
    interaction tests; more providers as the owner adds them (GLM, MiniMax, Qwen).
+7. From using it: a ruling closes the question threads it answers; a card may carry its own non-secret `env`
+   so one lane serves several providers; the 设置 page edits the whole project config (validated with
+   `resolveConfig` before writing, timestamped backup, restart required). A lane's `run` is a list of
+   arguments — never join and re-split it on whitespace, `{package} {name}` is one argument.
