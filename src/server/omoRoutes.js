@@ -1,5 +1,5 @@
 // OMO model assignments: GET /api/omo, POST /api/omo (save), GET /api/omo/models (from `opencode models`).
-import { LOCAL_HOSTS, readJsonBody, sendJson, writeRefusal } from './http.js';
+import { LOCAL_HOSTS, crossSiteRefusal, readJsonBody, sendJson, writeRefusal } from './http.js';
 import { omoConfigFile, parseModelList, readOmo, saveOmo } from '../integrations/omo.js';
 import { runCommand } from '../usage/common.js';
 
@@ -14,7 +14,11 @@ export function createOmoRoutes({ file = omoConfigFile(), exec = runCommand, now
     if (!LOCAL_HOSTS.has(hostname)) { sendJson(response, 403, { error: `host ${hostname || '(none)'} is not local` }); return true; }
     try {
       if (url.pathname === '/api/omo/models' && request.method === 'GET') {
-        if (url.searchParams.get('refresh') === '1' || !models || now() - models.at > MODELS_CACHE_MS) {
+        const refresh = url.searchParams.get('refresh') === '1';
+        // Listing models runs a CLI; a page from another site must not be able to start it.
+        const refusal = refresh ? crossSiteRefusal(request) : null;
+        if (refusal) { sendJson(response, 403, { error: refusal }); return true; }
+        if (refresh || !models || now() - models.at > MODELS_CACHE_MS) {
           models = { at: now(), list: parseModelList(await exec('opencode', ['models'], { timeoutMs: 90000 })) };
         }
         sendJson(response, 200, { models: models.list });

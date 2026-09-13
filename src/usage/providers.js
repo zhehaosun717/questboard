@@ -2,7 +2,7 @@
 // line; a provider that cannot be read says why in plain words.
 import fs from 'node:fs';
 import path from 'node:path';
-import { UsageError, getJson, isoOrNull, parseJsonDocuments, percent, toNumber, windowLabel } from './common.js';
+import { CURRENCY_PATTERN, UsageError, getJson, isoOrNull, parseJsonDocuments, percent, safeLabel, toNumber, windowLabel } from './common.js';
 
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
   .flatMap((entry) => (entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]));
@@ -76,7 +76,7 @@ export const deepseek = {
   async fetch({ fetchImpl, key }) {
     const body = await getJson(fetchImpl, 'https://api.deepseek.com/user/balance', key);
     const balances = (Array.isArray(body.balance_infos) ? body.balance_infos : [])
-      .filter((b) => b && typeof b.currency === 'string' && toNumber(b.total_balance) !== null)
+      .filter((b) => b && safeLabel(b.currency, CURRENCY_PATTERN) && toNumber(b.total_balance) !== null)
       .map((b) => ({ currency: b.currency, amount: toNumber(b.total_balance) }));
     if (!balances.length) throw new UsageError('DeepSeek 返回的数据里没有余额');
     return { balances, note: body.is_available === false ? '余额不足，现在不能调用' : '' };
@@ -114,7 +114,7 @@ export const volcano = {
       const login = item.error.match(/arkcli auth login [\w-]+/);
       throw new UsageError(login ? `arkcli 需要先登录：在终端运行 ${login[0]}` : 'arkcli 没能查到套餐（运行 arkcli usage plan 看原因）');
     }
-    return { plan: `${item.edition || '未知版本'} · ${item.subscribed ? '已订阅' : '未订阅'}`, note: 'arkcli 只给订阅状态，不给用量数字' };
+    return { plan: `${safeLabel(item.edition) || '未知版本'} · ${item.subscribed === true ? '已订阅' : '未订阅'}`, note: 'arkcli 只给订阅状态，不给用量数字' };
   },
 };
 
@@ -130,7 +130,7 @@ export const cursor = {
     const windows = [];
     let uncapped = 0;
     for (const [model, info] of Object.entries(body || {})) {
-      if (!info || typeof info !== 'object' || model === 'startOfMonth') continue;
+      if (!info || typeof info !== 'object' || model === 'startOfMonth' || !safeLabel(model)) continue;
       const used = toNumber(info.numRequests);
       const limit = toNumber(info.maxRequestUsage);
       if (used === null) continue;

@@ -101,7 +101,9 @@ export function resolveConfig(root, raw) {
     reviewPages: raw.reviewPages ? { dir: abs(raw.reviewPages.dir, 'reviewPages.dir'), filePattern: regex(raw.reviewPages.filePattern || '^review_.+\\.html$', 'reviewPages.filePattern') } : null,
     verification: raw.verification ? { progressDirs: stringList(raw.verification.progressDirs, 'verification.progressDirs', []).map((dir) => path.resolve(base, dir)) } : null,
     bash: raw.bash === undefined ? null : requireString(raw.bash, 'bash'),
-    lanes: Object.fromEntries(Object.entries(raw.lanes).map(([id, lane]) => [id, validateLane(id, lane)])),
+    // No prototype: `config.lanes[name]` is asked with names from briefs, rosters and requests, and
+    // "constructor" must not count as a lane.
+    lanes: Object.assign(Object.create(null), Object.fromEntries(Object.entries(raw.lanes).map(([id, lane]) => [id, validateLane(id, lane)]))),
     policy: {
       bannedModelPatterns: stringList(raw.policy && raw.policy.bannedModelPatterns, 'policy.bannedModelPatterns', []),
       bannedAgents: stringList(raw.policy && raw.policy.bannedAgents, 'policy.bannedAgents', []),

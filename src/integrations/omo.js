@@ -16,17 +16,19 @@ export function omoConfigFile({ env = process.env, homedir = os.homedir() } = {}
   return env.OMO_CONFIG ? path.resolve(env.OMO_CONFIG) : path.join(homedir, '.omo', 'omo.jsonc');
 }
 
-// Removes // and /* */ comments outside strings, then trailing commas.
+// Removes // and /* */ comments and trailing commas, both only outside strings.
 export function stripJsonc(source) {
   let out = '';
   let inString = false;
   let escaped = false;
   let line = false;
   let block = false;
+  // A comma seen outside a string is held back until the next real character says whether it was trailing.
+  let heldComma = '';
   for (let i = 0; i < source.length; i += 1) {
     const c = source[i];
     const next = source[i + 1];
-    if (line) { if (c === '\n') { line = false; out += c; } continue; }
+    if (line) { if (c === '\n') { line = false; heldComma += c; } continue; }
     if (block) { if (c === '*' && next === '/') { block = false; i += 1; } continue; }
     if (inString) {
       out += c;
@@ -35,12 +37,18 @@ export function stripJsonc(source) {
       else if (c === '"') inString = false;
       continue;
     }
-    if (c === '"') { inString = true; out += c; continue; }
     if (c === '/' && next === '/') { line = true; i += 1; continue; }
     if (c === '/' && next === '*') { block = true; i += 1; continue; }
+    if (heldComma) {
+      if (/\s/.test(c)) { heldComma += c; continue; }
+      out += c === '}' || c === ']' ? heldComma.slice(1) : heldComma;
+      heldComma = '';
+    }
+    if (c === ',') { heldComma = ','; continue; }
+    if (c === '"') inString = true;
     out += c;
   }
-  return out.replace(/,(\s*[}\]])/g, '$1');
+  return out + heldComma;
 }
 
 function readRaw(file) {
@@ -112,12 +120,13 @@ export function saveOmo(file, items, { now = Date.now() } = {}) {
   return readOmo(file);
 }
 
-// `opencode models` prints one provider/model per line.
+// `opencode models` prints one provider/model per line. Only lines that look exactly like an id are kept, so
+// nothing else the CLI prints (a warning, a URL) reaches the page.
 export function parseModelList(text) {
   const seen = new Set();
   for (const line of String(text).split(/\r?\n/)) {
-    const match = line.trim().match(/^([^\s/]+\/\S+)$/);
-    if (match) seen.add(match[1]);
+    const candidate = line.trim();
+    if (MODEL_PATTERN.test(candidate) && candidate.length <= 200) seen.add(candidate);
   }
   return [...seen];
 }

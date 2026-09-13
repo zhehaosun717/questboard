@@ -6,11 +6,11 @@ import path from 'node:path';
 import { tmpDir } from '../helpers.js';
 import { createUsageService } from '../../src/usage/service.js';
 import { codex, cursor, deepseek, kimi, openrouter, siliconflow, volcano } from '../../src/usage/providers.js';
-import { parseJsonDocuments, windowLabel } from '../../src/usage/common.js';
+import { childEnvironment, parseJsonDocuments, runCommand, windowLabel } from '../../src/usage/common.js';
 import { createUsageRoutes } from '../../src/server/usageRoutes.js';
 import { routeParts } from '../../src/server/http.js';
 
-const SECRET = 'sk-test-secret-0123456789abcdef';
+const SECRET = 'sk-test-secret-0123456789abcdef0123456789abcdef';
 
 function fakeHome({ auth, codexLines } = {}) {
   const homedir = tmpDir('qb-usage-home-');
@@ -146,6 +146,28 @@ describe('usage providers', () => {
     assert.match(c.note, /12 次请求/);
   });
 
+  it('drops response strings that do not look like what they claim to be', async () => {
+    const homedir = fakeHome({ auth: { deepseek: { type: 'api', key: 'k' }, cursor: { type: 'oauth', access: SECRET, expires: Date.now() + 3600000 } } });
+    const fetchImpl = async (url) => (url.includes('deepseek')
+      ? json(200, { balance_infos: [{ currency: `Bearer ${SECRET}`, total_balance: '1' }, { currency: 'CNY', total_balance: '2' }] })
+      : json(200, { [`Bearer ${SECRET}`]: { numRequests: 1, maxRequestUsage: 10 }, 'gpt-4': { numRequests: 1, maxRequestUsage: 10 } }));
+    const report = await createUsageService({ homedir, env: {}, fetchImpl, providers: [deepseek, cursor] }).report();
+    assert.deepEqual(report.providers[0].balances, [{ currency: 'CNY', amount: 2 }]);
+    assert.deepEqual(report.providers[1].windows.map((w) => w.label), ['gpt-4（本月请求）']);
+    assert.ok(!JSON.stringify(report).includes(SECRET));
+    const output = `{"items":[{"product":"coding-plan","edition":"x ${SECRET} y","subscribed":true,"error":""}]}`;
+    const [v] = (await createUsageService({ homedir: fakeHome(), env: {}, exec: async () => output, providers: [volcano] }).report()).providers;
+    assert.equal(v.plan, '未知版本 · 已订阅');
+  });
+
+  it('runs CLIs with a minimal environment and trusts nothing from a failed run', async () => {
+    assert.deepEqual(Object.keys(childEnvironment({ PATH: 'p', Path: 'p', OPENAI_API_KEY: 'x', DEEPSEEK_API_KEY: 'y', HOME: 'h' })).sort(), ['HOME', 'PATH', 'Path']);
+    const env = { ...process.env, QB_CANARY_SECRET: SECRET };
+    const printed = await runCommand('node', ['-e', '"process.stdout.write(JSON.stringify(Object.keys(process.env)))"'], { env });
+    assert.ok(!printed.includes('QB_CANARY_SECRET'));
+    await assert.rejects(runCommand('node', ['-e', '"process.stdout.write(\'partial\');process.exit(2)"']), /退出码 2/);
+  });
+
   it('labels windows and splits concatenated JSON documents', () => {
     assert.deepEqual([windowLabel(300), windowLabel(10080), windowLabel(90), windowLabel(null)], ['5 小时', '7 天', '90 分钟', '额度窗口']);
     assert.deepEqual(parseJsonDocuments('noise {"a":"}"} text [1,2]'), [{ a: '}' }, [1, 2]]);
@@ -176,5 +198,11 @@ describe('usage route', () => {
     assert.equal(ok.status, 200);
     assert.equal(JSON.parse(ok.text).refresh, true);
     assert.equal((await request('/api/usage', { host: 'evil.example:6097' })).status, 403);
+  });
+
+  it('lets another site read the cached report but not force a refresh', async () => {
+    const crossSite = { 'sec-fetch-site': 'cross-site', origin: 'http://evil.example' };
+    assert.equal((await request('/api/usage', crossSite)).status, 200);
+    assert.equal((await request('/api/usage?refresh=1', crossSite)).status, 403);
   });
 });

@@ -26,6 +26,7 @@ describe('roster writes', () => {
     assert.equal(withStatus.status, 400);
     assert.match(withStatus.body.error, /status field/);
     assert.equal((await fx.api('/api/roster', 'POST', { adventurer: { ...NEW_CARD, lane: 'nowhere' } })).status, 400);
+    assert.equal((await fx.api('/api/roster', 'POST', { adventurer: { ...NEW_CARD, lane: 'constructor' } })).status, 400, 'an object prototype key is not a lane');
     assert.equal((await fx.api('/api/roster', 'POST', { adventurer: NEW_CARD }, { origin: 'http://evil.example' })).status, 403);
   });
 
@@ -58,6 +59,7 @@ describe('OMO model assignments', () => {
     const file = path.join(dir, 'omo.jsonc');
     fs.writeFileSync(file, sample);
     assert.equal(JSON.parse(stripJsonc('{"a":"// not a comment",}')).a, '// not a comment');
+    assert.deepEqual(JSON.parse(stripJsonc('{"x": ",}", "y": [1, /* c */ 2,], } // end')), { x: ',}', y: [1, 2] });
     const before = readOmo(file);
     assert.deepEqual(before.agents, [{ name: 'oracle', model: 'openai/gpt-5.6-luna', reasoning: 'high' }]);
     const after = saveOmo(file, [
@@ -78,7 +80,7 @@ describe('OMO model assignments', () => {
     assert.match(validateOmoItems([{ section: 'tools', name: 'x', model: '', reasoning: '' }]), /section/);
     assert.match(validateOmoItems([{ section: 'agents', name: 'oracle', model: 'no-slash', reasoning: '' }]), /provider\/model/);
     assert.match(validateOmoItems([{ section: 'agents', name: 'oracle', model: 'a/b', reasoning: 'turbo' }]), /reasoning/);
-    assert.deepEqual(parseModelList('Available models:\nopenai/gpt-5.6-luna\r\n  deepseek/deepseek-v4 \nopenai/gpt-5.6-luna\nnot a model'), ['openai/gpt-5.6-luna', 'deepseek/deepseek-v4']);
+    assert.deepEqual(parseModelList('Available models:\nopenai/gpt-5.6-luna\r\n  deepseek/deepseek-v4 \nopenai/gpt-5.6-luna\nnot a model\nhttps://example.test/path?token=abc\nweird/`rm -rf`'), ['openai/gpt-5.6-luna', 'deepseek/deepseek-v4']);
   });
 });
 
@@ -115,6 +117,10 @@ describe('OMO and settings routes', () => {
       assert.deepEqual((await call('/api/omo/models')).body.models, ['a/b', 'c/d']);
       await call('/api/omo/models');
       assert.equal(runs, 1);
+      assert.equal((await call('/api/omo/models?refresh=1', { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403, 'another site cannot start the CLI');
+      assert.equal(runs, 1);
+      await call('/api/omo/models?refresh=1');
+      assert.equal(runs, 2);
     });
   });
 

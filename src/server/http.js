@@ -45,6 +45,13 @@ export function readJsonBody(request, limit = 1024 * 1024) {
 // 127.0.0.1, so a write must be JSON (forcing a preflight this server never answers), same-origin, and
 // addressed to a local host name (DNS rebinding).
 export function writeRefusal(request) {
+  return crossSiteRefusal(request)
+    || (String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json') ? null : 'content-type must be application/json');
+}
+
+// The same-origin part alone, for GETs with side effects (a refresh that calls providers or runs a CLI): a
+// web page elsewhere cannot read the answer, but it should not be able to trigger the work either.
+export function crossSiteRefusal(request) {
   const host = String(request.headers.host || '');
   const [hostname, port] = host.split(':');
   if (!LOCAL_HOSTS.has(hostname)) return `host ${host || '(none)'} is not local`;
@@ -56,7 +63,6 @@ export function writeRefusal(request) {
     try { parsed = new URL(origin); } catch { parsed = null; }
     if (!parsed || !LOCAL_HOSTS.has(parsed.hostname) || (parsed.port || '80') !== (port || '80')) return `origin ${origin} refused`;
   }
-  if (!String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) return 'content-type must be application/json';
   return null;
 }
 

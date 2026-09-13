@@ -24,6 +24,16 @@ export function percent(used, limit) {
   return Math.max(0, Math.min(100, Math.round((used / limit) * 1000) / 10));
 }
 
+// Strings copied from a response or a CLI into the page must look like the thing they claim to be; anything
+// else (a token echoed by a proxy, a long error) is dropped.
+export const CURRENCY_PATTERN = /^[A-Z]{3}$/;
+// One word, at most 32 characters: model ids and plan names fit, tokens and sentences do not.
+export const SHORT_LABEL_PATTERN = /^[A-Za-z0-9][\w.\-]{0,31}$/;
+
+export function safeLabel(value, pattern = SHORT_LABEL_PATTERN) {
+  return typeof value === 'string' && pattern.test(value) ? value : null;
+}
+
 export function isoOrNull(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return new Date(value * 1000).toISOString();
   if (typeof value === 'string' && Number.isFinite(Date.parse(value))) return new Date(value).toISOString();
@@ -80,16 +90,28 @@ export function parseJsonDocuments(text) {
   return docs;
 }
 
+// The child gets only what it needs to find its own config and binaries — never the API keys that may sit in
+// this process's environment, so a chatty CLI cannot echo them into output we parse.
+const CHILD_ENV_NAMES = new Set(['PATH', 'PATHEXT', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', 'USER', 'USERNAME', 'SHELL', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME']);
+
+export function childEnvironment(env = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => CHILD_ENV_NAMES.has(name.toUpperCase())));
+}
+
 // Runs a fixed CLI command (never user input). On Windows npm installs CLIs as .cmd shims, which need cmd.exe.
-export function runCommand(command, args, { timeoutMs = 30000 } = {}) {
+// A failed command yields nothing: partial output is not trusted.
+export function runCommand(command, args, { timeoutMs = 30000, env = process.env } = {}) {
   return new Promise((resolve, reject) => {
     const windows = process.platform === 'win32';
-    const file = windows ? process.env.ComSpec || 'cmd.exe' : command;
-    const argv = windows ? ['/d', '/s', '/c', [command, ...args].join(' ')] : args;
-    execFile(file, argv, { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error && !String(stdout).trim()) {
-        const missing = error.code === 'ENOENT' || /not recognized|not found/i.test(String(stderr));
-        reject(new UsageError(missing ? `找不到 ${command} 命令` : `${command} 运行失败`));
+    const file = windows ? env.ComSpec || 'cmd.exe' : command;
+    // Verbatim on Windows: Node would otherwise re-quote the joined line and cmd.exe would run something else.
+    // `/s` makes cmd strip exactly the outer quotes we add here.
+    const argv = windows ? ['/d', '/s', '/c', `"${[command, ...args].join(' ')}"`] : args;
+    const options = { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024, env: childEnvironment(env), windowsVerbatimArguments: windows };
+    execFile(file, argv, options, (error, stdout, stderr) => {
+      if (error) {
+        const missing = error.code === 'ENOENT' || /not recognized|not found|不是内部或外部命令/i.test(String(stderr));
+        reject(new UsageError(missing ? `找不到 ${command} 命令` : `${command} 运行失败（退出码 ${error.code ?? '?'}）`));
         return;
       }
       resolve(String(stdout));
