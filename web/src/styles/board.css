@@ -243,7 +243,12 @@ textarea:focus, select:focus, input:focus { outline: 2px solid var(--amber); out
 .btn.primary:active { transform: rotate(-1.5deg) translate(2px, 2px); box-shadow: 1px 1px 0 #000; }
 .btn.primary:disabled { opacity: .5; cursor: progress; }
 .btn.danger { color: #f3a594; background: transparent; border-color: var(--blood); box-shadow: none; }
-.btn.ghost { color: var(--ink); background: transparent; border: 1px solid var(--ink); box-shadow: none; }
+/* Ghost buttons sit on two grounds. Default to the dark steel chrome (thread header, review bar, settings,
+   lane cards), where the old ink-on-black was unreadable; the cream paper modal re-darkens them below. */
+.btn.ghost { color: var(--cream); background: transparent; border: 1px solid var(--rivet); box-shadow: none; }
+.btn.ghost:hover { color: var(--tag); border-color: var(--cable); }
+.order .btn.ghost { color: var(--ink); border-color: var(--ink); }
+.order .btn.ghost:hover { color: var(--ink); border-color: var(--ink-soft); }
 
 /* ── modal = paper work order ────────────────────────────── */
 .modal-back { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(8, 6, 4, .74); backdrop-filter: blur(2px); }

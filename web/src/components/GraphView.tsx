@@ -7,6 +7,7 @@ import type { Quest, QuestStatus, Snapshot } from '../api/types';
 import { isQueueOnly } from '../lib/board';
 import { questAtPoint } from '../lib/graphHit';
 import { buildGraph } from '../lib/graphLayout';
+import { type PlacedCard, placedCardNodes } from '../lib/graphPlaced';
 import { NODE_COLORS, OPEN_STATUSES } from '../lib/labels';
 import { CardNode } from './CardNode';
 import { QuestNode } from './QuestNode';
@@ -44,6 +45,10 @@ function getEventClientPos(event: React.MouseEvent | MouseEvent | TouchEvent): {
 
 const nodeTypes = { quest: QuestNode, card: CardNode };
 
+// The box dagre lays out in graphLayout, so a dropped model lands centred under the cursor.
+const NODE_WIDTH = 180;
+const NODE_HEIGHT = 50;
+
 function GraphViewInner({
   snap,
   questIds,
@@ -69,6 +74,9 @@ function GraphViewInner({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [intersectingQuests, setIntersectingQuests] = useState<Record<string, string>>({});
+  // Models the owner dropped on empty canvas: buildGraph only knows cards that already dispatched something,
+  // so without these a model that has never worked has no node to drag onto a quest.
+  const [placedCards, setPlacedCards] = useState<PlacedCard[]>([]);
 
   const layoutPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const currentIntersectionRef = useRef<Record<string, string>>({});
@@ -84,25 +92,29 @@ function GraphViewInner({
   }, [compact, showConflicts, graphData.edges]);
 
   useEffect(() => {
-    for (const n of graphData.nodes) {
+    const laidOut = graphData.nodes.map((node) => {
+      if (node.type === 'quest') {
+        const dropClass = intersectingQuests[node.id] || '';
+        return {
+          ...node,
+          draggable: false,
+          className: dropClass,
+          data: { ...node.data, dropClass, onSelect: onSelectQuest },
+        };
+      }
+      return { ...node, draggable: true };
+    });
+    const placed = placedCardNodes(
+      placedCards,
+      snap.roster,
+      new Set(graphData.nodes.map((n) => n.id)),
+    );
+    for (const n of [...graphData.nodes, ...placed]) {
       layoutPositionsRef.current.set(n.id, { ...n.position });
     }
-    setNodes(
-      graphData.nodes.map((node) => {
-        if (node.type === 'quest') {
-          const dropClass = intersectingQuests[node.id] || '';
-          return {
-            ...node,
-            draggable: false,
-            className: dropClass,
-            data: { ...node.data, dropClass, onSelect: onSelectQuest },
-          };
-        }
-        return { ...node, draggable: true };
-      }),
-    );
+    setNodes([...laidOut, ...placed]);
     setEdges(visibleEdges);
-  }, [graphData, onSelectQuest, intersectingQuests, setNodes, setEdges, visibleEdges]);
+  }, [graphData, onSelectQuest, intersectingQuests, placedCards, snap.roster, setNodes, setEdges, visibleEdges]);
 
   // fitView does nothing until React Flow has measured the nodes, so wait for that before fitting.
   useEffect(() => {
@@ -169,9 +181,17 @@ function GraphViewInner({
       const cardId = event.dataTransfer.getData('text/plain') || pickingCardId || '';
       if (!cardId) return;
       const questId = questUnderPointer(event.clientX, event.clientY);
-      if (questId) onOpenWorkOrder(questId, cardId);
+      if (questId) {
+        onOpenWorkOrder(questId, cardId);
+        return;
+      }
+      // Empty canvas: put the model on the graph, so it can be dragged onto a quest from here.
+      const point = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const x = Math.round(point.x - NODE_WIDTH / 2);
+      const y = Math.round(point.y - NODE_HEIGHT / 2);
+      setPlacedCards((prev) => [...prev.filter((p) => p.cardId !== cardId), { cardId, x, y }]);
     },
-    [clearGuildHighlight, onOpenWorkOrder, pickingCardId, questUnderPointer],
+    [clearGuildHighlight, onOpenWorkOrder, pickingCardId, questUnderPointer, reactFlow],
   );
 
   const handleNodeDragStart = useCallback(
@@ -256,14 +276,29 @@ function GraphViewInner({
         onOpenWorkOrder(targetQuestId, node.id);
       }
 
+      // A node the owner placed stays where they drag it; one dagre laid out springs back to its slot.
+      if (!targetQuestId && placedCards.some((p) => p.cardId === node.id)) {
+        const x = Math.round(node.position.x);
+        const y = Math.round(node.position.y);
+        layoutPositionsRef.current.set(node.id, { x, y });
+        setPlacedCards((prev) => prev.map((p) => (p.cardId === node.id ? { ...p, x, y } : p)));
+        return;
+      }
+
       const orig = layoutPositionsRef.current.get(node.id);
       if (orig) {
         setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, position: { ...orig } } : n)));
         reactFlow.updateNode(node.id, { position: { ...orig } });
       }
     },
-    [onOpenWorkOrder, reactFlow, setDragging, setNodes],
+    [onOpenWorkOrder, placedCards, reactFlow, setDragging, setNodes],
   );
+
+  // Removing a placed node must forget the placement too, or the next recompute would put it straight back.
+  const handleNodesDelete = useCallback((deleted: Node[]) => {
+    const ids = new Set(deleted.map((n) => n.id));
+    setPlacedCards((prev) => prev.filter((p) => !ids.has(p.cardId)));
+  }, []);
 
   if (targetQuestIds.length === 0) {
     return (
@@ -283,6 +318,7 @@ function GraphViewInner({
       onNodeClick={(_event, node) => {
         if (node.type === 'quest') onSelectQuest(node.id);
       }}
+      onNodesDelete={handleNodesDelete}
       onNodeDragStart={handleNodeDragStart}
       onNodeDrag={handleNodeDrag}
       onNodeDragStop={handleNodeDragStop}
@@ -326,6 +362,7 @@ function GraphViewInner({
       >
         <span>
           实线：父任务 → 子任务（编码 → 审核 → 修复）。虚线：冒险者做过的委托，绿色表示正在做。红点线：文件冲突。点节点看档案。
+          把名册里的卡拖到空白处，就能把这个模型放上图；再拖到委托上派工，选中按 Delete 移走。
         </span>
         <button
           type="button"

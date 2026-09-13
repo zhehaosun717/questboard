@@ -6,6 +6,7 @@ interface RosterCardTableProps {
   cards: Card[];
   onOpenStatus: (card: Card) => void;
   onEdit: (card: Card) => void;
+  onDuplicate: (card: Card) => void;
   onDelete: (card: Card) => void;
 }
 
@@ -13,6 +14,7 @@ export function RosterCardTable({
   cards,
   onOpenStatus,
   onEdit,
+  onDuplicate,
   onDelete,
 }: RosterCardTableProps) {
   if (cards.length === 0) {
@@ -126,6 +128,15 @@ export function RosterCardTable({
                       onClick={() => onEdit(card)}
                     >
                       编辑
+                    </button>
+                    <button
+                      className="btn action-btn"
+                      type="button"
+                      disabled={isDerived}
+                      title={isDerived ? '由通道数据推断，不在名册里' : '照这张工牌再开一张，只改要改的'}
+                      onClick={() => onDuplicate(card)}
+                    >
+                      复制
                     </button>
                     <button
                       className="btn action-btn danger-text"

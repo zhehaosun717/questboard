@@ -17,6 +17,7 @@ export function RosterView({ snap, refresh, pushToast }: RosterViewProps) {
   const [formModal, setFormModal] = useState<{
     isOpen: boolean;
     card?: Card;
+    duplicate?: boolean;
   }>({ isOpen: false });
   const [deleteCard, setDeleteCard] = useState<Card | null>(null);
 
@@ -52,6 +53,7 @@ export function RosterView({ snap, refresh, pushToast }: RosterViewProps) {
           cards={snap.roster ?? []}
           onOpenStatus={setStatusCard}
           onEdit={(card) => setFormModal({ isOpen: true, card })}
+          onDuplicate={(card) => setFormModal({ isOpen: true, card, duplicate: true })}
           onDelete={setDeleteCard}
         />
       </section>
@@ -76,12 +78,15 @@ export function RosterView({ snap, refresh, pushToast }: RosterViewProps) {
       {formModal.isOpen ? (
         <RosterCardFormModal
           card={formModal.card}
+          duplicate={formModal.duplicate}
           lanes={lanes}
           onClose={() => setFormModal({ isOpen: false })}
           onSuccess={() => {
             setFormModal({ isOpen: false });
             refresh();
-            pushToast(formModal.card ? '已保存冒险者' : '已添加新冒险者');
+            pushToast(
+              formModal.card && !formModal.duplicate ? '已保存冒险者' : '已添加新冒险者',
+            );
           }}
         />
       ) : null}

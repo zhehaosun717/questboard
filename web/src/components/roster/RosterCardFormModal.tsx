@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { api } from '../../api/client';
 import type { Card } from '../../api/types';
 import { BILLING } from '../../lib/labels';
-import { type CardFormValues, validateCardForm } from '../../lib/rosterForm';
+import { type CardFormValues, suggestDuplicateId, validateCardForm } from '../../lib/rosterForm';
 
 interface RosterCardFormModalProps {
   card?: Card;
+  // Open the form filled from `card` but as a new card: every field is kept, only the id has to change.
+  duplicate?: boolean;
   lanes: string[];
   onClose: () => void;
   onSuccess: () => void;
@@ -13,13 +15,15 @@ interface RosterCardFormModalProps {
 
 export function RosterCardFormModal({
   card,
+  duplicate,
   lanes,
   onClose,
   onSuccess,
 }: RosterCardFormModalProps) {
-  const isNew = !card;
+  const isDuplicate = Boolean(duplicate && card);
+  const isNew = !card || isDuplicate;
 
-  const [id, setId] = useState(card?.id ?? '');
+  const [id, setId] = useState(card && isDuplicate ? suggestDuplicateId(card.id) : card?.id ?? '');
   const [name, setName] = useState(card?.name ?? '');
   const [provider, setProvider] = useState(card?.provider ?? '');
   const [lane, setLane] = useState(card?.lane ?? (lanes[0] ?? ''));
@@ -63,6 +67,12 @@ export function RosterCardFormModal({
       env,
     };
 
+    // Saving upserts by id, so reusing the source id would overwrite the card being copied.
+    if (isDuplicate && card && id.trim() === card.id) {
+      setErrors({ id: '复制出来的 ID 要和原工牌不同，否则会覆盖原来那张' });
+      return;
+    }
+
     const validated = validateCardForm(values, lanes);
     if (!validated.value) {
       setErrors(validated.errors);
@@ -90,9 +100,15 @@ export function RosterCardFormModal({
         onClick={(e) => e.stopPropagation()}
       >
         <p className="eyebrow">
-          {isNew ? 'NEW ADVENTURER · 录入档案' : 'EDIT ADVENTURER · 修改档案'}
+          {!card
+            ? 'NEW ADVENTURER · 录入档案'
+            : isDuplicate
+              ? 'DUPLICATE ADVENTURER · 照着再开一张'
+              : 'EDIT ADVENTURER · 修改档案'}
         </p>
-        <h2 id="cardFormTitle">{isNew ? '新冒险者' : `编辑「${card.name}」`}</h2>
+        <h2 id="cardFormTitle">
+          {!card ? '新冒险者' : isDuplicate ? `复制「${card.name}」` : `编辑「${card.name}」`}
+        </h2>
 
         {serverError ? (
           <div className="warn-tape roster-server-error">{serverError}</div>
@@ -101,7 +117,7 @@ export function RosterCardFormModal({
         <form onSubmit={handleSubmit} className="roster-form-body">
           <div className="form-field">
             <label htmlFor="card-id">
-              ID（小写字母、数字、连字符，不可修改）
+              ID（小写字母、数字、连字符{isNew ? '' : '，不可修改'}）
               {errors.id ? <span className="field-error"> · {errors.id}</span> : null}
             </label>
             <input
@@ -112,6 +128,11 @@ export function RosterCardFormModal({
               placeholder="例如 deepseek-v3"
               onChange={(e) => setId(e.target.value)}
             />
+            {isDuplicate && card ? (
+              <p className="hint">
+                照「{card.name}」复制，其余字段都填好了；改完 ID 和名称就能入册。
+              </p>
+            ) : null}
           </div>
 
           <div className="form-grid-2">

@@ -155,6 +155,9 @@ export const siliconflow = {
 
 export const antigravity = createAntigravityProvider();
 
-export const mimo = { id: 'mimo', name: '小米 MiMo', source: 'api', unavailable: '小米 MiMo 平台没有查用量或余额的接口，只能从 worker 报错里看' };
+// The balance page calls an endpoint that does report the Token Plan, but it authenticates with the browser
+// login cookie — not the API key — and the board does not read browser cookies, so say that rather than
+// claiming no endpoint exists.
+export const mimo = { id: 'mimo', name: '小米 MiMo', source: 'api', unavailable: '小米 MiMo 要用浏览器登录的 cookie 才能查，API key 查不了；看板还没有接这个来源' };
 
 export const PROVIDERS = [codex, kimi, deepseek, openrouter, cursor, antigravity, volcano, siliconflow, mimo];

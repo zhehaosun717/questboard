@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { parseCardEnv, validateCardForm } from './rosterForm';
+import { parseCardEnv, suggestDuplicateId, validateCardForm } from './rosterForm';
+
+describe('suggestDuplicateId', () => {
+  it('adds -2, then counts up, so a copy never reuses the id it was copied from', () => {
+    expect(suggestDuplicateId('deepseek-v3')).toBe('deepseek-v3-2');
+    expect(suggestDuplicateId('codex-2')).toBe('codex-3');
+    expect(suggestDuplicateId('codex-9')).toBe('codex-10');
+  });
+
+  it('keeps the result inside the 48 character id limit', () => {
+    const suggested = suggestDuplicateId('a'.repeat(48));
+    expect(suggested).toHaveLength(48);
+    expect(suggested.endsWith('-2')).toBe(true);
+  });
+});
 
 describe('rosterForm validation', () => {
   const lanes = ['code', 'review', 'art'];

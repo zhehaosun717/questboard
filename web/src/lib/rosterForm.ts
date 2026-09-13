@@ -23,6 +23,7 @@ export interface ValidationResult {
 
 const VALID_BILLINGS = new Set(['subscription', 'plan', 'payg', 'free']);
 const ID_PATTERN = /^[a-z0-9-]+$/;
+const MAX_ID_LENGTH = 48;
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 // The same shapes the server refuses, so the owner is told before sending rather than after.
 const LOOKS_LIKE_A_SECRET = /^(sk-|sk_|ghp_|gho_|github_pat_|xox[baprs]-|AIza|AKIA|glpat-)/;
@@ -46,6 +47,16 @@ export function parseCardEnv(text: string): { env: Record<string, string>; error
   return { env, error: null };
 }
 
+// Duplicating a card must not reuse its id: saving upserts by id, so the same id would overwrite the source
+// instead of adding a card. `codex-2` becomes `codex-3`; anything else gains `-2`.
+export function suggestDuplicateId(id: string): string {
+  const match = /^(.+)-(\d+)$/.exec(id);
+  const base = match?.[1] ?? id;
+  const counter = match?.[2];
+  const suffix = `-${counter ? Number(counter) + 1 : 2}`;
+  return `${base.slice(0, MAX_ID_LENGTH - suffix.length)}${suffix}`;
+}
+
 export function validateCardForm(
   values: CardFormValues,
   lanes: string[],
@@ -56,7 +67,7 @@ export function validateCardForm(
   const rawId = values.id?.trim() ?? '';
   if (!rawId) {
     errors.id = 'ID 不能为空';
-  } else if (rawId.length > 48 || !ID_PATTERN.test(rawId)) {
+  } else if (rawId.length > MAX_ID_LENGTH || !ID_PATTERN.test(rawId)) {
     errors.id = 'ID 只能包含小写字母、数字和连字符，且不超过48个字符';
   }
 
