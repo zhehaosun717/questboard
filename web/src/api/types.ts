@@ -204,6 +204,81 @@ export interface LanesReport {
   board: { openQuestions: number };
 }
 
+// Usage (src/usage/service.js via GET /api/usage).
+export interface UsageWindow {
+  label: string;
+  usedPercent: number | null;
+  resetsAt: string | null;
+}
+
+export interface UsageBalance {
+  currency: string;
+  amount: number;
+}
+
+export interface UsageProvider {
+  id: string;
+  name: string;
+  source: 'local-log' | 'api' | 'cli' | 'local-app';
+  ok: boolean;
+  // false when the provider is not set up on this machine (no key, no log) or not supported yet
+  configured: boolean;
+  error?: string;
+  keyFrom?: string;
+  windows: UsageWindow[];
+  balances: UsageBalance[];
+  plan: string;
+  note: string;
+  asOf: string | null;
+  fetchedAt: string;
+}
+
+export interface UsageReport {
+  generatedAt: string;
+  providers: UsageProvider[];
+}
+
+// Roster writes: the facts of a card, without the status fields the server adds.
+export type AdventurerInput = Omit<Card, 'status' | 'statusSince' | 'statusReason' | 'statusSetBy' | 'derived'>;
+
+// OMO model assignments (src/integrations/omo.js).
+export type OmoSection = 'agents' | 'categories';
+
+export interface OmoEntry {
+  name: string;
+  model: string;
+  reasoning: string;
+}
+
+export interface OmoConfig {
+  available: boolean;
+  file: string;
+  agents: OmoEntry[];
+  categories: OmoEntry[];
+}
+
+export interface OmoChange extends OmoEntry {
+  section: OmoSection;
+}
+
+// Settings (src/server/settingsRoutes.js). Key sources are booleans; keys never leave the server.
+export interface SettingsReport {
+  project: {
+    name: string;
+    root: string;
+    port: number;
+    paths: { data: string; events: string; registry: string; lock: string };
+    briefs: { dispatchDirs: string[]; ownerDirs: string[]; recentDays: number };
+    reviewPagesDir: string | null;
+    lanes: Array<{ id: string; run: string[]; outputDir: string | null; api: string | null; serialize: boolean; defaultModel: string | null }>;
+    policy: { bannedModelPatterns: string[]; bannedAgents: string[] };
+  };
+  home: { dir: string; roster: string; rosterExists: boolean; status: string };
+  usageKeys: Array<{ id: string; name: string; sources: Array<{ kind: 'env' | 'opencode'; name: string; present: boolean }> }>;
+  openCodeAuthFile: { file: string; exists: boolean };
+  omo: { file: string; exists: boolean };
+}
+
 export interface QuestEvent {
   at: string;
   event: string;

@@ -1,7 +1,8 @@
 // Quest board API: snapshot, roster with status records, quest writes, and the live event stream.
+import fs from 'node:fs';
 import { sendJson, readJsonBody, writeRefusal } from './http.js';
 import { buildSnapshot } from '../core/snapshot.js';
-import { loadRoster } from '../core/roster.js';
+import { loadRoster, saveRoster, upsertAdventurer } from '../core/roster.js';
 import { applyStatuses, STATUSES } from '../core/status.js';
 import { effectiveRoster } from '../core/overlay.js';
 import { QUEST_STATUSES } from '../core/store.js';
@@ -51,6 +52,25 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     if (parts[1] === 'quests' && parts.length === 2) {
       const result = store.post(body);
       if (result.errors) sendJson(response, 400, { error: 'validation failed', fields: result.errors }); else sendJson(response, 201, result);
+      return;
+    }
+    if (parts[1] === 'roster' && parts.length === 2) {
+      // Add or replace one card. Facts only: validateAdventurer refuses a status field.
+      const roster = fs.existsSync(rosterFile) ? loadRoster(rosterFile) : { adventurers: [] };
+      const entry = body.adventurer;
+      if (entry && entry.lane && !config.lanes[entry.lane]) { sendJson(response, 400, { error: `lane ${entry.lane} is not configured in this project` }); return; }
+      const next = upsertAdventurer(roster, entry);
+      saveRoster(rosterFile, next);
+      sendJson(response, 200, { adventurer: next.adventurers.find((a) => a.id === entry.id) });
+      return;
+    }
+    if (parts[1] === 'roster' && parts[3] === 'delete') {
+      const roster = loadRoster(rosterFile);
+      if (!roster.adventurers.some((a) => a.id === parts[2])) { sendJson(response, 404, { error: `no adventurer ${parts[2]}` }); return; }
+      const running = store.list().filter((q) => q.status === 'dispatched' && q.assignee && q.assignee.adventurerId === parts[2]).map((q) => q.id);
+      if (running.length) { sendJson(response, 409, { error: `${parts[2]} is working on ${running.join(', ')}; wait until it finishes` }); return; }
+      saveRoster(rosterFile, { ...roster, adventurers: roster.adventurers.filter((a) => a.id !== parts[2]) });
+      sendJson(response, 200, { removed: parts[2] });
       return;
     }
     if (parts[1] === 'roster' && parts[3] === 'status') {

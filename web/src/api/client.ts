@@ -1,7 +1,7 @@
 // The only module that talks to the board server. Errors carry the server's refusal reasons.
 import type {
-  Card, CardStatus, LanesReport, Message, Quest, QuestEvent, QuestStatus, Reason, Snapshot, Thread, ThreadDetail,
-  ThreadStatusFilter,
+  AdventurerInput, Card, CardStatus, LanesReport, Message, OmoChange, OmoConfig, Quest, QuestEvent, QuestStatus, Reason,
+  SettingsReport, Snapshot, Thread, ThreadDetail, ThreadStatusFilter, UsageReport,
 } from './types';
 
 export class ApiError extends Error {
@@ -53,6 +53,21 @@ export const api = {
     call<{ message: Message; thread: ThreadDetail }>(`${thread(id)}/messages`, 'POST', input),
   pinThread: (id: string, pinned: boolean) => call<Thread>(`${thread(id)}/pin`, 'POST', { pinned }),
   closeThread: (id: string, closed: boolean) => call<Thread>(`${thread(id)}/close`, 'POST', { closed }),
+
+  // Quota and balance per provider; refresh skips the server's 60 s cache.
+  usage: (refresh = false) => call<UsageReport>(refresh ? '/api/usage?refresh=1' : '/api/usage'),
+
+  // Adds or replaces a card (roster facts only). Server refusals arrive as ApiError messages.
+  saveCard: (adventurer: AdventurerInput) => call<{ adventurer: AdventurerInput }>('/api/roster', 'POST', { adventurer }),
+  // Refused with 409 while the card is working on a quest.
+  removeCard: (id: string) => call<{ removed: string }>(`/api/roster/${encodeURIComponent(id)}/delete`, 'POST', {}),
+
+  omo: () => call<OmoConfig>('/api/omo'),
+  saveOmo: (items: OmoChange[]) => call<OmoConfig>('/api/omo', 'POST', { items }),
+  // Runs `opencode models` on the server; slow the first time (can take a minute).
+  omoModels: (refresh = false) => call<{ models: string[] }>(refresh ? '/api/omo/models?refresh=1' : '/api/omo/models'),
+
+  settings: () => call<SettingsReport>('/api/settings'),
 };
 
 // Live events. Returns a function that closes the stream.

@@ -11,12 +11,14 @@ import { StatusLog } from '../core/status.js';
 import { homePaths } from '../core/home.js';
 import { createCollector } from '../lanes/collector.js';
 import { createUsageRoutes } from './usageRoutes.js';
+import { createOmoRoutes } from './omoRoutes.js';
+import { createSettingsRoutes } from './settingsRoutes.js';
 import { createUsageService } from '../usage/service.js';
 
 export const HOST = '127.0.0.1';
 const POLL_MS = 15000;
 
-export function createServer({ config, home = homePaths(), runners, getLanes, evidenceWaitMs, writeDelivery, fetchImpl, webDist, usage = createUsageService() } = {}) {
+export function createServer({ config, home = homePaths(), runners, getLanes, evidenceWaitMs, writeDelivery, fetchImpl, webDist, usage = createUsageService(), omo = createOmoRoutes(), settingsEnv } = {}) {
   if (!config) throw new Error('createServer needs a project config');
   const boardStore = new BoardStore(config.paths.data);
   const store = new QuestStore(config);
@@ -25,7 +27,7 @@ export function createServer({ config, home = homePaths(), runners, getLanes, ev
   let lanesCache = null;
   const lanes = getLanes || (() => lanesCache);
   const quests = createQuestRoutes({ config, store, boardStore, statusLog, rosterFile: home.roster, getLanes: lanes, runners, evidenceWaitMs, writeDelivery });
-  const routes = [createPageRoutes({ config, ...(webDist ? { webDist } : {}) }), quests, createBoardRoutes({ config, boardStore }), createUsageRoutes({ usage })];
+  const routes = [createPageRoutes({ config, ...(webDist ? { webDist } : {}) }), quests, createBoardRoutes({ config, boardStore }), createUsageRoutes({ usage }), omo, createSettingsRoutes({ config, home, ...(settingsEnv ? { env: settingsEnv } : {}) })];
 
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${HOST}`);

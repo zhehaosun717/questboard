@@ -45,5 +45,16 @@ export function createCredentials({ env = process.env, homedir = os.homedir() } 
     return null;
   }
 
-  return { apiKey };
+  // Which sources hold a key, as booleans, for the settings page. Never the key itself.
+  function presence({ envNames = [], openCodeIds = [] }) {
+    return [
+      ...envNames.map((name) => ({ kind: 'env', name, present: typeof env[name] === 'string' && Boolean(env[name].trim()) })),
+      ...openCodeIds.map((id) => {
+        const entry = openCodeEntry(id);
+        return { kind: 'opencode', name: id, present: Boolean(entry && entry.type === 'api' && typeof entry.key === 'string' && entry.key.trim()) };
+      }),
+    ];
+  }
+
+  return { apiKey, presence, authFile };
 }
