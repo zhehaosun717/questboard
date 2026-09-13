@@ -9,7 +9,9 @@
   },
   "scripts": {
     "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
-    "serve": "node src/cli/questboard.js serve"
+    "setup": "npm --prefix web install && npm --prefix web run build",
+    "serve": "node src/cli/questboard.js serve",
+    "doctor": "node src/cli/questboard.js doctor"
   },
   "engines": {
     "node": ">=22"

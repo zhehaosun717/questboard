@@ -24,11 +24,8 @@
       "editCounter": "stream-json"
     },
     "opencode": {
-      "session": { "run": ["node", "scripts/opencode-session.js", "{package} {name}"], "saveTo": ".questboard-data/workers/opencode/{name}.session" },
       "run": ["node", "scripts/run-worker.mjs", "--lane", "opencode", "--name", "{name}", "--brief", "{brief}", "--model", "{model}", "--variant", "{variant}", "--package", "{package}", "--", "opencode", "run"],
       "env": { "OC_AGENT": "{agent}" },
-      "api": "http://127.0.0.1:4096",
-      "deliveryDir": ".questboard-data/workers/opencode",
       "outputDir": ".questboard-data/workers/opencode",
       "serialize": true
     }

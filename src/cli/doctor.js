@@ -109,7 +109,14 @@ export async function runDoctor({
       detail: unknownLanes.length ? `${cards.length} 张卡，警告：引用了项目没配置的通道${unknownLanes.join(', ')}` : `${cards.length} 张卡全部可用`,
     });
   } catch (err) {
-    checks.push({ name: '冒险者名册', ok: false, detail: `名册无法加载（${homeObj.roster}）：${err.message}` });
+    const missing = !fs.existsSync(homeObj.roster);
+    checks.push({
+      name: '冒险者名册',
+      ok: false,
+      detail: missing
+        ? `还没有名册（${homeObj.roster}）：跑 questboard roster init 建一个空的，再到看板「冒险者」页加卡`
+        : `名册无法加载（${homeObj.roster}）：${err.message}`,
+    });
   }
 
   // 6. Status log

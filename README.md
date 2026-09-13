@@ -20,14 +20,54 @@ A coordinator agent can post quests, adopt workers it started by hand, and tail 
 Worker results flow back into quest status automatically, and usage limits heal by themselves when they
 reset.
 
-Status: early. Phase 1 (core, server, CLI) works and is tested; MCP server, the Tauri desktop app and the
-integrated usage / settings / model-config tabs are next.
+Status: used daily on one real project. Core, HTTP server, CLI, MCP server, the React board (quest wall,
+relationship graph, message board, review pages, dispatch history, roster and model config, provider usage,
+settings) and the Tauri desktop shell all work and are tested.
 
 ## Requirements
 
-- Node 22 or newer. No runtime dependencies.
+- Node 22 or newer. No runtime dependencies for the board itself.
 - On Windows, Git Bash for `.sh` lane scripts (plain `bash` there is often WSL). Set `"bash"` in the
   project config or `QUESTBOARD_BASH` if it is not in a standard location.
+
+## Quickstart
+
+```bash
+git clone https://github.com/zhehaosun717/questboard && cd questboard && npm run setup
+```
+
+`npm run setup` installs and builds the board UI (`web/dist`); without it the server falls back to the
+classic single-file page. Then, in your own project:
+
+```bash
+cp -r /path/to/questboard/examples/basic/. /path/to/your-project/
+```
+
+That gives you `questboard.config.json`, a sample brief, and `scripts/run-worker.mjs` — a wrapper that runs
+any agent CLI and leaves the files the board watches. Create the machine-level roster once, check the setup,
+and start the board:
+
+```bash
+node /path/to/questboard/src/cli/questboard.js roster init
+```
+
+```bash
+node /path/to/questboard/src/cli/questboard.js doctor --project /path/to/your-project
+```
+
+```bash
+node /path/to/questboard/src/cli/questboard.js serve --project /path/to/your-project
+```
+
+Open `http://127.0.0.1:6097/`, add your first card on the 冒险者 tab (id, name, provider, lane, model), post
+the sample quest, and drag the card onto it:
+
+```bash
+node /path/to/questboard/src/cli/questboard.js post --package RUN-1 --brief docs/briefs/RUN-1-first-task.md --project /path/to/your-project
+```
+
+`questboard doctor` is the thing to run when something looks wrong: it checks Node, paths, lane scripts, Git
+Bash, lane APIs, the roster, key sources (presence only) and whether a board is already on the port.
 
 ## Three kinds of data
 
@@ -72,7 +112,7 @@ questboard post --package RUN-4 --brief docs/briefs/RUN-4-x.md [--kind code|revi
 questboard list | status <id> <status> | ruling <id> --text ... | assign <id> --adventurer <card>
 questboard adopt <id> --adventurer <card> --name <worker>
 questboard card list | card status <card> <available|limited|broke|paused|disabled> --reason "..."
-questboard roster path | roster import <old roster.json>
+questboard roster init [--force] | roster path | roster import <old roster.json>
 questboard board post|reply|list|read|close|inbox
 questboard watch [--from-start]
 questboard doctor                            # read-only setup check: paths, scripts, Git Bash, roster, key sources, the server
@@ -150,9 +190,12 @@ server serves its build (`web/dist`) at `/`; without a build it serves the class
 available at `/classic`.
 
 ```text
-cd web && npm install && npm run build      # build the app the server serves
+npm run setup                               # from the repo root: install and build the app the server serves
 cd web && npm run dev                       # develop against a running board server (proxy to :6097)
 ```
+
+`web/dist` is a build artifact and is not committed, so a fresh clone serves the classic page until you run
+`npm run setup`.
 
 `desktop/` is a Tauri 2 shell. Double-click it and it finds your project, starts that project's board
 server if it is not already running, and shows the board in a native window; it stops only the server it

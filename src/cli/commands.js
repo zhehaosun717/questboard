@@ -99,6 +99,12 @@ export const commands = {
     const [sub, file] = args;
     const home = homePaths();
     if (sub === 'path') { out(`roster: ${home.roster}\nstatus: ${home.status}`); return; }
+    if (sub === 'init') {
+      if (fs.existsSync(home.roster) && !args.includes('--force')) throw new Error(`${home.roster} exists; pass --force to replace it with an empty roster`);
+      saveRoster(home.roster, { adventurers: [] });
+      out(`empty roster at ${home.roster}\nadd cards on the board's 冒险者 tab, or with the questboard_* MCP tools`);
+      return;
+    }
     if (sub === 'import' && file) {
       if (fs.existsSync(home.roster) && !args.includes('--force')) throw new Error(`${home.roster} exists; pass --force to replace it`);
       const { roster, statusRecords, policy, report } = splitLegacyRoster(JSON.parse(fs.readFileSync(file, 'utf8')), { setBy: 'import' });
@@ -109,7 +115,7 @@ export const commands = {
       if (policy.bannedModelPatterns.length || policy.bannedAgents.length) out(`policy for the project config: ${JSON.stringify(policy)}`);
       return;
     }
-    throw new Error('usage: questboard roster path | roster import <old roster.json> [--force]');
+    throw new Error('usage: questboard roster init [--force] | roster path | roster import <old roster.json> [--force]');
   },
 
   async board(args) {

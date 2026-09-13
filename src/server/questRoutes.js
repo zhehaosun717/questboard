@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import { sendJson, readJsonBody, writeRefusal } from './http.js';
 import { buildSnapshot } from '../core/snapshot.js';
-import { loadRoster, saveRoster, upsertAdventurer } from '../core/roster.js';
+import { loadRoster, loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.js';
 import { applyStatuses, STATUSES } from '../core/status.js';
 import { effectiveRoster } from '../core/overlay.js';
 import { QUEST_STATUSES } from '../core/store.js';
@@ -26,7 +26,8 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     for (const client of clients) client.write(frame);
   });
 
-  const adventurers = () => applyStatuses(loadRoster(rosterFile).adventurers, statusLog.current());
+  // Missing roster: the board still opens, empty, so the first card can be added from the 冒险者 tab.
+  const adventurers = () => applyStatuses(loadRosterOrEmpty(rosterFile).adventurers, statusLog.current());
   const snapshot = () => buildSnapshot({ config, store, adventurers: adventurers(), boardStore, lanes: getLanes() });
   const findCard = (id) => effectiveRoster(adventurers(), getLanes()).find((a) => a.id === id);
 
@@ -59,7 +60,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     }
     if (parts[1] === 'roster' && parts.length === 2) {
       // Add or replace one card. Facts only: validateAdventurer refuses a status field.
-      const roster = fs.existsSync(rosterFile) ? loadRoster(rosterFile) : { adventurers: [] };
+      const roster = loadRosterOrEmpty(rosterFile);
       const entry = body.adventurer;
       if (entry && entry.lane && !config.lanes[entry.lane]) { sendJson(response, 400, { error: `lane ${entry.lane} is not configured in this project` }); return; }
       const next = upsertAdventurer(roster, entry);

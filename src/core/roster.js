@@ -40,6 +40,12 @@ export function validateRoster(value) {
   return value;
 }
 
+// A roster file that does not exist yet is a new machine, not missing data: the board opens with no cards so
+// the owner can add the first one. A roster that exists but is malformed still fails loudly.
+export function loadRosterOrEmpty(file) {
+  return fs.existsSync(file) ? loadRoster(file) : { adventurers: [] };
+}
+
 export function loadRoster(file) {
   if (!fs.existsSync(file)) fail(`no roster at ${file}; create one with "questboard roster import <old roster.json>" or write it by hand`);
   let parsed;
