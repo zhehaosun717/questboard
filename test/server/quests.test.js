@@ -104,6 +104,39 @@ describe('quest API', () => {
     await tick();
   });
 
+  it('answers a repeated request key without a second worker, and refuses a stale revision', async () => {
+    fx.project.write('docs/briefs/HAZ-2-x.md', 'x');
+    const posted = await fx.api('/api/quests', 'POST', { package: 'HAZ-2', brief: 'docs/briefs/HAZ-2-x.md' });
+    const revision = posted.body.quest.revision;
+    assert.equal(typeof revision, 'number');
+    const stale = await fx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', ifRevision: revision - 1 });
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.reasons[0].code, 'stale_revision');
+    assert.equal((await fx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'bad key!' })).status, 400);
+    const runsBefore = fx.calls.length;
+    const first = await fx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'haz2-try1', ifRevision: revision });
+    assert.equal(first.status, 200, first.text);
+    await tick();
+    const again = await fx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'haz2-try1' });
+    assert.equal(again.status, 200);
+    assert.equal(again.body.repeated, true);
+    assert.equal(again.body.quest.assignee.requestKey, 'haz2-try1');
+    assert.equal(fx.calls.length, runsBefore + 1, 'one worker started');
+    assert.equal((await fx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'haz2-try2' })).status, 409, 'a new key on a running quest is a normal refusal');
+  });
+
+  it('pages events forward by seq', async () => {
+    const all = await fx.api('/api/events?after=0&limit=500');
+    assert.equal(all.status, 200);
+    const seqs = all.body.events.map((e) => e.seq);
+    assert.ok(seqs.length > 3);
+    assert.deepEqual(seqs, seqs.map((_, i) => i + 1));
+    const page = await fx.api(`/api/events?after=${seqs.length - 2}&limit=1`);
+    assert.deepEqual(page.body.events.map((e) => e.seq), [seqs.length - 1]);
+    assert.equal(page.body.nextAfter, seqs.length - 1);
+    assert.equal((await fx.api('/api/events?after=-1')).status, 400);
+  });
+
   it('applies lane results: API deliveries are written first, bounces heal instead of being stored', async () => {
     fx.project.write('docs/briefs/MOD-1-x.md', 'x');
     await fx.api('/api/quests', 'POST', { package: 'MOD-1', brief: 'docs/briefs/MOD-1-x.md' });

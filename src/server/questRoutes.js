@@ -7,10 +7,13 @@ import { applyStatuses, STATUSES } from '../core/status.js';
 import { effectiveRoster } from '../core/overlay.js';
 import { QUEST_STATUSES } from '../core/store.js';
 import { createDispatcher } from './dispatcher.js';
+import { eventsAfter } from '../core/events.js';
 
 const SYNC_INTERVAL_MS = 5000;
 const HEARTBEAT_MS = 20000;
 const MANUAL_STATUSES = new Set([...QUEST_STATUSES].filter((status) => status !== 'dispatched'));
+const REQUEST_KEY_PATTERN = /^[\w.:-]{1,80}$/;
+const EVENTS_MAX = 500;
 
 export function createQuestRoutes({ config, store, boardStore, statusLog, rosterFile, getLanes = () => null, runners, evidenceWaitMs, writeDelivery }) {
   const dispatcher = createDispatcher({ config, store, runners, evidenceWaitMs, writeDelivery });
@@ -85,7 +88,12 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     if (parts[3] === 'assign' || parts[3] === 'adopt') {
       const card = findCard(body.adventurer);
       if (!card) { sendJson(response, 400, { error: `no adventurer ${body.adventurer}` }); return; }
-      const result = parts[3] === 'assign' ? dispatcher.assign(questId, card, by) : dispatcher.adopt(questId, card, body.name, by);
+      const requestKey = body.requestKey === undefined || body.requestKey === null || body.requestKey === '' ? null : String(body.requestKey);
+      if (requestKey !== null && !REQUEST_KEY_PATTERN.test(requestKey)) { sendJson(response, 400, { error: `requestKey must match ${REQUEST_KEY_PATTERN}` }); return; }
+      const ifRevision = body.ifRevision === undefined || body.ifRevision === null || body.ifRevision === '' ? undefined : Number(body.ifRevision);
+      if (ifRevision !== undefined && !Number.isInteger(ifRevision)) { sendJson(response, 400, { error: 'ifRevision must be an integer' }); return; }
+      const options = { requestKey, ifRevision };
+      const result = parts[3] === 'assign' ? dispatcher.assign(questId, card, by, options) : dispatcher.adopt(questId, card, body.name, by, options);
       sendJson(response, result.status, result.body);
       return;
     }
@@ -109,9 +117,16 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
   }
 
   async function handle(request, response, url, parts) {
-    if (parts[0] !== 'api' || !['quests', 'roster', 'lanes'].includes(parts[1])) return false;
+    if (parts[0] !== 'api' || !['quests', 'roster', 'lanes', 'events'].includes(parts[1])) return false;
     try {
-      if (url.pathname === '/api/quests/stream' && request.method === 'GET') {
+      if (url.pathname === '/api/events' && request.method === 'GET') {
+        // Forward pagination by seq; pass the last seq you saw as `after`.
+        const after = Number(url.searchParams.get('after') || 0);
+        const limit = Number(url.searchParams.get('limit') || 50);
+        if (!Number.isInteger(after) || after < 0 || !Number.isInteger(limit) || limit < 1) { sendJson(response, 400, { error: 'after must be a non-negative integer and limit a positive integer' }); return true; }
+        const events = eventsAfter(config.paths.events, { after, limit: Math.min(limit, EVENTS_MAX), pkg: url.searchParams.get('package') });
+        sendJson(response, 200, { events, nextAfter: events.length ? events.at(-1).seq : after });
+      } else if (url.pathname === '/api/quests/stream' && request.method === 'GET') {
         response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive' });
         response.write('event: hello\ndata: {}\n\n');
         clients.add(response);

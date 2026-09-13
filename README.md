@@ -75,7 +75,11 @@ questboard card list | card status <card> <available|limited|broke|paused|disabl
 questboard roster path | roster import <old roster.json>
 questboard board post|reply|list|read|close|inbox
 questboard watch [--from-start]
+questboard doctor                            # read-only setup check: paths, scripts, Git Bash, roster, key sources, the server
 ```
+
+`examples/basic/` is a complete starting point: copy it, and its `scripts/run-worker.mjs` wraps any agent
+CLI so the board can see the worker (registry row, `.out` / `.exit` / `.md` files). See its README.
 
 ## MCP
 
@@ -121,6 +125,16 @@ reservations stay held and nobody can be dispatched onto it. When output resumes
 `dispatched`; when an exit file appears it finishes normally. Once someone has confirmed the process is
 gone, `POST /api/quests/<id>/release` (or the `questboard_release_worker` MCP tool, or the drawer button)
 frees it with a `released` event.
+
+Every event carries a `seq`. `GET /api/events?after=<seq>&limit=<n>` (or the MCP tool with `after`) returns
+the next events oldest first, so a reader that stores the last `seq` it handled never misses one — unlike
+polling by time, which can skip two events written in the same second. Lines written by an older board
+without `seq` are numbered by position.
+
+Every quest carries a `revision`, bumped on each change. `assign` and `adopt` accept `ifRevision`: if the
+quest changed since you read that revision, the call is refused with `stale_revision` instead of dispatching
+onto a quest you have not seen. They also accept a `requestKey` of your choosing: a retry with the same key is
+answered with the existing attempt (`repeated: true`), never a second worker.
 
 ## Safety
 

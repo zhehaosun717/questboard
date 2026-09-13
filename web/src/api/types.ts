@@ -19,6 +19,7 @@ export interface Assignee {
   at: string;
   by: string;
   adopted?: boolean;
+  requestKey?: string;
 }
 
 export interface Ruling {
@@ -46,6 +47,8 @@ export interface Quest {
   files: string[];
   lastDetail?: string;
   postedBy?: string;
+  // Bumped on every server-side change; send it back as ifRevision so a write to a changed quest is refused.
+  revision?: number;
   createdAt: string;
   updatedAt: string;
 }

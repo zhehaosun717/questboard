@@ -3,6 +3,7 @@
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { appendJsonLine, readJsonLines } from './jsonl.js';
+import { lastEventSeq } from './events.js';
 import { packageIdPattern, briefPathAllowed } from './patterns.js';
 
 export const KINDS = new Set(['code', 'review', 'art', 'tool', 'owner']);
@@ -72,6 +73,7 @@ export class QuestStore extends EventEmitter {
     this.eventsFile = config.paths.events;
     this.quests = new Map();
     for (const record of readJsonLines(this.questsPath)) if (record && record.id) this.quests.set(record.id, record);
+    this.eventSeq = lastEventSeq(this.eventsFile);
   }
 
   list() {
@@ -83,16 +85,20 @@ export class QuestStore extends EventEmitter {
     return quest ? { ...quest } : null;
   }
 
+  // Every save bumps the revision, so a caller that read revision N can ask for its write to apply only if the
+  // quest is still at N (a re-posted brief, a ruling or a status change in between makes it stale).
   save(quest) {
-    this.quests.set(quest.id, quest);
-    appendJsonLine(this.questsPath, quest);
-    return quest;
+    const next = { ...quest, revision: (quest.revision || 0) + 1 };
+    this.quests.set(next.id, next);
+    appendJsonLine(this.questsPath, next);
+    return next;
   }
 
   emitEvent(quest, event, fields = {}) {
     const assignee = fields.assignee || quest.assignee || {};
+    this.eventSeq += 1;
     const record = {
-      at: now(), event, package: quest.id,
+      seq: this.eventSeq, at: now(), event, package: quest.id,
       lane: assignee.lane || null, model: assignee.model || null, variant: assignee.variant || null, name: assignee.name || null,
       by: fields.by || 'board', detail: String(fields.detail || '').slice(0, 2000),
     };
@@ -123,11 +129,15 @@ export class QuestStore extends EventEmitter {
 
   // Emits `assigned` (the owner picked a card); the server emits `dispatched` once the script started.
   // Adopting a worker that already runs passes event 'dispatched' and adopted: true.
-  assign(id, { adventurer, name, by = 'owner', detail, event = 'assigned', adopted = false }) {
+  // requestKey is the caller's own id for this attempt; a repeat with the same key is answered, not re-run.
+  assign(id, { adventurer, name, by = 'owner', detail, event = 'assigned', adopted = false, requestKey = null }) {
     const quest = this.quests.get(id);
     if (!quest) return null;
     const at = now();
-    const assignee = { adventurerId: adventurer.id, family: adventurer.family || null, lane: adventurer.lane, model: adventurer.model, variant: adventurer.variant || '', name, at, by, ...(adopted ? { adopted: true } : {}) };
+    const assignee = {
+      adventurerId: adventurer.id, family: adventurer.family || null, lane: adventurer.lane, model: adventurer.model, variant: adventurer.variant || '',
+      name, at, by, ...(adopted ? { adopted: true } : {}), ...(requestKey ? { requestKey } : {}),
+    };
     const next = this.save({ ...quest, status: 'dispatched', assignee, dispatches: [...quest.dispatches, assignee], updatedAt: at });
     this.emitEvent(next, event, { by, detail: detail || `${adventurer.name} 接了任务` });
     return next;

@@ -15,20 +15,21 @@
   "reviewPages": { "dir": "docs/review" },
   "lanes": {
     "codex": {
-      "run": ["scripts/codex-run.sh", "{name}", "{brief}", "{model}", "{variant}"],
+      "run": ["node", "scripts/run-worker.mjs", "--lane", "codex", "--name", "{name}", "--brief", "{brief}", "--model", "{model}", "--variant", "{variant}", "--package", "{package}", "--", "codex", "exec", "-m", "{model}", "-"],
       "outputDir": ".questboard-data/workers/codex"
     },
     "claude": {
-      "run": ["scripts/claude-run.sh", "{name}", "{brief}", "{model}", "{variant}"],
+      "run": ["node", "scripts/run-worker.mjs", "--lane", "claude", "--name", "{name}", "--brief", "{brief}", "--model", "{model}", "--variant", "{variant}", "--package", "{package}", "--", "claude", "--print", "--model", "{model}"],
       "outputDir": ".questboard-data/workers/claude",
       "editCounter": "stream-json"
     },
     "opencode": {
       "session": { "run": ["node", "scripts/opencode-session.js", "{package} {name}"], "saveTo": ".questboard-data/workers/opencode/{name}.session" },
-      "run": ["scripts/opencode-send.sh", "{name}", "{brief}", "{model}", "{variant}"],
+      "run": ["node", "scripts/run-worker.mjs", "--lane", "opencode", "--name", "{name}", "--brief", "{brief}", "--model", "{model}", "--variant", "{variant}", "--package", "{package}", "--", "opencode", "run"],
       "env": { "OC_AGENT": "{agent}" },
       "api": "http://127.0.0.1:4096",
       "deliveryDir": ".questboard-data/workers/opencode",
+      "outputDir": ".questboard-data/workers/opencode",
       "serialize": true
     }
   },

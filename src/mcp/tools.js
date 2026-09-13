@@ -1,6 +1,6 @@
 // questboard tools for agents. Writes go through the running board server (one writer per project); the
 // events tool reads the events file directly, so it works while the server restarts.
-import { readJsonLines } from '../core/jsonl.js';
+import { eventsAfter, readEvents } from '../core/events.js';
 import { StatusLog, STATUSES } from '../core/status.js';
 import { QUEST_STATUSES, KINDS } from '../core/store.js';
 
@@ -16,7 +16,7 @@ function required(args, fields) {
 
 function questSummary(quest) {
   return {
-    id: quest.id, status: quest.status, kind: quest.kind, priority: quest.priority, title: quest.title,
+    id: quest.id, status: quest.status, kind: quest.kind, priority: quest.priority, title: quest.title, revision: quest.revision || 0,
     ...(quest.assignee ? { assignee: `${quest.assignee.model} (${quest.assignee.name})` } : {}),
     ...(quest.needsOwner ? { needsOwner: quest.needsOwner } : {}),
     ...(quest.parents.length ? { parents: quest.parents } : {}),
@@ -114,23 +114,25 @@ export function createTools({ config, base, author, home, request }) {
     {
       name: 'questboard_assign',
       title: 'Dispatch a card onto a quest',
-      description: 'Run a card (model) on a quest now. This starts a real worker and may spend money; the owner normally does this by dragging on the board. Refusals come back with every reason.',
-      inputSchema: { type: 'object', properties: { id: { type: 'string' }, adventurer: { type: 'string', description: 'Card id, e.g. codex-luna' } }, required: ['id', 'adventurer'] },
+      description: 'Run a card (model) on a quest now. This starts a real worker and may spend money; the owner normally does this by dragging on the board. Refusals come back with every reason. Always pass a requestKey you made up for this attempt: if the call is retried with the same key, the board answers with the existing attempt instead of starting a second worker. Pass ifRevision (from get_quest) so a quest that changed since you read it is refused as stale.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' }, adventurer: { type: 'string', description: 'Card id, e.g. codex-luna' }, requestKey: { type: 'string', description: 'Your own id for this attempt, e.g. run4-2026-09-13-a' }, ifRevision: { type: 'integer', description: 'The quest revision you decided on' } }, required: ['id', 'adventurer'] },
       annotations: { ...write, openWorldHint: true },
       handler: async (args) => {
         required(args, ['id', 'adventurer']);
-        return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/assign`, 'POST', { adventurer: args.adventurer, by: author })).quest);
+        const body = await api(`/api/quests/${encodeURIComponent(args.id)}/assign`, 'POST', { adventurer: args.adventurer, by: author, requestKey: args.requestKey, ifRevision: args.ifRevision });
+        return { ...questSummary(body.quest), ...(body.repeated ? { repeated: true, note: 'this requestKey was already dispatched; nothing new was started' } : {}) };
       },
     },
     {
       name: 'questboard_adopt',
       title: 'Adopt a worker started by hand',
       description: 'Record a worker you already started with the dispatch script, so the board tracks it and nobody dispatches the quest twice. Runs nothing.',
-      inputSchema: { type: 'object', properties: { id: { type: 'string' }, adventurer: { type: 'string' }, name: { type: 'string', description: 'The worker name given to the dispatch script, e.g. run3' } }, required: ['id', 'adventurer', 'name'] },
+      inputSchema: { type: 'object', properties: { id: { type: 'string' }, adventurer: { type: 'string' }, name: { type: 'string', description: 'The worker name given to the dispatch script, e.g. run3' }, requestKey: { type: 'string', description: 'Your own id for this attempt; a retry with the same key is answered, not recorded twice' } }, required: ['id', 'adventurer', 'name'] },
       annotations: write,
       handler: async (args) => {
         required(args, ['id', 'adventurer', 'name']);
-        return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/adopt`, 'POST', { adventurer: args.adventurer, name: args.name, by: author })).quest);
+        const body = await api(`/api/quests/${encodeURIComponent(args.id)}/adopt`, 'POST', { adventurer: args.adventurer, name: args.name, by: author, requestKey: args.requestKey });
+        return { ...questSummary(body.quest), ...(body.repeated ? { repeated: true } : {}) };
       },
     },
     {
@@ -172,12 +174,15 @@ export function createTools({ config, base, author, home, request }) {
     {
       name: 'questboard_events',
       title: 'Read recent events',
-      description: 'Board events newest last: posted, assigned, dispatched, delivered, failed, bounced, stalled, cancelled, owner_ruling and more. Pass the last "at" you saw as since to get only new ones.',
-      inputSchema: { type: 'object', properties: { since: { type: 'string', description: 'ISO time; only later events' }, package: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 } } },
+      description: 'Board events: posted, assigned, dispatched, delivered, failed, bounced, stalled, released, cancelled, owner_ruling and more. Every event has a seq. To read without missing any, pass the last seq you saw as `after` (oldest first, up to limit); `since` (ISO time, newest last) is the older way and can skip events written in the same second.',
+      inputSchema: { type: 'object', properties: { after: { type: 'integer', minimum: 0, description: 'Only events with seq greater than this; 0 = from the start' }, since: { type: 'string', description: 'ISO time; only later events' }, package: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 } } },
       annotations: read,
-      handler: async (args) => readJsonLines(config.paths.events)
-        .filter((e) => (!args.since || e.at > args.since) && (!args.package || e.package === args.package))
-        .slice(-(args.limit || 50)),
+      handler: async (args) => {
+        if (args.after !== undefined) return eventsAfter(config.paths.events, { after: args.after, limit: args.limit || 50, pkg: args.package || null });
+        return readEvents(config.paths.events)
+          .filter((e) => (!args.since || e.at > args.since) && (!args.package || e.package === args.package))
+          .slice(-(args.limit || 50));
+      },
     },
     {
       name: 'questboard_board_post',

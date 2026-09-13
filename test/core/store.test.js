@@ -1,7 +1,10 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { QuestStore } from '../../src/core/store.js';
 import { readJsonLines } from '../../src/core/jsonl.js';
+import { eventsAfter, readEvents } from '../../src/core/events.js';
 import { makeProject, card } from '../helpers.js';
 
 let project;
@@ -55,6 +58,30 @@ describe('QuestStore', () => {
     const adopted = store.assign('RUN-3', { adventurer: card('codex-luna'), name: 'run3', event: 'dispatched', adopted: true });
     assert.equal(adopted.assignee.adopted, true);
     assert.equal(events().at(-1).event, 'dispatched');
+  });
+
+  it('numbers events and bumps the revision on every change, continuing after a restart', () => {
+    const { quest } = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+    assert.equal(quest.revision, 1);
+    const running = store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4', requestKey: 'k1' });
+    assert.equal(running.revision, 2);
+    assert.equal(running.assignee.requestKey, 'k1');
+    assert.equal(store.setStatus('RUN-4', 'delivered').revision, 3);
+    assert.deepEqual(events().map((e) => e.seq), [1, 2, 3]);
+    const reopened = new QuestStore(project.config);
+    assert.equal(reopened.get('RUN-4').revision, 3);
+    reopened.setStatus('RUN-4', 'done');
+    assert.equal(events().at(-1).seq, 4);
+  });
+
+  it('numbers legacy event lines by position so cursors stay lossless', () => {
+    fs.mkdirSync(path.dirname(project.config.paths.events), { recursive: true });
+    fs.writeFileSync(project.config.paths.events, '{"at":"2026-09-01T00:00:00Z","event":"posted","package":"OLD-1"}\n{"at":"2026-09-01T00:00:01Z","event":"done","package":"OLD-1"}\n');
+    const fresh = new QuestStore(project.config);
+    fresh.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+    assert.deepEqual(readEvents(project.config.paths.events).map((e) => e.seq), [1, 2, 3]);
+    assert.deepEqual(eventsAfter(project.config.paths.events, { after: 2 }).map((e) => e.package), ['RUN-4']);
+    assert.deepEqual(eventsAfter(project.config.paths.events, { after: 0, limit: 1, pkg: 'OLD-1' }).map((e) => e.event), ['posted']);
   });
 
   it('keeps the worker through a stall and frees it only on release', () => {

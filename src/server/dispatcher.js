@@ -52,11 +52,27 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     failIfStillOurs(quest.id, name, result.detail);
   }
 
+  // The same request sent twice (a retried MCP call, a double click) must not start a second worker.
+  function repeated(quest, requestKey) {
+    return Boolean(requestKey) && (quest.dispatches || []).some((d) => d.requestKey === requestKey);
+  }
+
+  // A caller that decided on revision N gets a refusal, not a dispatch, if the quest changed since.
+  function staleRevision(quest, ifRevision) {
+    if (ifRevision === undefined || ifRevision === null) return null;
+    const current = quest.revision || 0;
+    if (Number(ifRevision) === current) return null;
+    return { status: 409, body: { error: 'stale', revision: current, reasons: [{ code: 'stale_revision', message: `任务在你读取之后改过（现在是第 ${current} 版，你按第 ${ifRevision} 版派的），重新读一次再派` }] } };
+  }
+
   // Synchronous from the fresh read to store.assign, so two quick drops cannot both pass the checks.
-  function assign(questId, adventurer, by) {
+  function assign(questId, adventurer, by, { requestKey = null, ifRevision } = {}) {
     const quests = withFileSets(config, store.list());
     const quest = quests.find((q) => q.id === questId);
     if (!quest) return { status: 404, body: { error: 'quest not found' } };
+    if (repeated(quest, requestKey)) return { status: 200, body: { quest: store.get(questId), repeated: true } };
+    const stale = staleRevision(quest, ifRevision);
+    if (stale) return stale;
     const env = { treeLocked: lockPresent(config), briefExists: briefExists(config, quest), laneIds: new Set(Object.keys(config.lanes)) };
     const verdict = canDispatch({ quest, adventurer, quests, policy: config.policy, env });
     if (!verdict.ok) return { status: 409, body: { error: 'refused', reasons: verdict.reasons } };
@@ -68,7 +84,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     } catch (error) {
       return { status: 409, body: { error: 'refused', reasons: [{ code: 'preflight', message: error.message }] } };
     }
-    const running = store.assign(quest.id, { adventurer, name, by });
+    const running = store.assign(quest.id, { adventurer, name, by, requestKey });
     enqueue(adventurer.lane, () => executePlan(config, plan, { name, runners }))
       .then((result) => (result.ok ? announceStarted(quest.id, name) : settleFailedWrapper(running, adventurer.lane, name, result)))
       .catch((error) => failIfStillOurs(quest.id, name, `派遣异常：${error.message}`));
@@ -76,13 +92,16 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   }
 
   // Records a worker started by hand so the board tracks it; runs nothing.
-  function adopt(questId, adventurer, name, by) {
+  function adopt(questId, adventurer, name, by, { requestKey = null, ifRevision } = {}) {
     const quest = store.get(questId);
     if (!quest) return { status: 404, body: { error: 'quest not found' } };
+    if (repeated(quest, requestKey)) return { status: 200, body: { quest, repeated: true } };
+    const stale = staleRevision(quest, ifRevision);
+    if (stale) return stale;
     if (quest.kind === 'owner') return { status: 409, body: { error: `${questId} is an owner quest` } };
     if (!OPEN_STATUSES.has(quest.status)) return { status: 409, body: { error: `${questId} is ${quest.status}; only an open quest can adopt a worker` } };
     if (!/^[a-z0-9_]{1,48}$/.test(String(name || ''))) return { status: 400, body: { error: 'name must be the worker name given to the dispatch script (e.g. run3)' } };
-    return { status: 200, body: { quest: store.assign(questId, { adventurer, name, by, detail: `接管已在跑的 worker ${name}`, event: 'dispatched', adopted: true }) } };
+    return { status: 200, body: { quest: store.assign(questId, { adventurer, name, by, detail: `接管已在跑的 worker ${name}`, event: 'dispatched', adopted: true, requestKey }) } };
   }
 
   // Frees a stalled quest after someone confirmed its worker is gone; refuses everything else.

@@ -7,8 +7,9 @@
 //   questboard list [--status posted]
 //   questboard status RUN-4 done|delivered|reviewing|needs_owner|owner_playtest|lane_limited|superseded|cancelled|failed [--detail "..."]
 //   questboard ruling RUN-4 --text "..."
-//   questboard assign RUN-4 --adventurer codex-luna
+//   questboard assign RUN-4 --adventurer codex-luna [--request-key run4-a] [--if-revision 3]
 //   questboard adopt RUN-3 --adventurer codex-luna --name run3      (a worker started by hand; runs nothing)
+//   questboard doctor                                               (read-only setup check)
 //   questboard card list | card status <id> <status> [--reason "..."] [--by who]
 //   questboard roster path | roster import <old roster.json> [--force]
 //   questboard board post|reply|list|read|close|inbox [options]

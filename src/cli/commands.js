@@ -65,8 +65,11 @@ export const commands = {
 
   async assign(args) {
     const { base } = context(args);
-    const { quest } = await request(base, `/api/quests/${encodeURIComponent(args[0])}/assign`, 'POST', { adventurer: option(args, '--adventurer'), by: option(args, '--by') || 'coordinator' });
-    out(questLine(quest));
+    const body = await request(base, `/api/quests/${encodeURIComponent(args[0])}/assign`, 'POST', {
+      adventurer: option(args, '--adventurer'), by: option(args, '--by') || 'coordinator',
+      requestKey: option(args, '--request-key'), ifRevision: option(args, '--if-revision'),
+    });
+    out(`${questLine(body.quest)}${body.repeated ? '  (already dispatched under this request key; nothing new started)' : ''}`);
   },
 
   async adopt(args) {
@@ -150,5 +153,15 @@ export const commands = {
   async watch(args) {
     const config = projectConfig(args);
     watchEvents(config.paths.events, { fromStart: args.includes('--from-start'), write: (line) => out(line) });
+  },
+
+  // Read-only setup check: paths, scripts, Git Bash, roster, key sources (never values), the running server.
+  async doctor(args) {
+    const config = projectConfig(args);
+    const { runDoctor } = await import('./doctor.js');
+    const result = await runDoctor({ config, home: homePaths() });
+    for (const check of result.checks) out(`${check.ok ? 'ok  ' : 'FAIL'} ${check.name}：${check.detail}`);
+    out(result.ok ? '\n一切正常' : '\n有问题，看上面 FAIL 的行');
+    if (!result.ok) process.exitCode = 1;
   },
 };

@@ -32,7 +32,9 @@ const thread = (id: string) => `/api/threads/${encodeURIComponent(id)}`;
 
 export const api = {
   snapshot: () => call<Snapshot>('/api/quests'),
-  assign: (questId: string, adventurer: string) => call<{ quest: Quest }>(`${quest(questId)}/assign`, 'POST', { adventurer, by: 'owner' }),
+  // ifRevision: the quest revision the owner looked at; a quest changed since is refused with stale_revision.
+  assign: (questId: string, adventurer: string, ifRevision?: number) =>
+    call<{ quest: Quest; repeated?: boolean }>(`${quest(questId)}/assign`, 'POST', { adventurer, by: 'owner', ifRevision }),
   rule: (questId: string, text: string) => call<{ quest: Quest }>(`${quest(questId)}/ruling`, 'POST', { text, by: 'owner' }),
   setQuestStatus: (questId: string, status: QuestStatus, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, by: 'owner' }),
   // Frees a stalled quest after the owner confirmed its worker is gone; refused (409) for anything else.

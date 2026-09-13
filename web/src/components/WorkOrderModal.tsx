@@ -22,7 +22,7 @@ export function WorkOrderModal({
     setSubmitting(true);
     setErrors([]);
     try {
-      await api.assign(quest.id, card.id);
+      await api.assign(quest.id, card.id, quest.revision);
       onSuccess();
     } catch (err) {
       setSubmitting(false);
