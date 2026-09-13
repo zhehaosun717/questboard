@@ -19,6 +19,8 @@ export interface GraphViewProps {
   onSelectQuest: (questId: string) => void;
   onOpenWorkOrder?: (questId: string, cardId: string) => void;
   setDragging?: (dragging: boolean) => void;
+  // The card the owner is dragging from the guild column, as a fallback when a browser gives no drag data.
+  pickingCardId?: string | null;
 }
 
 export function getGraphQuestIds(snap: Snapshot): string[] {
@@ -50,6 +52,7 @@ function GraphViewInner({
   onSelectQuest,
   onOpenWorkOrder,
   setDragging,
+  pickingCardId,
 }: GraphViewProps) {
   const reactFlow = useReactFlow();
   const nodesInitialized = useNodesInitialized();
@@ -113,6 +116,63 @@ function GraphViewInner({
     }, 50);
     return () => clearTimeout(timer);
   }, [compact, nodes.length, nodesInitialized, questIdsKey, reactFlow, targetQuestIds.length]);
+
+  // Same verdict-to-class rule the board wall uses, so a drop here reads the same as a drop there.
+  const dropClassFor = useCallback(
+    (questId: string, cardId: string) => {
+      const verdict = snap.eligibility[questId]?.[cardId];
+      const quest = snap.quests.find((q) => q.id === questId);
+      const isOpen = quest ? OPEN_STATUSES.includes(quest.status) : false;
+      if (verdict?.ok) return 'drop-ok ok';
+      if (isOpen && isQueueOnly(verdict)) return 'drop-queue queue';
+      return 'drop-no refused drop-refused';
+    },
+    [snap.eligibility, snap.quests],
+  );
+
+  const questUnderPointer = useCallback(
+    (clientX: number, clientY: number) => questAtPoint(reactFlow.getNodes(), reactFlow.screenToFlowPosition({ x: clientX, y: clientY })),
+    [reactFlow],
+  );
+
+  // A card dragged from the guild column is an ordinary HTML drag, not a React Flow node drag: without these
+  // the graph silently refuses every drop, and a model that has never been dispatched has no node to drag.
+  const handleGuildDragOver = useCallback(
+    (event: React.DragEvent) => {
+      if (!onOpenWorkOrder) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      const cardId = pickingCardId;
+      const questId = questUnderPointer(event.clientX, event.clientY);
+      const next = cardId && questId ? { [questId]: dropClassFor(questId, cardId) } : {};
+      const current = currentIntersectionRef.current;
+      const same = Object.keys(next).length === Object.keys(current).length && Object.entries(next).every(([k, v]) => current[k] === v);
+      if (!same) {
+        currentIntersectionRef.current = next;
+        setIntersectingQuests(next);
+      }
+    },
+    [dropClassFor, onOpenWorkOrder, pickingCardId, questUnderPointer],
+  );
+
+  const clearGuildHighlight = useCallback(() => {
+    if (!Object.keys(currentIntersectionRef.current).length) return;
+    currentIntersectionRef.current = {};
+    setIntersectingQuests({});
+  }, []);
+
+  const handleGuildDrop = useCallback(
+    (event: React.DragEvent) => {
+      if (!onOpenWorkOrder) return;
+      event.preventDefault();
+      clearGuildHighlight();
+      const cardId = event.dataTransfer.getData('text/plain') || pickingCardId || '';
+      if (!cardId) return;
+      const questId = questUnderPointer(event.clientX, event.clientY);
+      if (questId) onOpenWorkOrder(questId, cardId);
+    },
+    [clearGuildHighlight, onOpenWorkOrder, pickingCardId, questUnderPointer],
+  );
 
   const handleNodeDragStart = useCallback(
     (_event: React.MouseEvent | MouseEvent | TouchEvent, node: Node) => {
@@ -276,7 +336,14 @@ function GraphViewInner({
           {showConflicts ? '隐藏文件冲突' : '显示文件冲突'}
         </button>
       </p>
-      <div style={{ flex: 1, width: '100%', minHeight: 400 }}>{flowContent}</div>
+      <div
+        style={{ flex: 1, width: '100%', minHeight: 400 }}
+        onDragOver={handleGuildDragOver}
+        onDragLeave={clearGuildHighlight}
+        onDrop={handleGuildDrop}
+      >
+        {flowContent}
+      </div>
     </div>
   );
 }

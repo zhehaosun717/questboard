@@ -121,13 +121,9 @@ export function OmoSection({ pushToast }: OmoSectionProps) {
     return <div className="warn-tape">读取 OMO 配置失败：{configError}</div>;
   }
 
-  if (!config || !config.available) {
-    return (
-      <div className="hint omo-unavailable">
-        没有找到 OMO 配置文件（{config?.file || 'omo.json'}），这一节不可用
-      </div>
-    );
-  }
+  // OMO is oh-my-openagent's own config, which most people do not have. Without it this section says nothing
+  // useful, so it disappears entirely; the 设置 page still reports where it was looked for.
+  if (!config || !config.available) return null;
 
   const changes = changedOmoRows(
     { agents: config.agents, categories: config.categories },

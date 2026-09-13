@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::Mutex;
 use std::time::Duration;
+use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::{Manager, RunEvent, Url, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
@@ -27,6 +28,7 @@ struct Owned {
 struct OwnedServer(Mutex<Owned>);
 
 const START_TIMEOUT: Duration = Duration::from_secs(20);
+const SWITCH_PROJECT: &str = "switch-project";
 
 fn show_status(window: &WebviewWindow, text: &str, is_error: bool) {
     let text = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".into());
@@ -59,14 +61,17 @@ fn offer_setup(app: &tauri::AppHandle, window: &WebviewWindow, stored: &Settings
     Ok(())
 }
 
-fn choose_project(app: &tauri::AppHandle, window: &WebviewWindow, stored: &Settings) -> Result<ProjectInfo, String> {
-    // An explicit env var is for scripts: no dialogs, fail plainly.
-    if let Ok(env_project) = std::env::var("QUESTBOARD_PROJECT") {
-        return settings::read_project(&PathBuf::from(env_project));
-    }
-    if let Some(project) = &stored.project {
-        if let Ok(info) = settings::read_project(project) {
-            return Ok(info);
+// `force_pick` is the 切换项目 menu: always ask, even though a project is remembered.
+fn choose_project(app: &tauri::AppHandle, window: &WebviewWindow, stored: &Settings, force_pick: bool) -> Result<ProjectInfo, String> {
+    if !force_pick {
+        // An explicit env var is for scripts: no dialogs, fail plainly.
+        if let Ok(env_project) = std::env::var("QUESTBOARD_PROJECT") {
+            return settings::read_project(&PathBuf::from(env_project));
+        }
+        if let Some(project) = &stored.project {
+            if let Ok(info) = settings::read_project(project) {
+                return Ok(info);
+            }
         }
     }
     let picked = app
@@ -101,11 +106,11 @@ fn questboard_candidates(app: &tauri::AppHandle, stored: &Settings) -> Vec<PathB
     candidates
 }
 
-fn start(app: &tauri::AppHandle, window: &WebviewWindow) -> Result<Url, String> {
+fn start(app: &tauri::AppHandle, window: &WebviewWindow, force_pick: bool) -> Result<Url, String> {
     let file = settings_file(app)?;
     let stored = settings::load(&file);
     show_status(window, "正在找项目", false);
-    let project = choose_project(app, window, &stored)?;
+    let project = choose_project(app, window, &stored, force_pick)?;
     let url = format!("http://127.0.0.1:{}/", project.port).parse::<Url>().map_err(|e| e.to_string())?;
     match server::check_health(project.port, &project.name, &project.root) {
         Health::Ours => return Ok(url),
@@ -144,11 +149,15 @@ fn start(app: &tauri::AppHandle, window: &WebviewWindow) -> Result<Url, String> 
     Ok(url)
 }
 
-fn stop_owned_server(app: &tauri::AppHandle) {
+// `shutting_down` marks the app as closing for good, which makes a server still being spawned kill itself.
+// Switching projects must NOT set it: the next project starts a server right after.
+fn stop_owned_server(app: &tauri::AppHandle, shutting_down: bool) {
     if let Some(state) = app.try_state::<OwnedServer>() {
         // A poisoned lock still holds the child; kill it anyway.
         let mut guard = state.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        guard.closing = true;
+        if shutting_down {
+            guard.closing = true;
+        }
         if let Some(mut child) = guard.child.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -156,15 +165,35 @@ fn stop_owned_server(app: &tauri::AppHandle) {
     }
 }
 
+// The board page has no window.setStatus, so a failure while switching has to be a dialog or it is silent.
+fn switch_project(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    stop_owned_server(app, false);
+    let outcome = start(app, &window, true).and_then(|url| window.navigate(url).map_err(|e| format!("打不开看板页面：{e}")));
+    if let Err(message) = outcome {
+        app.dialog().message(message).title("切换项目失败").blocking_show();
+    }
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(OwnedServer::default())
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() != SWITCH_PROJECT {
+                return;
+            }
+            // Off the main thread: the picker and the dialogs block.
+            let handle = app.clone();
+            std::thread::spawn(move || switch_project(&handle));
+        })
         .setup(|app| {
+            let switch = MenuItem::with_id(app, SWITCH_PROJECT, "切换项目…", true, None::<&str>)?;
+            app.set_menu(Menu::with_items(app, &[&Submenu::with_items(app, "项目", true, &[&switch])?])?)?;
             let handle = app.handle().clone();
             let window = app.get_webview_window("main").ok_or("tauri.conf.json must define the main window")?;
             // Off the main thread: the folder picker and the health polling block.
-            std::thread::spawn(move || match start(&handle, &window) {
+            std::thread::spawn(move || match start(&handle, &window, false) {
                 Ok(url) => {
                     if let Err(error) = window.navigate(url) {
                         show_status(&window, &format!("打不开看板页面：{error}"), true);
@@ -179,7 +208,7 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
-            stop_owned_server(handle);
+            stop_owned_server(handle, true);
         }
     });
 }

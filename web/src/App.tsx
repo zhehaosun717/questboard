@@ -124,6 +124,7 @@ export function App() {
                     setWorkOrder({ questId, cardId })
                   }
                   setDragging={setDragging}
+                  pickingCardId={draggingCardId}
                 />
               ) : null
             ) : snap ? (
