@@ -77,8 +77,12 @@ describe('quest API', () => {
     assert.equal((await fx.api('/api/quests/LOOK-2F/adopt', 'POST', { adventurer: 'agy-gemini', name: 'look2f' })).status, 409);
     await fx.api('/api/quests', 'POST', { package: 'ARC-3', kind: 'owner', needsOwner: '三个点选哪个' });
     fx.server.boardStore.createThread({ title: 'ARC-3 appraisal', body: 'which?', author: 'coordinator', tags: ['question'] });
+    const mentions = fx.server.boardStore.createThread({ title: 'ARC-3 的贴图参考', body: '顺便一提', author: 'coordinator', tags: ['note'] }).thread.id;
     assert.equal((await fx.api('/api/quests/ARC-3/ruling', 'POST', { text: '第二个' })).body.quest.status, 'posted');
-    assert.match(fx.server.boardStore.listThreads({ q: 'ARC-3' })[0].messageCount === 2 ? 'ok' : 'missing', /ok/);
+    const answered = fx.server.boardStore.listThreads({ q: 'appraisal' })[0];
+    assert.equal(answered.messageCount, 2, 'the ruling is replied on the question thread');
+    assert.equal(answered.closed, true, 'answering a question closes it, so 待答 can go down');
+    assert.equal(fx.server.boardStore.getThread(mentions).closed, false, 'a thread that only mentions the quest stays open');
     assert.equal((await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'dispatched' })).status, 400);
     assert.equal((await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'done' })).body.quest.status, 'done');
   });

@@ -57,7 +57,8 @@ fn offer_setup(app: &tauri::AppHandle, window: &WebviewWindow, stored: &Settings
     show_status(window, "正在建项目", false);
     let root = server::locate_questboard(&questboard_candidates(app, stored))?;
     let node = stored.node.clone().unwrap_or_else(|| "node".into());
-    server::run_init(&node, &root, folder)?;
+    let log = app.path().app_log_dir().map_err(|e| e.to_string())?.join("init.log");
+    server::run_init(&node, &root, folder, &log)?;
     Ok(())
 }
 

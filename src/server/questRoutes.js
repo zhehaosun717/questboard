@@ -44,10 +44,13 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     }
   }
 
+  // A ruling is the answer, so the question thread it answers is closed with it — otherwise the "待答" count
+  // only ever grows. Threads that merely mention the quest without asking anything stay open.
   function replyOnThreads(questId, text) {
     if (!boardStore) return;
     for (const thread of boardStore.listThreads({ status: 'open' }).filter((t) => t.title.includes(questId) || t.tags.includes(questId))) {
       boardStore.addMessage(thread.id, { body: `裁决（任务板）：${text}`, author: 'owner' });
+      if (thread.tags.includes('question')) boardStore.setFlag(thread.id, 'closed', true);
     }
   }
 

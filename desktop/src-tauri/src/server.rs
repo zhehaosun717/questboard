@@ -96,20 +96,47 @@ pub fn init_args(questboard_root: &Path, project: &Path) -> Vec<String> {
     ]
 }
 
+/// Node prints an uncaught failure as a stack whose FIRST line is just the module and line number
+/// ("node:fs:2749"); the line worth showing is the one carrying the message. Falls back to the first lines
+/// rather than that useless header.
+pub fn first_useful_error(stderr: &str) -> String {
+    let lines: Vec<&str> = stderr.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+    let pick = lines
+        .iter()
+        .find(|line| line.contains("Error:") || line.contains("错误"))
+        .copied()
+        .unwrap_or_else(|| {
+            lines
+                .iter()
+                .find(|line| !line.starts_with("at ") && !line.starts_with("node:") && *line != &"throw err;" && !line.starts_with('^'))
+                .copied()
+                .unwrap_or("questboard init 没有说明原因")
+        });
+    pick.chars().take(300).collect()
+}
+
 /// Runs `questboard init` on a folder and waits for it. Returns what it printed, so the window can say what
-/// was written; the CLI is the only place that knows how to set a project up.
-pub fn run_init(node: &str, questboard_root: &Path, project: &Path) -> Result<String, String> {
+/// was written; the CLI is the only place that knows how to set a project up. Everything it printed is also
+/// written to `log_file`, because a one-line dialog is never enough to debug a failed setup.
+pub fn run_init(node: &str, questboard_root: &Path, project: &Path, log_file: &Path) -> Result<String, String> {
     let mut command = Command::new(node);
     command.args(init_args(questboard_root, project)).current_dir(questboard_root).stdin(Stdio::null());
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     let output = command.output().map_err(|e| format!("启动 Node 失败（{node}）：{e}。需要安装 Node 22"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let reason = stderr.lines().find(|line| !line.trim().is_empty()).unwrap_or("questboard init 没有说明原因");
-        return Err(format!("建项目失败：{}", reason.trim()));
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if let Some(dir) = log_file.parent() {
+        let _ = std::fs::create_dir_all(dir);
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    let _ = std::fs::write(
+        log_file,
+        format!("$ {node} {}\n\n--- stdout\n{stdout}\n--- stderr\n{stderr}\n", init_args(questboard_root, project).join(" ")),
+    );
+    if !output.status.success() {
+        return Err(format!("建项目失败：{}\n\n完整输出：{}", first_useful_error(&stderr), log_file.display()));
+    }
+    Ok(stdout)
 }
 
 pub fn spawn_server(node: &str, questboard_root: &Path, project: &Path, log_file: &Path) -> Result<Child, String> {
@@ -202,6 +229,15 @@ mod tests {
     fn waiting_stops_when_the_server_is_reported_gone() {
         let result = wait_until_ready(1, "x", Path::new("x"), Duration::from_secs(5), || Some("closing".into()));
         assert_eq!(result.unwrap_err(), "closing");
+    }
+
+    #[test]
+    fn shows_the_message_from_a_node_stack_not_its_header() {
+        let stack = "node:fs:2749\n    throw err;\n    ^\n\nError: EPERM: operation not permitted, mkdir 'D:\\x'\n    at mkdirSync (node:fs:1)\n";
+        assert!(first_useful_error(stack).starts_with("Error: EPERM"), "got {}", first_useful_error(stack));
+        // A questboard error is caught and printed as one plain line.
+        assert_eq!(first_useful_error("questboard.config.json exists; pass --force\n"), "questboard.config.json exists; pass --force");
+        assert_eq!(first_useful_error(""), "questboard init 没有说明原因");
     }
 
     #[test]
