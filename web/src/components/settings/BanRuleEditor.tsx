@@ -97,7 +97,7 @@ export function BanRuleEditor({ cards, field, label, hint, patterns, onPatternsC
           {MODES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
         <input aria-label={`${label}规则`} value={value} onChange={(event) => setValue(event.target.value)} placeholder={mode === "regex" ? "输入正则表达式" : "输入名称，例如 gpt-4.1"} />
-        <button type="button" onClick={addRule} disabled={value.length === 0 || inputError !== undefined}>添加禁用规则</button>
+        <button type="button" className="btn" onClick={addRule} disabled={value.length === 0 || inputError !== undefined}>添加禁用规则</button>
       </div>
       {inputError !== undefined && <p className="config-policy-error">{inputError}</p>}
       {field === "bannedModelPatterns" && <div className="config-policy-roster-picker">
