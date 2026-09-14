@@ -8,6 +8,7 @@ import { isQueueOnly } from '../lib/board';
 import { questAtPoint } from '../lib/graphHit';
 import { buildGraph } from '../lib/graphLayout';
 import { type PlacedCard, placedCardNodes } from '../lib/graphPlaced';
+import { applyPositions, loadPositions, type NodePositions, savePositions } from '../lib/graphPositions';
 import { NODE_COLORS, OPEN_STATUSES } from '../lib/labels';
 import { CardNode } from './CardNode';
 import { QuestNode } from './QuestNode';
@@ -45,6 +46,14 @@ function getEventClientPos(event: React.MouseEvent | MouseEvent | TouchEvent): {
 
 const nodeTypes = { quest: QuestNode, card: CardNode };
 
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 // The box dagre lays out in graphLayout, so a dropped model lands centred under the cursor.
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 50;
@@ -80,6 +89,12 @@ function GraphViewInner({
   // Models the owner dropped on empty canvas: buildGraph only knows cards that already dispatched something,
   // so without these a model that has never worked has no node to drag onto a quest.
   const [placedCards, setPlacedCards] = useState<PlacedCard[]>([]);
+  // Quest nodes the owner dragged to tidy the main graph. Kept apart from the layout because every snapshot
+  // rebuilds the nodes from dagre, which would snap a moved node straight back. The drawer's small graph is for
+  // navigation, so its nodes stay fixed and nothing is remembered for it.
+  const [movedPositions, setMovedPositions] = useState<NodePositions>(() =>
+    compact ? {} : loadPositions(browserStorage()),
+  );
 
   const layoutPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const currentIntersectionRef = useRef<Record<string, string>>({});
@@ -100,7 +115,7 @@ function GraphViewInner({
         const dropClass = intersectingQuests[node.id] || '';
         return {
           ...node,
-          draggable: false,
+          draggable: !compact,
           className: dropClass,
           data: { ...node.data, dropClass, onSelect: onSelectQuest },
         };
@@ -115,9 +130,9 @@ function GraphViewInner({
     for (const n of [...graphData.nodes, ...placed]) {
       layoutPositionsRef.current.set(n.id, { ...n.position });
     }
-    setNodes([...laidOut, ...placed]);
+    setNodes([...applyPositions(laidOut, movedPositions), ...placed]);
     setEdges(visibleEdges);
-  }, [graphData, onSelectQuest, intersectingQuests, placedCards, snap.roster, setNodes, setEdges, visibleEdges]);
+  }, [graphData, onSelectQuest, intersectingQuests, movedPositions, placedCards, snap.roster, setNodes, setEdges, visibleEdges]);
 
   // fitView does nothing until React Flow has measured the nodes, so wait for that before fitting.
   useEffect(() => {
@@ -259,6 +274,17 @@ function GraphViewInner({
 
   const handleNodeDragStop = useCallback(
     (event: React.MouseEvent | MouseEvent | TouchEvent, node: Node) => {
+      // A quest node is moved only to tidy the graph: remember where the owner put it, and nothing else.
+      if (node.type === 'quest') {
+        if (compact) return;
+        const next = {
+          ...movedPositions,
+          [node.id]: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
+        };
+        setMovedPositions(next);
+        savePositions(browserStorage(), next);
+        return;
+      }
       if (node.type !== 'card') return;
 
       setDragging?.(false);
@@ -294,8 +320,13 @@ function GraphViewInner({
         reactFlow.updateNode(node.id, { position: { ...orig } });
       }
     },
-    [onOpenWorkOrder, placedCards, reactFlow, setDragging, setNodes],
+    [compact, movedPositions, onOpenWorkOrder, placedCards, reactFlow, setDragging, setNodes],
   );
+
+  const resetLayout = () => {
+    setMovedPositions({});
+    savePositions(browserStorage(), {});
+  };
 
   // Removing a placed node must forget the placement too, or the next recompute would put it straight back.
   const handleNodesDelete = useCallback((deleted: Node[]) => {
@@ -366,15 +397,29 @@ function GraphViewInner({
         <span>
           实线：父任务 → 子任务（编码 → 审核 → 修复）。虚线：冒险者做过的委托，绿色表示正在做。红点线：文件冲突。点节点看档案。
           把名册里的卡拖到空白处，就能把这个模型放上图；再拖到委托上派工，选中按 Delete 移走。
+          委托节点可以拖动整理位置，会记住。
         </span>
-        <button
-          type="button"
-          className="btn"
-          style={{ padding: '2px 8px', fontSize: 11, whiteSpace: 'nowrap' }}
-          onClick={() => setShowConflicts((prev) => !prev)}
-        >
-          {showConflicts ? '隐藏文件冲突' : '显示文件冲突'}
-        </button>
+        <span style={{ display: 'flex', gap: 6 }}>
+          {Object.keys(movedPositions).length > 0 ? (
+            <button
+              type="button"
+              className="btn"
+              style={{ padding: '2px 8px', fontSize: 11, whiteSpace: 'nowrap' }}
+              title="忘掉手动拖过的位置，回到自动排版"
+              onClick={resetLayout}
+            >
+              重新排版
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="btn"
+            style={{ padding: '2px 8px', fontSize: 11, whiteSpace: 'nowrap' }}
+            onClick={() => setShowConflicts((prev) => !prev)}
+          >
+            {showConflicts ? '隐藏文件冲突' : '显示文件冲突'}
+          </button>
+        </span>
       </p>
       <div
         style={{ flex: 1, width: '100%', minHeight: 400 }}
