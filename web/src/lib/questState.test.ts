@@ -6,6 +6,7 @@ import {
   getQuestVerdict,
   hasEligibleCard,
   isAwaitingSignOff,
+  reviewsOf,
   sharedRefusals,
 } from './questState';
 
@@ -133,6 +134,17 @@ describe('quest state helpers', () => {
     expect(isAwaitingSignOff(makeQuest({ id: 'p', status: 'posted' }))).toBe(false);
     expect(isAwaitingSignOff(makeQuest({ id: 'x', status: 'done' }))).toBe(false);
     expect(isAwaitingSignOff(makeQuest({ id: 'o', kind: 'owner', status: 'delivered' }))).toBe(false);
+  });
+
+  it('lists only the review quests of this quest, oldest first', () => {
+    const snap = makeSnapshot([
+      makeQuest({ id: 'REVIEW-ARC-2B', kind: 'review', parents: ['ARC-2'], createdAt: '2026-09-13T02:00:00.000Z' }),
+      makeQuest({ id: 'REVIEW-ARC-2', kind: 'review', parents: ['ARC-2'], createdAt: '2026-09-13T01:00:00.000Z' }),
+      makeQuest({ id: 'REVIEW-GEN-2', kind: 'review', parents: ['GEN-2'] }),
+      makeQuest({ id: 'FIX-ARC-2', kind: 'code', parents: ['ARC-2'] }),
+    ]);
+    expect(reviewsOf(snap, 'ARC-2').map((q) => q.id)).toEqual(['REVIEW-ARC-2', 'REVIEW-ARC-2B']);
+    expect(reviewsOf(snap, 'NONE')).toEqual([]);
   });
 
   it('returns the last real ruling and handles an empty ruling list', () => {

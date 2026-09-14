@@ -120,8 +120,10 @@ export function QuestDrawer({
       {isAwaitingSignOff(quest) ? (
         <ReviewSection
           quest={quest}
+          snap={snap}
           draft={draft}
           onDraftChange={onDraftChange}
+          onSelectQuest={onSelectQuest}
           refresh={refresh}
           pushToast={pushToast}
         />

@@ -8,6 +8,7 @@ import { effectiveRoster } from '../core/overlay.js';
 import { QUEST_STATUSES } from '../core/store.js';
 import { createDispatcher } from './dispatcher.js';
 import { eventsAfter } from '../core/events.js';
+import { requestReview } from '../core/reviewRequest.js';
 
 const SYNC_INTERVAL_MS = 5000;
 const HEARTBEAT_MS = 20000;
@@ -109,6 +110,11 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     if (parts[3] === 'status') {
       if (!MANUAL_STATUSES.has(body.status)) { sendJson(response, 400, { error: `status must be one of ${[...MANUAL_STATUSES].join('|')}; dispatch goes through assign` }); return; }
       sendJson(response, 200, { quest: store.setStatus(questId, body.status, { detail: body.detail || '', by }) });
+      return;
+    }
+    if (parts[3] === 'review') {
+      const result = requestReview({ config, store, parentId: questId, note: String(body.note || '').trim().slice(0, 2000), by });
+      sendJson(response, result.status, result.body);
       return;
     }
     if (parts[3] === 'ruling') {

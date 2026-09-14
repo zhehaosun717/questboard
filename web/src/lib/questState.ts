@@ -24,6 +24,13 @@ export function isArchived(quest: Quest): boolean {
 
 const CHECK_STATUSES = COLUMNS.find((column) => column.key === 'check')?.statuses ?? [];
 
+/** Review quests posted for this quest, oldest first. */
+export function reviewsOf(snap: Snapshot, questId: string): Quest[] {
+  return snap.quests
+    .filter((q) => q.kind === 'review' && q.parents.includes(questId))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 /** Delivered or under review: the work came back and waits for the owner to accept it or send it back. */
 export function isAwaitingSignOff(quest: Quest): boolean {
   return quest.kind !== 'owner' && CHECK_STATUSES.includes(quest.status);

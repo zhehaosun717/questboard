@@ -36,6 +36,9 @@ export const api = {
   assign: (questId: string, adventurer: string, ifRevision?: number) =>
     call<{ quest: Quest; repeated?: boolean }>(`${quest(questId)}/assign`, 'POST', { adventurer, by: 'owner', ifRevision }),
   rule: (questId: string, text: string) => call<{ quest: Quest }>(`${quest(questId)}/ruling`, 'POST', { text, by: 'owner' }),
+  // Writes a review brief and posts a review quest for returned work; refused (409) while one is still open.
+  requestReview: (questId: string, note: string) =>
+    call<{ review: Quest; quest: Quest }>(`${quest(questId)}/review`, 'POST', { note, by: 'owner' }),
   setQuestStatus: (questId: string, status: QuestStatus, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, by: 'owner' }),
   // Frees a stalled quest after the owner confirmed its worker is gone; refused (409) for anything else.
   releaseWorker: (questId: string, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/release`, 'POST', { detail, by: 'owner' }),
