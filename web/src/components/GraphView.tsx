@@ -9,6 +9,7 @@ import { questAtPoint } from '../lib/graphHit';
 import { buildGraph } from '../lib/graphLayout';
 import { type PlacedCard, placedCardNodes } from '../lib/graphPlaced';
 import { applyPositions, loadPositions, type NodePositions, savePositions } from '../lib/graphPositions';
+import { getDropVerdict } from '../lib/questState';
 import { NODE_COLORS, OPEN_STATUSES } from '../lib/labels';
 import { CardNode } from './CardNode';
 import { QuestNode } from './QuestNode';
@@ -150,14 +151,14 @@ function GraphViewInner({
   // Same verdict-to-class rule the board wall uses, so a drop here reads the same as a drop there.
   const dropClassFor = useCallback(
     (questId: string, cardId: string) => {
-      const verdict = snap.eligibility[questId]?.[cardId];
       const quest = snap.quests.find((q) => q.id === questId);
+      const verdict = quest ? getDropVerdict(snap, quest, cardId) : undefined;
       const isOpen = quest ? OPEN_STATUSES.includes(quest.status) : false;
       if (verdict?.ok) return 'drop-ok ok';
       if (isOpen && isQueueOnly(verdict)) return 'drop-queue queue';
       return 'drop-no refused drop-refused';
     },
-    [snap.eligibility, snap.quests],
+    [snap],
   );
 
   const questUnderPointer = useCallback(
@@ -232,8 +233,8 @@ function GraphViewInner({
 
       const newMap: Record<string, string> = {};
       if (targetQuestId) {
-        const verdict = snap.eligibility[targetQuestId]?.[cardId];
         const quest = snap.quests.find((q) => q.id === targetQuestId);
+        const verdict = quest ? getDropVerdict(snap, quest, cardId) : undefined;
         const isOpen = quest ? OPEN_STATUSES.includes(quest.status) : false;
 
         if (verdict?.ok) {
@@ -269,7 +270,7 @@ function GraphViewInner({
         setIntersectingQuests(newMap);
       }
     },
-    [reactFlow, snap.eligibility, snap.quests],
+    [reactFlow, snap],
   );
 
   const handleNodeDragStop = useCallback(

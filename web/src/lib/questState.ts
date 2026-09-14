@@ -24,6 +24,13 @@ export function isArchived(quest: Quest): boolean {
 
 const CHECK_STATUSES = COLUMNS.find((column) => column.key === 'check')?.statuses ?? [];
 
+/** The verdict for dropping a card on this quest: returned work is judged as a review of it, not as more work. */
+export function getDropVerdict(snap: Snapshot, quest: Quest, cardId: string): Verdict | undefined {
+  return isAwaitingSignOff(quest)
+    ? snap.reviewEligibility?.[quest.id]?.[cardId]
+    : snap.eligibility[quest.id]?.[cardId];
+}
+
 /** Review quests posted for this quest, oldest first. */
 export function reviewsOf(snap: Snapshot, questId: string): Quest[] {
   return snap.quests

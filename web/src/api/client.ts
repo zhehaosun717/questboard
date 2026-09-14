@@ -37,8 +37,9 @@ export const api = {
     call<{ quest: Quest; repeated?: boolean }>(`${quest(questId)}/assign`, 'POST', { adventurer, by: 'owner', ifRevision }),
   rule: (questId: string, text: string) => call<{ quest: Quest }>(`${quest(questId)}/ruling`, 'POST', { text, by: 'owner' }),
   // Writes a review brief and posts a review quest for returned work; refused (409) while one is still open.
-  requestReview: (questId: string, note: string) =>
-    call<{ review: Quest; quest: Quest }>(`${quest(questId)}/review`, 'POST', { note, by: 'owner' }),
+  // With an adventurer the review is dispatched to that card in the same step, after the rules accept it.
+  requestReview: (questId: string, note: string, adventurer?: string) =>
+    call<{ review: Quest; quest: Quest }>(`${quest(questId)}/review`, 'POST', { note, by: 'owner', ...(adventurer ? { adventurer } : {}) }),
   setQuestStatus: (questId: string, status: QuestStatus, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, by: 'owner' }),
   // Frees a stalled quest after the owner confirmed its worker is gone; refused (409) for anything else.
   releaseWorker: (questId: string, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/release`, 'POST', { detail, by: 'owner' }),

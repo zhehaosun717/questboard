@@ -8,7 +8,9 @@ import { effectiveRoster } from '../core/overlay.js';
 import { QUEST_STATUSES } from '../core/store.js';
 import { createDispatcher } from './dispatcher.js';
 import { eventsAfter } from '../core/events.js';
-import { requestReview } from '../core/reviewRequest.js';
+import { isReviewable, requestReview, reviewEligibility } from '../core/reviewRequest.js';
+import { withFileSets } from '../core/briefs.js';
+import { lockPresent } from '../core/snapshot.js';
 
 const SYNC_INTERVAL_MS = 5000;
 const HEARTBEAT_MS = 20000;
@@ -113,8 +115,28 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       return;
     }
     if (parts[3] === 'review') {
+      // With an adventurer this is a drop: judge that card against the review first, so a refused drop writes
+      // no brief and posts nothing; then post the review and dispatch it in one step.
+      let card = null;
+      if (body.adventurer) {
+        card = findCard(body.adventurer);
+        if (!card) { sendJson(response, 400, { error: `no adventurer ${body.adventurer}` }); return; }
+        const parent = store.get(questId);
+        if (isReviewable(parent)) {
+          const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)) };
+          const quests = withFileSets(config, store.list());
+          const verdict = reviewEligibility({ parent, roster: [card], quests, policy: config.policy, env })[card.id];
+          if (!verdict.ok) { sendJson(response, 409, { error: 'refused', reasons: verdict.reasons }); return; }
+        }
+      }
       const result = requestReview({ config, store, parentId: questId, note: String(body.note || '').trim().slice(0, 2000), by });
-      sendJson(response, result.status, result.body);
+      if (result.status !== 201 || !card) { sendJson(response, result.status, result.body); return; }
+      const assigned = dispatcher.assign(result.body.review.id, card, by);
+      if (assigned.status !== 200) {
+        sendJson(response, assigned.status, { ...assigned.body, review: result.body.review });
+        return;
+      }
+      sendJson(response, 201, { review: assigned.body.quest, quest: result.body.quest });
       return;
     }
     if (parts[3] === 'ruling') {

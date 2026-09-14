@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ApiError, api } from '../api/client';
 import type { Card, Quest } from '../api/types';
+import { isAwaitingSignOff } from '../lib/questState';
 
 interface WorkOrderModalProps {
   quest: Quest;
@@ -9,6 +10,8 @@ interface WorkOrderModalProps {
   onSuccess: () => void;
 }
 
+// One order for every drop. A card dropped on returned work is sent to review that work: the board writes the
+// review brief and dispatches the review in one step, so the owner never has to create a review quest first.
 export function WorkOrderModal({
   quest,
   card,
@@ -17,12 +20,15 @@ export function WorkOrderModal({
 }: WorkOrderModalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  const [note, setNote] = useState('');
+  const isReview = isAwaitingSignOff(quest);
 
   const handleConfirm = async () => {
     setSubmitting(true);
     setErrors([]);
     try {
-      await api.assign(quest.id, card.id, quest.revision);
+      if (isReview) await api.requestReview(quest.id, note.trim(), card.id);
+      else await api.assign(quest.id, card.id, quest.revision);
       onSuccess();
     } catch (err) {
       setSubmitting(false);
@@ -45,9 +51,9 @@ export function WorkOrderModal({
         aria-labelledby="orderTitle"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="eyebrow">WORK ORDER · 派遣令</p>
+        <p className="eyebrow">{isReview ? 'REVIEW ORDER · 审核令' : 'WORK ORDER · 派遣令'}</p>
         <h2 id="orderTitle">
-          派 <em>{card.name}</em> 去做 <em>{quest.id}</em>
+          派 <em>{card.name}</em> 去{isReview ? '审核' : '做'} <em>{quest.id}</em>
         </h2>
         <dl className="order-lines">
           <dt>委托</dt>
@@ -65,9 +71,24 @@ export function WorkOrderModal({
           </dd>
           <dt>BRIEF</dt>
           <dd>
-            <code>{quest.brief}</code>
+            {isReview ? (
+              <>
+                看板写一份审核简报 <code>REVIEW-{quest.id}</code>，让它对照 <code>{quest.brief}</code> 逐条核对，只读不改
+              </>
+            ) : (
+              <code>{quest.brief}</code>
+            )}
           </dd>
         </dl>
+        {isReview ? (
+          <textarea
+            className="order-note"
+            rows={2}
+            placeholder="想让它重点看什么（可不写，会写进审核简报）"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        ) : null}
         {card.billing === 'payg' && (
           <div className="warn-tape">⚠ 按量付费通道，会直接花钱</div>
         )}
@@ -96,7 +117,7 @@ export function WorkOrderModal({
             onClick={handleConfirm}
             autoFocus
           >
-            盖章派遣
+            {isReview ? '盖章派去审核' : '盖章派遣'}
           </button>
         </div>
       </div>

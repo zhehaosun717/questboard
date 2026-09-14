@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, isQueueOnly } from '../lib/board';
 import { KIND, OPEN_STATUSES, STATUS } from '../lib/labels';
-import { getQuestFlowKey, getQuestVerdict, QUEST_FLOW_LABEL } from '../lib/questState';
+import { getDropVerdict, getQuestFlowKey, QUEST_FLOW_LABEL } from '../lib/questState';
 
 interface QuestCardProps {
   quest: Quest;
@@ -27,7 +27,7 @@ export function QuestCard({
 }: QuestCardProps) {
   const [isOver, setIsOver] = useState(false);
 
-  const verdict = pickingCardId ? getQuestVerdict(snap, quest.id, pickingCardId) : undefined;
+  const verdict = pickingCardId ? getDropVerdict(snap, quest, pickingCardId) : undefined;
   const isOpen = OPEN_STATUSES.includes(quest.status);
   const flowKey = getQuestFlowKey(quest, snap);
 

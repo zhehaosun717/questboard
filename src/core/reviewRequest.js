@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { withFileSets } from './briefs.js';
 import { packageIdPattern } from './patterns.js';
+import { eligibility } from './rules.js';
 
 const CLOSED = new Set(['done', 'superseded', 'cancelled']);
 const REVIEWABLE = new Set(['delivered', 'reviewing']);
@@ -13,6 +14,29 @@ const SUFFIXES = ['', ...'BCDEFGHJKLMNPQRSTUVWXYZ'];
 
 export function activeReviewOf(quests, parentId) {
   return quests.find((q) => q.kind === 'review' && (q.parents || []).includes(parentId) && !CLOSED.has(q.status)) || null;
+}
+
+export function isReviewable(quest) {
+  return quest.kind !== 'owner' && REVIEWABLE.has(quest.status);
+}
+
+// The review quest a drop would create, so the drop can be judged before anything is written: no files (the
+// brief has no file list) and a brief that will exist, exactly like the one requestReview posts.
+export function hypotheticalReview(parent) {
+  return {
+    id: `REVIEW-${parent.id}`, kind: 'review', status: 'posted', parents: [parent.id], conflicts: [], files: [],
+    allowedLanes: [], needsOwner: '', assignee: null, dispatches: [], rulings: [], brief: '',
+  };
+}
+
+/** Who may review this returned work, card by card: the normal rules, applied to the review it would get. */
+export function reviewEligibility({ parent, roster, quests, policy, env }) {
+  const open = activeReviewOf(quests, parent.id);
+  if (open) {
+    const refused = { ok: false, reasons: [{ code: 'review_open', message: `已经有审核委托 ${open.id}，先处理它` }] };
+    return Object.fromEntries(roster.map((adventurer) => [adventurer.id, refused]));
+  }
+  return eligibility({ quest: hypotheticalReview(parent), roster, quests, policy, env: { ...env, briefExists: true } });
 }
 
 // REVIEW-<parent>, then REVIEW-<parent>B, C… — only ids the project's own package pattern accepts.

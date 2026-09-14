@@ -7,6 +7,7 @@ import { eligibility } from './rules.js';
 import { liveByName } from './sync.js';
 import { effectiveRoster } from './overlay.js';
 import { withFileSets, unpostedBriefs } from './briefs.js';
+import { isReviewable, reviewEligibility } from './reviewRequest.js';
 
 // tools/review embeds the manifest as <script type="application/json" id="review-data">.
 const MANIFEST_PATTERN = /<script[^>]*\bid="review-data"[^>]*>([\s\S]*?)<\/script>/;
@@ -79,6 +80,11 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes })
   for (const quest of quests) {
     byQuest[quest.id] = eligibility({ quest, roster, quests, policy: config.policy, env: { ...env, briefExists: briefExists(config, quest) } });
   }
+  // Dropping a card on returned work sends it to review that work, so those drops are judged as reviews.
+  const forReview = {};
+  for (const quest of quests) {
+    if (isReviewable(quest)) forReview[quest.id] = reviewEligibility({ parent: quest, roster, quests, policy: config.policy, env });
+  }
   const laneRows = (lanes && lanes.packages) || [];
   return {
     generatedAt: new Date().toISOString(),
@@ -86,6 +92,7 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes })
     quests,
     roster,
     eligibility: byQuest,
+    reviewEligibility: forReview,
     env: { treeLocked: env.treeLocked },
     live: liveByName(laneRows, quests),
     threads: threadsByPackage(boardStore, quests.map((q) => q.id)),

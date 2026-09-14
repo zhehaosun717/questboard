@@ -137,6 +137,10 @@ export interface Snapshot {
   quests: Quest[];
   roster: Card[];
   eligibility: Record<string, Record<string, Verdict>>;
+  // For delivered and reviewing quests: may this card review the work? A drop on returned work sends a review.
+  // Optional: the web build is served from disk and can be newer than the running server, which then sends
+  // no such field until it restarts. Readers treat it as "nobody may review yet" instead of crashing.
+  reviewEligibility?: Record<string, Record<string, Verdict>>;
   env: { treeLocked: boolean };
   live: Record<string, LiveWorker>;
   threads: Record<string, ThreadLink[]>;

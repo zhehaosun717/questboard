@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseFileSet } from '../../src/core/briefs.js';
-import { activeReviewOf, buildReviewBrief, pickReviewId } from '../../src/core/reviewRequest.js';
-import { makeProject } from '../helpers.js';
+import { activeReviewOf, buildReviewBrief, pickReviewId, reviewEligibility } from '../../src/core/reviewRequest.js';
+import { card, makeProject } from '../helpers.js';
 
 const parent = {
   id: 'ARC-2',
@@ -51,5 +51,23 @@ describe('review requests', () => {
     ];
     assert.equal(activeReviewOf(quests, 'ARC-2')?.id, 'REVIEW-ARC-2B');
     assert.equal(activeReviewOf(quests.slice(0, 1), 'ARC-2'), null);
+  });
+
+  it('judges who may review returned work before any review exists', () => {
+    const { config } = makeProject();
+    const env = { treeLocked: false, laneIds: new Set(Object.keys(config.lanes)) };
+    const work = {
+      id: 'RUN-4', kind: 'code', status: 'delivered', brief: 'docs/briefs/RUN-4-x.md', parents: [], conflicts: [], allowedLanes: [],
+      needsOwner: '', assignee: null, files: [],
+      dispatches: [{ adventurerId: 'codex-luna', family: 'gpt-5.6-luna', model: 'gpt-5.6-luna', lane: 'codex', name: 'run4' }],
+    };
+    const roster = [card('codex-luna'), card('agy-gemini')];
+    const verdicts = reviewEligibility({ parent: work, roster, quests: [work], policy: config.policy, env });
+    assert.ok(verdicts['codex-luna'].reasons.some((r) => r.code === 'reviewer_coded_parent'), 'the author is kept off');
+    assert.equal(verdicts['agy-gemini'].ok, true, JSON.stringify(verdicts['agy-gemini'].reasons));
+
+    const open = { id: 'REVIEW-RUN-4', kind: 'review', parents: ['RUN-4'], status: 'dispatched' };
+    const blocked = reviewEligibility({ parent: work, roster, quests: [work, open], policy: config.policy, env });
+    assert.ok(Object.values(blocked).every((v) => !v.ok && v.reasons[0].code === 'review_open'), 'one open review at a time');
   });
 });

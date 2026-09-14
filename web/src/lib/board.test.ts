@@ -40,6 +40,7 @@ function makeSnapshot(quests: Quest[] = [], roster: Card[] = []): Snapshot {
     quests,
     roster,
     eligibility: {},
+    reviewEligibility: {},
     env: { treeLocked: false },
     live: {},
     threads: {},

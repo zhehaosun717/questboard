@@ -124,6 +124,7 @@ export function QuestDrawer({
           draft={draft}
           onDraftChange={onDraftChange}
           onSelectQuest={onSelectQuest}
+          onAssignCard={onAssignCard}
           refresh={refresh}
           pushToast={pushToast}
         />

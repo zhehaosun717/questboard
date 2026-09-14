@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Card, Quest, Reason, Ruling, Snapshot } from '../api/types';
 import {
+  getDropVerdict,
   getLatestRuling,
   getQuestFlowKey,
   getQuestVerdict,
@@ -50,6 +51,7 @@ function makeCard(id: string): Card {
 function makeSnapshot(
   quests: Quest[] = [],
   eligibility: Snapshot['eligibility'] = {},
+  reviewEligibility: Snapshot['reviewEligibility'] = {},
 ): Snapshot {
   return {
     generatedAt: '2026-09-13T00:00:00.000Z',
@@ -57,6 +59,7 @@ function makeSnapshot(
     quests,
     roster: [makeCard('card-1')],
     eligibility,
+    reviewEligibility,
     env: { treeLocked: false },
     live: {},
     threads: {},
@@ -145,6 +148,23 @@ describe('quest state helpers', () => {
     ]);
     expect(reviewsOf(snap, 'ARC-2').map((q) => q.id)).toEqual(['REVIEW-ARC-2', 'REVIEW-ARC-2B']);
     expect(reviewsOf(snap, 'NONE')).toEqual([]);
+  });
+
+  it('judges a drop on returned work as a review of it, and any other drop as the work itself', () => {
+    const delivered = makeQuest({ id: 'd', status: 'delivered' });
+    const posted = makeQuest({ id: 'p', status: 'posted' });
+    const authorRefused: Reason = { code: 'reviewer_coded_parent', message: '同一模型写过被审核的 d，不能自己审自己' };
+    const snap = makeSnapshot(
+      [delivered, posted],
+      {
+        d: { 'card-1': { ok: false, reasons: [{ code: 'quest_not_open', message: '任务状态是「delivered」，不能接' }] } },
+        p: { 'card-1': { ok: true, reasons: [] } },
+      },
+      { d: { 'card-1': { ok: false, reasons: [authorRefused] } } },
+    );
+    expect(getDropVerdict(snap, delivered, 'card-1')?.reasons).toEqual([authorRefused]);
+    expect(getDropVerdict(snap, posted, 'card-1')?.ok).toBe(true);
+    expect(getDropVerdict(snap, delivered, 'card-9')).toBeUndefined();
   });
 
   it('returns the last real ruling and handles an empty ruling list', () => {
