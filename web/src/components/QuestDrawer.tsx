@@ -2,8 +2,9 @@ import { api } from '../api/client';
 import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, formatClock, isSafeReviewUrl, relatedQuestIds } from '../lib/board';
 import { KIND, STATUS } from '../lib/labels';
-import { getQuestFlowKey, isArchived } from '../lib/questState';
+import { getQuestFlowKey, isArchived, isAwaitingSignOff } from '../lib/questState';
 import { AssignSection } from './quest/AssignSection';
+import { ReviewSection } from './quest/ReviewSection';
 import { DrawerSection } from './quest/DrawerSection';
 import { OwnerTaskSection } from './quest/OwnerTaskSection';
 import { GraphView } from './GraphView';
@@ -116,8 +117,18 @@ export function QuestDrawer({
         <QuestReceipt quest={quest} snap={snap} />
       </DrawerSection>
 
+      {isAwaitingSignOff(quest) ? (
+        <ReviewSection
+          quest={quest}
+          draft={draft}
+          onDraftChange={onDraftChange}
+          refresh={refresh}
+          pushToast={pushToast}
+        />
+      ) : null}
+
       {quest.assignee && (
-        <DrawerSection en="IN THE PIT" zh="正在做">
+        <DrawerSection en="IN THE PIT" zh={quest.status === 'dispatched' ? '正在做' : '接手的人'}>
           <div className="rec">
             ⚔ {quest.assignee.model} · worker <code>{quest.assignee.name}</code>{' '}
             · {formatClock(quest.assignee.at)} 派出
@@ -133,7 +144,8 @@ export function QuestDrawer({
         </DrawerSection>
       ) : null}
 
-      {!archived && !isOwnerQuest ? (
+      {/* Returned work is signed off or sent back, not assigned again: a send-back reopens assignment. */}
+      {!archived && !isOwnerQuest && !isAwaitingSignOff(quest) ? (
         <AssignSection quest={quest} snap={snap} onAssignCard={onAssignCard} />
       ) : null}
 

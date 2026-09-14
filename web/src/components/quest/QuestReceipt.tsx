@@ -32,6 +32,8 @@ function VerificationRecord({ verification }: { verification: Verification | nul
 
   return (
     <div className="receipt-lines">
+      {/* snap.verification is the project's latest gate run, shared by every quest — say so. */}
+      <p className="receipt-none">看板最近一次整体验证（不是专门针对这个委托的）：</p>
       {verification.steps.map((step) => (
         <p key={`${step.kind}-${step.name}`}>
           {step.name}：{step.value}

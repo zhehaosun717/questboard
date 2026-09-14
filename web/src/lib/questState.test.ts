@@ -5,6 +5,7 @@ import {
   getQuestFlowKey,
   getQuestVerdict,
   hasEligibleCard,
+  isAwaitingSignOff,
   sharedRefusals,
 } from './questState';
 
@@ -124,6 +125,14 @@ describe('quest state helpers', () => {
       q: { 'card-1': { ok: true, reasons: [] }, 'card-2': { ok: false, reasons: [conflict] } },
     });
     expect(sharedRefusals(mixed, 'q')).toEqual([]);
+  });
+
+  it('asks for sign-off only on returned work, never on a 你来 quest or an open one', () => {
+    expect(isAwaitingSignOff(makeQuest({ id: 'd', status: 'delivered' }))).toBe(true);
+    expect(isAwaitingSignOff(makeQuest({ id: 'r', status: 'reviewing' }))).toBe(true);
+    expect(isAwaitingSignOff(makeQuest({ id: 'p', status: 'posted' }))).toBe(false);
+    expect(isAwaitingSignOff(makeQuest({ id: 'x', status: 'done' }))).toBe(false);
+    expect(isAwaitingSignOff(makeQuest({ id: 'o', kind: 'owner', status: 'delivered' }))).toBe(false);
   });
 
   it('returns the last real ruling and handles an empty ruling list', () => {

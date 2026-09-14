@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseFileSet, titleLine, withFileSets, unpostedBriefs } from '../../src/core/briefs.js';
-import { deriveTransitions, liveByName } from '../../src/core/sync.js';
+import { deriveTransitions, liveByName, tailText } from '../../src/core/sync.js';
 import { effectiveRoster } from '../../src/core/overlay.js';
 import { packageFromFileName, packageIdPattern, briefPathAllowed } from '../../src/core/patterns.js';
 import { makeProject } from '../helpers.js';
@@ -88,6 +88,18 @@ describe('sync', () => {
   it('stalls a quest whose worker never registered', () => {
     assert.deepEqual(deriveTransitions([running], [], later(5)), []);
     assert.equal(deriveTransitions([running], [], later(11))[0].status, 'stalled');
+  });
+
+  it('cuts long worker output at a word boundary and marks the cut', () => {
+    assert.equal(tailText('short'), 'short');
+    assert.equal(tailText(null), '');
+    const long = `${'x'.repeat(50)} Strictly follow the taxonomy`;
+    const cut = tailText(long, 30);
+    assert.equal(cut, '…Strictly follow the taxonomy', 'no half word like "trictly"');
+    const chinese = '中'.repeat(40);
+    assert.equal(tailText(chinese, 10), `…${'中'.repeat(10)}`, 'text with no spaces keeps the plain tail');
+    const delivered = deriveTransitions([running], [{ name: 'run4', state: 'delivered', dispatchedAt: at, lastText: `${'a'.repeat(400)} Strictly done` }], later(1));
+    assert.match(delivered[0].detail, /^…/);
   });
 });
 

@@ -14,11 +14,21 @@ function isCurrentRow(row, assignee) {
   return !row.dispatchedAt || Date.parse(row.dispatchedAt) >= Date.parse(assignee.at) - CLOCK_SKEW_MS;
 }
 
+// The end of a worker's output, cut to size. A bare slice(-300) cut mid-word and read as a typo ("trictly
+// follow"), so the cut moves past the first space when one is near, and an ellipsis marks that text is missing.
+export function tailText(text, max = 300) {
+  const value = String(text || '');
+  if (value.length <= max) return value;
+  const tail = value.slice(-max);
+  const space = tail.search(/\s/);
+  return `…${(space >= 0 && space < 40 ? tail.slice(space + 1) : tail).trimStart()}`;
+}
+
 function detailFor(row) {
   const parts = [];
   if (row.reason) parts.push(row.reason);
   if (row.bounceUntil) parts.push(`${row.bounceUntil} 恢复`);
-  if (row.lastText) parts.push(String(row.lastText).slice(-300));
+  if (row.lastText) parts.push(tailText(row.lastText));
   return parts.join(' | ');
 }
 
@@ -56,7 +66,7 @@ export function liveByName(laneRows, quests = []) {
     if (!row || !row.name) continue;
     const assignee = assignees.get(row.name);
     if (!assignee || !isCurrentRow(row, assignee)) continue;
-    live[row.name] = { state: row.state, elapsed: row.elapsed, edits: row.edits, lastText: String(row.lastText || '').slice(-300), tokens: row.tokens || null };
+    live[row.name] = { state: row.state, elapsed: row.elapsed, edits: row.edits, lastText: tailText(row.lastText), tokens: row.tokens || null };
   }
   return live;
 }

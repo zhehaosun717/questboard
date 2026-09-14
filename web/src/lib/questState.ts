@@ -22,6 +22,13 @@ export function isArchived(quest: Quest): boolean {
   return ARCHIVED_STATUSES.includes(quest.status);
 }
 
+const CHECK_STATUSES = COLUMNS.find((column) => column.key === 'check')?.statuses ?? [];
+
+/** Delivered or under review: the work came back and waits for the owner to accept it or send it back. */
+export function isAwaitingSignOff(quest: Quest): boolean {
+  return quest.kind !== 'owner' && CHECK_STATUSES.includes(quest.status);
+}
+
 export function getQuestFlowKey(quest: Quest, snap: Snapshot): QuestFlowKey {
   if (isArchived(quest)) return 'other';
   // The rules refuse a 你来 quest to every card, so until it is archived it is always the owner's to do.
