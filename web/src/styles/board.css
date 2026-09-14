@@ -119,12 +119,14 @@ code, .mono { font-family: var(--mono); }
 .pips i { width: 7px; height: 7px; transform: rotate(45deg); border: 1px solid var(--ink-soft); }
 .pips i.on { background: var(--rust); border-color: var(--rust-dk); }
 .quest h3 { margin: 7px 0 7px; font: 700 14px/1.35 var(--body); }
-.q-flow { display: flex; align-items: center; gap: 5px; width: fit-content; margin: 2px 0 7px; padding: 2px 7px 2px 5px; font: 700 11px/1.3 var(--body); border-left: 3px solid var(--grey); background: rgba(36, 28, 19, .08); }
-.q-flow i { width: 7px; height: 7px; border-radius: 50%; background: var(--grey); }
-.q-flow-open { color: var(--pcb-dk); border-left-color: var(--pcb-dk); } .q-flow-open i { background: var(--pcb-dk); }
-.q-flow-run { color: var(--cobalt); border-left-color: var(--cobalt); } .q-flow-run i { background: var(--cobalt); }
-.q-flow-blocked { color: var(--ink-soft); border-left-color: var(--grey); } .q-flow-blocked i { background: var(--grey); }
-.q-flow-owner { color: var(--rust-dk); border-left-color: var(--rust); background: rgba(242, 177, 52, .24); box-shadow: inset 0 0 0 1px rgba(157, 109, 16, .24); } .q-flow-owner i { background: var(--rust); }
+/* 下一步 on a card: one line, coloured by who holds the quest up. Cards are paper, so the ink is dark. */
+.q-next { display: flex; align-items: center; gap: 5px; width: fit-content; max-width: 100%; margin: 2px 0 7px; padding: 2px 7px 2px 5px; font: 700 11px/1.35 var(--body); color: var(--ink-soft); border-left: 3px solid var(--grey); background: rgba(36, 28, 19, .08); }
+.q-next i { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--grey); }
+.q-next-ready { color: var(--pcb-dk); border-left-color: var(--pcb-dk); } .q-next-ready i { background: var(--pcb-dk); }
+.q-next-working { color: var(--cobalt); border-left-color: var(--cobalt); } .q-next-working i { background: var(--cobalt); }
+.q-next-you { color: var(--rust-dk); border-left-color: var(--rust); background: rgba(242, 177, 52, .24); box-shadow: inset 0 0 0 1px rgba(157, 109, 16, .24); } .q-next-you i { background: var(--rust); }
+.q-next-done { color: var(--pcb-dk); border-left-color: var(--pcb-dk); } .q-next-done i { background: var(--pcb-dk); }
+.q-drop-hint { margin-top: 4px; font: 700 11px var(--body); color: var(--pcb-dk); }
 .stamp {
   display: inline-block; padding: 0 7px 1px; font: 400 15px/1.3 var(--han); letter-spacing: .12em; color: var(--stamp);
   border: 2px solid var(--stamp); border-radius: 3px; transform: rotate(-5deg); opacity: .88; mix-blend-mode: multiply;
@@ -219,8 +221,26 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: #1a1206; backg
 .drawer h2 { margin: 6px 0 4px; font: 400 30px/1.15 var(--han); color: var(--tag); letter-spacing: .03em; }
 .d-meta { font-size: 12px; color: var(--dim); }
 .d-meta code { color: var(--cable); }
-.drawer-attention { margin-top: 14px; padding: 9px 11px; color: var(--ink); background: repeating-linear-gradient(-45deg, #f2c35f 0 12px, #e9b44a 12px 24px); font-weight: 700; }
-.drawer-attention span { margin-right: 4px; font-size: 17px; }
+/* 下一步 in a dossier: who the quest waits on, what to do, what happens after. The drawer is dark steel. */
+.next-step { margin-top: 14px; padding: 11px 13px; background: rgba(255, 255, 255, .04); border-left: 4px solid var(--grey); }
+.next-step-eyebrow { font: 700 10px var(--display); letter-spacing: .25em; color: #a3947f; }
+.next-step-title { margin-top: 3px; font: 400 20px/1.3 var(--han); color: var(--tag); }
+.next-step-detail { margin: 4px 0 0; font-size: 12px; line-height: 1.6; color: var(--cream); }
+.next-step .btn { margin-top: 8px; }
+.next-step-you { border-left-color: var(--amber); background: linear-gradient(90deg, rgba(242, 177, 52, .16), rgba(242, 177, 52, .03)); }
+.next-step-ready { border-left-color: var(--pcb); }
+.next-step-working { border-left-color: var(--cobalt); }
+.next-step-done { border-left-color: var(--pcb-dk); }
+/* 证据: who said the work is done at each level — the worker, a reviewer, the owner. */
+.evidence { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.evidence-rung { display: flex; gap: 7px; padding: 7px 8px; background: rgba(255, 255, 255, .03); border-top: 3px solid #4a4239; }
+.evidence-rung strong { display: block; font: 700 12px var(--body); color: var(--tag); }
+.evidence-note { display: block; margin-top: 2px; font-size: 11px; line-height: 1.45; color: #a3947f; }
+.evidence-mark { font: 700 14px var(--mono); color: #a3947f; }
+.evidence-done { border-top-color: var(--pcb); } .evidence-done .evidence-mark { color: #86d6a3; }
+.evidence-pending { border-top-color: var(--amber); } .evidence-pending .evidence-mark { color: #f5cd7b; }
+.evidence-bad { border-top-color: var(--blood); } .evidence-bad .evidence-mark { color: #f3a594; }
+.evidence-skipped { opacity: .75; }
 .d-sec { margin-top: 20px; }
 .d-sec h3 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; padding-bottom: 5px; font: 400 18px var(--han); color: var(--tag); border-bottom: 1px solid #3a332b; }
 .d-sec h3 span { font: 700 11px var(--display); letter-spacing: .3em; color: var(--rust); }
@@ -252,6 +272,10 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: #1a1206; backg
 .review-link-status { margin-left: 6px; font-size: 11px; color: var(--cable); }
 .review-link-detail { margin: 5px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; font-size: 11px; color: var(--cream); }
 .review-link-none { margin-top: 3px; font-size: 11px; color: var(--dim); }
+.review-verdict { margin-left: 6px; padding: 0 6px; font: 700 11px var(--body); border-radius: 2px; }
+.review-verdict-pass, .review-verdict-findings { color: #86d6a3; background: rgba(63, 174, 107, .15); }
+.review-verdict-fail { color: #f3a594; background: rgba(217, 68, 46, .15); }
+.review-verdict-unknown { color: #f5cd7b; background: rgba(242, 177, 52, .12); }
 .receipt { display: grid; gap: 7px; }
 .receipt-block { padding: 9px 10px; color: var(--cream); background: rgba(255, 255, 255, .035); border-left: 3px solid var(--rivet); }
 .receipt-block h4 { margin: 0 0 5px; font: 700 12px var(--body); color: var(--cable); }

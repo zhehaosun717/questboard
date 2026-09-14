@@ -16,8 +16,9 @@ export function activeReviewOf(quests, parentId) {
   return quests.find((q) => q.kind === 'review' && (q.parents || []).includes(parentId) && !CLOSED.has(q.status)) || null;
 }
 
+// A review's report is signed off on the work it reviews, so a review quest is never itself reviewed.
 export function isReviewable(quest) {
-  return quest.kind !== 'owner' && REVIEWABLE.has(quest.status);
+  return quest.kind !== 'owner' && quest.kind !== 'review' && REVIEWABLE.has(quest.status);
 }
 
 // The review quest a drop would create, so the drop can be judged before anything is written: no files (the
@@ -99,6 +100,10 @@ export function requestReview({ config, store, parentId, note = '', by = 'owner'
   const parent = store.get(parentId);
   if (!parent) return { status: 404, body: { error: 'quest not found' } };
   if (parent.kind === 'owner') return { status: 409, body: { error: `${parentId} 是你亲自做的任务，不派模型审核` } };
+  if (parent.kind === 'review') {
+    const target = (parent.parents || [])[0];
+    return { status: 409, body: { error: `${parentId} 是审核委托，不再派审核${target ? `；去 ${target} 验收` : ''}` } };
+  }
   if (!REVIEWABLE.has(parent.status)) {
     return { status: 409, body: { error: `${parentId} 现在是「${parent.status}」，只有已交付或审核中的委托才能派模型审核` } };
   }

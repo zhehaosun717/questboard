@@ -1,19 +1,14 @@
 import type { Quest, Snapshot, Verification } from '../../api/types';
 import { formatAgo, formatClock } from '../../lib/board';
-import { getLatestRuling } from '../../lib/questState';
 
 interface QuestReceiptProps {
   quest: Quest;
   snap: Snapshot;
 }
 
-function ReceiptBlock({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+const CLAIMED = new Set<Quest['status']>(['delivered', 'reviewing', 'done']);
+
+function ReceiptBlock({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="receipt-block">
       <h4>{title}</h4>
@@ -22,18 +17,12 @@ function ReceiptBlock({
   );
 }
 
-function VerificationRecord({ verification }: { verification: Verification | null }) {
-  if (!verification) return <p className="receipt-none">没有记录</p>;
-
-  const hasCounts = verification.editXml !== null || verification.playXml !== null;
-  if (verification.steps.length === 0 && !hasCounts) {
+function ProjectTests({ verification }: { verification: Verification | null }) {
+  if (!verification || (verification.steps.length === 0 && !verification.editXml && !verification.playXml)) {
     return <p className="receipt-none">没有记录</p>;
   }
-
   return (
     <div className="receipt-lines">
-      {/* snap.verification is the project's latest gate run, shared by every quest — say so. */}
-      <p className="receipt-none">看板最近一次整体验证（不是专门针对这个委托的）：</p>
       {verification.steps.map((step) => (
         <p key={`${step.kind}-${step.name}`}>
           {step.name}：{step.value}
@@ -52,47 +41,40 @@ function VerificationRecord({ verification }: { verification: Verification | nul
   );
 }
 
+// What came back, told as what it is: the worker's own summary is not a check, the listed files are the ones
+// the brief allowed (not a diff), and the test run belongs to the whole project. Decisions live in 下一步.
 export function QuestReceipt({ quest, snap }: QuestReceiptProps) {
-  const live = quest.assignee ? snap.live[quest.assignee.name] : undefined;
+  const assignee = quest.assignee;
+  const live = assignee ? snap.live[assignee.name] : undefined;
   const latestDispatch = quest.dispatches[quest.dispatches.length - 1];
-  const latestRuling = getLatestRuling(quest);
   const hasDelivery = Boolean(quest.lastDetail) || quest.files.length > 0 || latestDispatch !== undefined;
 
   return (
-    <div className="receipt" aria-label="交付回执">
-      <ReceiptBlock title="交了什么">
+    <div className="receipt" aria-label="交回的东西">
+      <ReceiptBlock title="冒险者交回的东西">
         {hasDelivery ? (
           <div className="receipt-lines">
-            {quest.lastDetail ? <p>结果：{quest.lastDetail}</p> : null}
-            {quest.files.length > 0 ? <p>文件：{quest.files.join('、')}</p> : null}
+            {quest.lastDetail ? (
+              <p>
+                {CLAIMED.has(quest.status) ? '它自己的总结' : '最近记录'}：{quest.lastDetail}
+              </p>
+            ) : null}
+            {quest.files.length > 0 ? <p>委托书允许改的文件：{quest.files.join('、')}</p> : null}
             {latestDispatch ? (
               <p>
-                最近派遣：{latestDispatch.model} · 通道 {latestDispatch.lane} · worker {latestDispatch.name} ·{' '}
+                最近一次派遣：{latestDispatch.model} · 通道 {latestDispatch.lane} · 编号 {latestDispatch.name} ·{' '}
                 {formatClock(latestDispatch.at)}
               </p>
             ) : null}
-            {live ? <p>现场：{live.state} · {formatAgo(live.elapsed)} · {live.edits} 改动</p> : null}
+            {live ? <p>现场：{live.state} · {formatAgo(live.elapsed)} · {live.edits} 处改动</p> : null}
           </div>
         ) : (
-          <p className="receipt-none">没有记录</p>
+          <p className="receipt-none">还没有交回任何东西</p>
         )}
       </ReceiptBlock>
 
-      <ReceiptBlock title="验证了什么">
-        <VerificationRecord verification={snap.verification} />
-      </ReceiptBlock>
-
-      <ReceiptBlock title="还等你决定什么">
-        {quest.needsOwner.trim() ? (
-          <p className="receipt-pending">{quest.needsOwner}</p>
-        ) : latestRuling ? (
-          <div className="receipt-lines">
-            <p className="receipt-none">没有待你决定的事项</p>
-            <p>最近裁决：{latestRuling.text}</p>
-          </div>
-        ) : (
-          <p className="receipt-none">没有记录</p>
-        )}
+      <ReceiptBlock title="项目整体测试（整个项目最近一次，不是这个委托专属的）">
+        <ProjectTests verification={snap.verification} />
       </ReceiptBlock>
     </div>
   );

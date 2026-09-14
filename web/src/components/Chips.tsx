@@ -34,9 +34,10 @@ export function Chips({ snap, connected, error }: ChipsProps) {
     const counts = `${v.editXml ? ` · Edit ${v.editXml.passed}/${v.editXml.total}` : ''}${
       v.playXml ? ` · Play ${v.playXml.passed}/${v.playXml.total}` : ''
     }`;
-    const text = `验证${failed.length > 0 ? `失败 ${failed.map((f) => f.name).join('、')}` : '通过'}${counts}`;
+    // The whole project's latest test run, not any one quest's; it sat above delivered quests reading as theirs.
+    const text = `项目整体测试${failed.length > 0 ? `没过 ${failed.map((f) => f.name).join('、')}` : '通过'}${counts}`;
     verificationChip = (
-      <span className={`chip ${failed.length > 0 ? 'bad' : 'ok'}`}>
+      <span className={`chip ${failed.length > 0 ? 'bad' : 'ok'}`} title="整个项目最近一次测试，不是某一个委托的">
         <i className="led" />
         {text}
       </span>

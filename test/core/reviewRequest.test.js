@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseFileSet } from '../../src/core/briefs.js';
-import { activeReviewOf, buildReviewBrief, pickReviewId, reviewEligibility } from '../../src/core/reviewRequest.js';
+import { activeReviewOf, buildReviewBrief, isReviewable, pickReviewId, reviewEligibility } from '../../src/core/reviewRequest.js';
 import { card, makeProject } from '../helpers.js';
 
 const parent = {
@@ -51,6 +51,14 @@ describe('review requests', () => {
     ];
     assert.equal(activeReviewOf(quests, 'ARC-2')?.id, 'REVIEW-ARC-2B');
     assert.equal(activeReviewOf(quests.slice(0, 1), 'ARC-2'), null);
+  });
+
+  it('reviews returned work only — never a 你来 quest, an open quest, or a review itself', () => {
+    assert.equal(isReviewable({ kind: 'code', status: 'delivered' }), true);
+    assert.equal(isReviewable({ kind: 'art', status: 'reviewing' }), true);
+    assert.equal(isReviewable({ kind: 'code', status: 'posted' }), false);
+    assert.equal(isReviewable({ kind: 'owner', status: 'delivered' }), false);
+    assert.equal(isReviewable({ kind: 'review', status: 'delivered' }), false);
   });
 
   it('judges who may review returned work before any review exists', () => {

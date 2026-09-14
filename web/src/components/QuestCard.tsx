@@ -2,7 +2,8 @@ import { useState } from 'react';
 import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, isQueueOnly } from '../lib/board';
 import { KIND, OPEN_STATUSES, STATUS } from '../lib/labels';
-import { getDropVerdict, getQuestFlowKey, QUEST_FLOW_LABEL } from '../lib/questState';
+import { nextStep } from '../lib/nextStep';
+import { getDropVerdict, isAwaitingSignOff } from '../lib/questState';
 
 interface QuestCardProps {
   quest: Quest;
@@ -29,7 +30,7 @@ export function QuestCard({
 
   const verdict = pickingCardId ? getDropVerdict(snap, quest, pickingCardId) : undefined;
   const isOpen = OPEN_STATUSES.includes(quest.status);
-  const flowKey = getQuestFlowKey(quest, snap);
+  const step = nextStep(quest, snap);
 
   let dropClass = '';
   let refuseMessage = '';
@@ -146,12 +147,11 @@ export function QuestCard({
           </span>
         </div>
         <h3>{quest.title}</h3>
-        {flowKey !== 'other' ? (
-          <div className={`q-flow q-flow-${flowKey}`}>
-            <i aria-hidden="true" />
-            {QUEST_FLOW_LABEL[flowKey]}
-          </div>
-        ) : null}
+        {/* One line for what happens next; the dossier opens on the same step with its controls. */}
+        <div className={`q-next q-next-${step.tone}`} title={step.detail}>
+          <i aria-hidden="true" />
+          {step.title}
+        </div>
         <span className={`stamp${statusChanged ? ' thunk' : ''}`}>
           {STATUS[quest.status] ?? quest.status}
         </span>
@@ -175,7 +175,12 @@ export function QuestCard({
             ))}
           </div>
         ) : null}
-        <div className="q-refuse">{refuseMessage}</div>
+        {/* The same drag means different things by status, so say which before the drop. */}
+        {dropClass === 'drop-ok' ? (
+          <div className="q-drop-hint">{isAwaitingSignOff(quest) ? '放下：派去审核' : '放下：派去做'}</div>
+        ) : (
+          <div className="q-refuse">{refuseMessage}</div>
+        )}
       </div>
     </article>
   );

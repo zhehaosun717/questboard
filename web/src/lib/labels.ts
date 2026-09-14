@@ -2,7 +2,8 @@
 import type { CardStatus, QuestEvent, QuestKind, QuestStatus } from '../api/types';
 
 export const STATUS: Record<QuestStatus, string> = {
-  posted: '待接', dispatched: '进行中', delivered: '已交付', reviewing: '审核中', needs_owner: '等裁决',
+  // delivered is the worker's own claim, so it is not called 已交付 (it read as finished): it waits for sign-off.
+  posted: '待接', dispatched: '进行中', delivered: '待验收', reviewing: '审核中', needs_owner: '等裁决',
   owner_playtest: '等你试玩', lane_limited: '通道受限', bounced: '限额退回', failed: '失败', stalled: '卡住',
   done: '已完成', superseded: '已取代', cancelled: '已取消',
 };
@@ -44,7 +45,7 @@ export function describeEvent(event: QuestEvent): string {
     review_posted: `新审核委托 ${event.package}`,
     assigned: `${event.package} 已指派${who}`,
     dispatched: `${event.package} 脚本已启动${who}`,
-    delivered: `${event.package} 已交付${who}`,
+    delivered: `${event.package} 交回了，待验收${who}`,
     failed: `${event.package} 失败${who}`,
     bounced: `${event.package} 限额退回${who}`,
     stalled: `${event.package} 卡住了${who}`,

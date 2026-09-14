@@ -1,14 +1,18 @@
 import { api } from '../api/client';
 import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, formatClock, isSafeReviewUrl, relatedQuestIds } from '../lib/board';
+import { evidenceFor } from '../lib/evidence';
 import { KIND, STATUS } from '../lib/labels';
-import { getQuestFlowKey, isArchived, isAwaitingSignOff } from '../lib/questState';
+import { nextStep } from '../lib/nextStep';
+import { isArchived } from '../lib/questState';
 import { AssignSection } from './quest/AssignSection';
-import { ReviewSection } from './quest/ReviewSection';
 import { DrawerSection } from './quest/DrawerSection';
+import { EvidenceLadder } from './quest/EvidenceLadder';
+import { NextStepPanel } from './quest/NextStepPanel';
 import { OwnerTaskSection } from './quest/OwnerTaskSection';
-import { GraphView } from './GraphView';
 import { QuestReceipt } from './quest/QuestReceipt';
+import { ReviewSection } from './quest/ReviewSection';
+import { GraphView } from './GraphView';
 
 export interface QuestDrawerProps {
   quest: Quest;
@@ -23,6 +27,8 @@ export interface QuestDrawerProps {
   setDragging: (dragging: boolean) => void;
 }
 
+// The dossier opens on 下一步 with that step's controls right under it, then the evidence and what came back.
+// Everything after that is record. Controls no longer depend on which section a state happened to add them to.
 export function QuestDrawer({
   quest,
   snap,
@@ -35,18 +41,22 @@ export function QuestDrawer({
   pushToast,
   setDragging,
 }: QuestDrawerProps) {
-  const live = quest.assignee ? snap.live[quest.assignee.name] : null;
+  const assignee = quest.assignee;
+  const live = assignee ? snap.live[assignee.name] : null;
+  const assigneeName = assignee
+    ? snap.roster.find((card) => card.id === assignee.adventurerId)?.name ?? assignee.model
+    : '';
   const threads = snap.threads[quest.id] || [];
   const reviewPage = quest.reviewPage
     ? (snap.reviewPages || []).find((p) => p.page === quest.reviewPage)
     : null;
 
-  const flowKey = getQuestFlowKey(quest, snap);
+  const step = nextStep(quest, snap);
+  const rungs = evidenceFor(quest, snap);
   const archived = isArchived(quest);
-  const isOwnerQuest = quest.kind === 'owner';
 
   const handleCancel = async () => {
-    if (!window.confirm(`取消 ${quest.id}？已经在跑的 worker 不会被停止。`)) {
+    if (!window.confirm(`取消 ${quest.id}？已经在跑的冒险者不会被停止。`)) {
       return;
     }
     try {
@@ -58,8 +68,8 @@ export function QuestDrawer({
   };
 
   const handleRelease = async () => {
-    const name = quest.assignee?.name ?? '';
-    if (!window.confirm(`确认 worker ${name} 已经停了？释放后这个委托可以重新派；如果它其实还在跑，会有两个 worker 同时改文件。`)) {
+    const name = assignee?.name ?? '';
+    if (!window.confirm(`确认冒险者（编号 ${name}）已经停了？释放后这个委托可以重新派；如果它其实还在跑，会有两个冒险者同时改文件。`)) {
       return;
     }
     try {
@@ -78,12 +88,8 @@ export function QuestDrawer({
       <p className="eyebrow">DOSSIER · 委托档案</p>
       <div className="d-head">
         <span className="pid">{quest.id}</span>
-        <span className={`tape k-${quest.kind}`}>
-          {KIND[quest.kind] || quest.kind}
-        </span>
-        <span className={`stamp s-${quest.status}`}>
-          {STATUS[quest.status] || quest.status}
-        </span>
+        <span className={`tape k-${quest.kind}`}>{KIND[quest.kind] || quest.kind}</span>
+        <span className={`stamp s-${quest.status}`}>{STATUS[quest.status] || quest.status}</span>
       </div>
       <h2>{quest.title}</h2>
       <div className="d-meta">
@@ -91,33 +97,18 @@ export function QuestDrawer({
         {quest.brief ? (
           <>
             {' '}
-            · brief <code>{quest.brief}</code>
+            · 委托书 <code>{quest.brief}</code>
           </>
         ) : null}
       </div>
 
-      {flowKey === 'owner' ? (
-        <div className="drawer-attention">
-          <span>等我处理</span>
-          {quest.needsOwner ? ` · ${quest.needsOwner}` : ''}
-        </div>
+      <NextStepPanel step={step} onOpenQuest={onSelectQuest} />
+
+      {step.action === 'owner-task' ? (
+        <OwnerTaskSection quest={quest} draft={draft} onDraftChange={onDraftChange} refresh={refresh} pushToast={pushToast} />
       ) : null}
 
-      {!archived && (isOwnerQuest || quest.needsOwner) ? (
-        <OwnerTaskSection
-          quest={quest}
-          draft={draft}
-          onDraftChange={onDraftChange}
-          refresh={refresh}
-          pushToast={pushToast}
-        />
-      ) : null}
-
-      <DrawerSection en="RECEIPT" zh="交付回执">
-        <QuestReceipt quest={quest} snap={snap} />
-      </DrawerSection>
-
-      {isAwaitingSignOff(quest) ? (
+      {step.action === 'sign-off' ? (
         <ReviewSection
           quest={quest}
           snap={snap}
@@ -130,26 +121,39 @@ export function QuestDrawer({
         />
       ) : null}
 
-      {quest.assignee && (
-        <DrawerSection en="IN THE PIT" zh={quest.status === 'dispatched' ? '正在做' : '接手的人'}>
+      {step.action === 'assign' ? <AssignSection quest={quest} snap={snap} onAssignCard={onAssignCard} /> : null}
+
+      {step.action === 'release' && assignee ? (
+        <DrawerSection en="RELEASE" zh="确认冒险者已停">
+          <p className="hint owner-task-hint">
+            它的位置和文件仍被占着。确认它真的停了再释放：如果它其实还在跑，释放后会有两个冒险者同时改文件。
+          </p>
+          <div className="row end">
+            <button className="btn primary" type="button" onClick={handleRelease}>
+              确认已停，释放
+            </button>
+          </div>
+        </DrawerSection>
+      ) : null}
+
+      {rungs.length > 0 ? (
+        <DrawerSection en="EVIDENCE" zh="证据：谁说做完了">
+          <EvidenceLadder rungs={rungs} />
+        </DrawerSection>
+      ) : null}
+
+      <DrawerSection en="RECEIPT" zh="交回的东西">
+        <QuestReceipt quest={quest} snap={snap} />
+      </DrawerSection>
+
+      {assignee ? (
+        <DrawerSection en="IN THE PIT" zh={quest.status === 'dispatched' ? '正在做的冒险者' : '接手的冒险者'}>
           <div className="rec">
-            ⚔ {quest.assignee.model} · worker <code>{quest.assignee.name}</code>{' '}
-            · {formatClock(quest.assignee.at)} 派出
+            ⚔ {assigneeName} · 模型 {assignee.model} · 编号 <code>{assignee.name}</code> · {formatClock(assignee.at)} 派出
             {live ? ` · ${live.state} · ${formatAgo(live.elapsed)}` : ''}
           </div>
           {live && live.lastText ? <pre>{live.lastText}</pre> : null}
         </DrawerSection>
-      )}
-
-      {quest.lastDetail ? (
-        <DrawerSection en="LAST WORD" zh="最近结果">
-          <pre>{quest.lastDetail}</pre>
-        </DrawerSection>
-      ) : null}
-
-      {/* Returned work is signed off or sent back, not assigned again: a send-back reopens assignment. */}
-      {!archived && !isOwnerQuest && !isAwaitingSignOff(quest) ? (
-        <AssignSection quest={quest} snap={snap} onAssignCard={onAssignCard} />
       ) : null}
 
       <DrawerSection en="WIRING" zh="关系图">
@@ -166,86 +170,62 @@ export function QuestDrawer({
         </div>
       </DrawerSection>
 
-      {reviewPage && (
+      {reviewPage ? (
         <DrawerSection en="INSPECTION" zh="评审页">
           {isSafeReviewUrl(reviewPage.url) ? (
-            <a
-              className="rv"
-              href={reviewPage.url}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a className="rv" href={reviewPage.url} target="_blank" rel="noreferrer">
               <span className="rv-title">{reviewPage.title}</span>
-              <span className="rv-count">
-                已批注 {reviewPage.answered}/{reviewPage.total}
-              </span>
+              <span className="rv-count">已批注 {reviewPage.answered}/{reviewPage.total}</span>
             </a>
           ) : (
             <div className="rv">
               <span className="rv-title">{reviewPage.title}</span>
-              <span className="rv-count">
-                已批注 {reviewPage.answered}/{reviewPage.total}
-              </span>
+              <span className="rv-count">已批注 {reviewPage.answered}/{reviewPage.total}</span>
             </div>
           )}
         </DrawerSection>
-      )}
+      ) : null}
 
-      {threads.length > 0 && (
+      {threads.length > 0 ? (
         <DrawerSection en="CHATTER" zh="留言板">
           {threads.map((t) => (
             <div key={t.id} className="rec">
-              <a
-                href={`#/threads/${encodeURIComponent(t.id)}`}
-                onClick={onClose}
-              >
+              <a href={`#/threads/${encodeURIComponent(t.id)}`} onClick={onClose}>
                 {t.title}
               </a>{' '}
               · {t.messageCount} 条{t.closed ? ' · 已关闭' : ''}
             </div>
           ))}
         </DrawerSection>
-      )}
+      ) : null}
 
-      {quest.dispatches && quest.dispatches.length > 0 && (
+      {quest.dispatches && quest.dispatches.length > 0 ? (
         <DrawerSection en="LOG" zh="派遣记录">
           {quest.dispatches.map((d, i) => (
             <div key={i} className="rec">
-              {new Date(d.at).toLocaleString('zh-CN')} · {d.model} ·{' '}
-              <code>{d.name}</code> · {d.by || ''}
+              {new Date(d.at).toLocaleString('zh-CN')} · {d.model} · 编号 <code>{d.name}</code> · {d.by || ''}
             </div>
           ))}
         </DrawerSection>
-      )}
+      ) : null}
 
-      {quest.rulings && quest.rulings.length > 0 && (
+      {quest.rulings && quest.rulings.length > 0 ? (
         <DrawerSection en="RULINGS" zh="裁决记录">
           {quest.rulings.map((r, i) => (
             <div key={i} className="rec">
-              {new Date(r.at).toLocaleString('zh-CN')} · 问：{r.question || ''}{' '}
-              · 答：{r.text}
+              {new Date(r.at).toLocaleString('zh-CN')} · 问：{r.question || ''} · 答：{r.text}
             </div>
           ))}
         </DrawerSection>
-      )}
+      ) : null}
 
-      {!archived && (
-        <DrawerSection en="SCRAP" zh="操作">
-          {quest.status === 'stalled' && quest.assignee && (
-            <p className="hint">
-              worker {quest.assignee.name} 没动静了，但可能还在跑。它的位置和文件仍被占着，释放之前不能重新派。
-            </p>
-          )}
-          {quest.status === 'stalled' && quest.assignee && (
-            <button className="btn" type="button" onClick={handleRelease} style={{ marginRight: 8 }}>
-              确认已停，释放 worker
-            </button>
-          )}
+      {!archived ? (
+        <DrawerSection en="SCRAP" zh="取消">
           <button className="btn danger" type="button" onClick={handleCancel}>
             取消这个委托
           </button>
         </DrawerSection>
-      )}
+      ) : null}
     </div>
   );
 }
