@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { Card, Quest, Ruling, Snapshot } from '../api/types';
+import type { Card, Quest, Reason, Ruling, Snapshot } from '../api/types';
 import {
   getLatestRuling,
   getQuestFlowKey,
   getQuestVerdict,
   hasEligibleCard,
+  sharedRefusals,
 } from './questState';
 
 function makeQuest(partial: Partial<Quest> & { id: string }): Quest {
@@ -66,8 +67,10 @@ function makeSnapshot(
 }
 
 describe('quest state helpers', () => {
-  it('uses the existing column groups for the three workflow cues', () => {
-    expect(getQuestFlowKey(makeQuest({ id: 'open', status: 'posted' }))).toBe('open');
+  it('uses the existing column groups for the workflow cues', () => {
+    const none = makeSnapshot();
+    const takeable = makeSnapshot([], { open: { 'card-1': { ok: true, reasons: [] } } });
+    expect(getQuestFlowKey(makeQuest({ id: 'open', status: 'posted' }), takeable)).toBe('open');
     expect(
       getQuestFlowKey(
         makeQuest({
@@ -84,12 +87,43 @@ describe('quest state helpers', () => {
             by: 'owner',
           },
         }),
+        none,
       ),
     ).toBe('run');
-    expect(getQuestFlowKey(makeQuest({ id: 'check', status: 'delivered' }))).toBe('owner');
-    expect(getQuestFlowKey(makeQuest({ id: 'ask', status: 'posted', needsOwner: '请选择方案' }))).toBe('owner');
-    expect(getQuestFlowKey(makeQuest({ id: 'broken-run', status: 'dispatched', assignee: null }))).toBe('other');
-    expect(getQuestFlowKey(makeQuest({ id: 'done', status: 'done' }))).toBe('other');
+    expect(getQuestFlowKey(makeQuest({ id: 'check', status: 'delivered' }), none)).toBe('owner');
+    expect(getQuestFlowKey(makeQuest({ id: 'ask', status: 'posted', needsOwner: '请选择方案' }), none)).toBe('owner');
+    expect(getQuestFlowKey(makeQuest({ id: 'broken-run', status: 'dispatched', assignee: null }), none)).toBe('other');
+    expect(getQuestFlowKey(makeQuest({ id: 'done', status: 'done' }), none)).toBe('other');
+  });
+
+  it('calls an open quest that no card can take blocked instead of dispatchable', () => {
+    const conflict: Reason = { code: 'queue_conflict', message: '排队：ARC-2 正在改同一批文件，一次一个' };
+    const snap = makeSnapshot([], { q: { 'card-1': { ok: false, reasons: [conflict] } } });
+    expect(getQuestFlowKey(makeQuest({ id: 'q', status: 'posted' }), snap)).toBe('blocked');
+    expect(getQuestFlowKey(makeQuest({ id: 'no-verdicts', status: 'posted' }), makeSnapshot())).toBe('blocked');
+  });
+
+  it('treats a 你来 quest as the owner\'s until it is archived', () => {
+    const snap = makeSnapshot();
+    expect(getQuestFlowKey(makeQuest({ id: 'mine', kind: 'owner', status: 'posted' }), snap)).toBe('owner');
+    expect(getQuestFlowKey(makeQuest({ id: 'mine-done', kind: 'owner', status: 'done' }), snap)).toBe('other');
+  });
+
+  it('keeps only the refusals every card shares', () => {
+    const conflict: Reason = { code: 'queue_conflict', message: '排队：ARC-2 正在改同一批文件，一次一个' };
+    const paused: Reason = { code: 'adventurer_paused', message: '这个模型被暂停使用' };
+    const snap = makeSnapshot([], {
+      q: {
+        'card-1': { ok: false, reasons: [conflict] },
+        'card-2': { ok: false, reasons: [paused, conflict] },
+      },
+    });
+    expect(sharedRefusals(snap, 'q')).toEqual([conflict]);
+    expect(sharedRefusals(snap, 'missing')).toEqual([]);
+    const mixed = makeSnapshot([], {
+      q: { 'card-1': { ok: true, reasons: [] }, 'card-2': { ok: false, reasons: [conflict] } },
+    });
+    expect(sharedRefusals(mixed, 'q')).toEqual([]);
   });
 
   it('returns the last real ruling and handles an empty ruling list', () => {

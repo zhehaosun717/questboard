@@ -29,7 +29,7 @@ export function QuestCard({
 
   const verdict = pickingCardId ? getQuestVerdict(snap, quest.id, pickingCardId) : undefined;
   const isOpen = OPEN_STATUSES.includes(quest.status);
-  const flowKey = getQuestFlowKey(quest);
+  const flowKey = getQuestFlowKey(quest, snap);
 
   let dropClass = '';
   let refuseMessage = '';

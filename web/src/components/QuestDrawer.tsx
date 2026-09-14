@@ -1,10 +1,11 @@
-import { useState } from 'react';
 import { api } from '../api/client';
 import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, formatClock, isSafeReviewUrl, relatedQuestIds } from '../lib/board';
 import { KIND, STATUS } from '../lib/labels';
-import { getQuestFlowKey, getQuestVerdict, hasEligibleCard } from '../lib/questState';
+import { getQuestFlowKey, isArchived } from '../lib/questState';
+import { AssignSection } from './quest/AssignSection';
 import { DrawerSection } from './quest/DrawerSection';
+import { OwnerTaskSection } from './quest/OwnerTaskSection';
 import { GraphView } from './GraphView';
 import { QuestReceipt } from './quest/QuestReceipt';
 
@@ -33,34 +34,15 @@ export function QuestDrawer({
   pushToast,
   setDragging,
 }: QuestDrawerProps) {
-  const [submittingRuling, setSubmittingRuling] = useState(false);
-
   const live = quest.assignee ? snap.live[quest.assignee.name] : null;
   const threads = snap.threads[quest.id] || [];
   const reviewPage = quest.reviewPage
     ? (snap.reviewPages || []).find((p) => p.page === quest.reviewPage)
     : null;
 
-  const openAny = hasEligibleCard(snap, quest.id);
-  const flowKey = getQuestFlowKey(quest);
-
-  const handleRule = async () => {
-    const text = draft.trim();
-    if (!text) {
-      pushToast('先写下裁决内容');
-      return;
-    }
-    setSubmittingRuling(true);
-    try {
-      await api.rule(quest.id, text);
-      onDraftChange('');
-      refresh();
-    } catch (err) {
-      pushToast(`裁决失败：${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setSubmittingRuling(false);
-    }
-  };
+  const flowKey = getQuestFlowKey(quest, snap);
+  const archived = isArchived(quest);
+  const isOwnerQuest = quest.kind === 'owner';
 
   const handleCancel = async () => {
     if (!window.confirm(`取消 ${quest.id}？已经在跑的 worker 不会被停止。`)) {
@@ -120,32 +102,19 @@ export function QuestDrawer({
         </div>
       ) : null}
 
+      {!archived && (isOwnerQuest || quest.needsOwner) ? (
+        <OwnerTaskSection
+          quest={quest}
+          draft={draft}
+          onDraftChange={onDraftChange}
+          refresh={refresh}
+          pushToast={pushToast}
+        />
+      ) : null}
+
       <DrawerSection en="RECEIPT" zh="交付回执">
         <QuestReceipt quest={quest} snap={snap} />
       </DrawerSection>
-
-      {quest.needsOwner && (
-        <DrawerSection en="YOUR CALL" zh="等你裁决">
-          <div className="ask-box">{quest.needsOwner}</div>
-          <textarea
-            id="rulingText"
-            rows={3}
-            placeholder="写下你的决定，coordinator 会收到"
-            value={draft}
-            onChange={(e) => onDraftChange(e.target.value)}
-          />
-          <div className="row end">
-            <button
-              className="btn primary"
-              type="button"
-              disabled={submittingRuling}
-              onClick={handleRule}
-            >
-              盖章裁决
-            </button>
-          </div>
-        </DrawerSection>
-      )}
 
       {quest.assignee && (
         <DrawerSection en="IN THE PIT" zh="正在做">
@@ -164,37 +133,9 @@ export function QuestDrawer({
         </DrawerSection>
       ) : null}
 
-      <DrawerSection
-        en="ASSIGN"
-        zh={`指派冒险者${openAny ? '' : '（现在谁都不能接）'}`}
-      >
-        {snap.roster.map((card) => {
-          const v = getQuestVerdict(snap, quest.id, card.id);
-          const reasonsText = v
-            ? v.reasons.length > 0
-              ? v.reasons.map((r) => r.message).join('；')
-              : '没有记录'
-            : '没有记录';
-          return (
-            <div key={card.id} className={`pick ${v?.ok ? 'ok' : 'no'}`}>
-              <div>
-                <strong>{card.name}</strong>
-                <span className="a-model">模型 {card.model} · 通道 {card.lane}</span>
-                {!v?.ok && <div className="why">{reasonsText}</div>}
-              </div>
-              {v?.ok && (
-                <button
-                  className="btn primary"
-                  type="button"
-                  onClick={() => onAssignCard(quest.id, card.id)}
-                >
-                  派遣
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </DrawerSection>
+      {!archived && !isOwnerQuest ? (
+        <AssignSection quest={quest} snap={snap} onAssignCard={onAssignCard} />
+      ) : null}
 
       <DrawerSection en="WIRING" zh="关系图">
         <div className="graph-wrap" style={{ minHeight: 0, height: 260 }}>
@@ -273,7 +214,7 @@ export function QuestDrawer({
         </DrawerSection>
       )}
 
-      {!['done', 'superseded', 'cancelled'].includes(quest.status) && (
+      {!archived && (
         <DrawerSection en="SCRAP" zh="操作">
           {quest.status === 'stalled' && quest.assignee && (
             <p className="hint">
