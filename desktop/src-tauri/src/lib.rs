@@ -139,7 +139,9 @@ fn start(app: &tauri::AppHandle, window: &WebviewWindow, force_pick: bool) -> Re
             return Some("应用正在关闭".into());
         }
         match guard.child.as_mut().map(|child| child.try_wait()) {
-            Some(Ok(Some(status))) => Some(format!("看板服务器启动后立刻退出了（{status}），详情见日志")),
+            Some(Ok(Some(status))) => {
+                Some(format!("看板服务器启动后立刻退出了（{status}）：{}", server::exit_reason(&log)))
+            }
             Some(Ok(None)) => None,
             Some(Err(error)) => Some(format!("无法查看看板服务器进程：{error}")),
             None => Some("看板服务器已被停止".into()),

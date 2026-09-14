@@ -143,7 +143,15 @@ pub fn spawn_server(node: &str, questboard_root: &Path, project: &Path, log_file
     if let Some(dir) = log_file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("无法创建日志目录：{e}"))?;
     }
-    let log = File::create(log_file).map_err(|e| format!("无法写日志 {}：{e}", log_file.display()))?;
+    let mut log = File::create(log_file).map_err(|e| format!("无法写日志 {}：{e}", log_file.display()))?;
+    // Which node and which questboard copy ran: an installed app carries its own copy, and "node" resolves by PATH.
+    let _ = writeln!(
+        log,
+        "$ {node} {} serve --project {}  (cwd {})",
+        questboard_root.join("src").join("cli").join("questboard.js").display(),
+        project.display(),
+        questboard_root.display()
+    );
     let err_log = log.try_clone().map_err(|e| e.to_string())?;
     let mut command = Command::new(node);
     command
@@ -158,6 +166,16 @@ pub fn spawn_server(node: &str, questboard_root: &Path, project: &Path, log_file
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     command.spawn().map_err(|e| format!("启动 Node 失败（{node}）：{e}。需要安装 Node 22 或在设置里指定 node 路径"))
+}
+
+/// Why a server that exited did so, read from its log: the dialog used to say only "see the log".
+pub fn exit_reason(log_file: &Path) -> String {
+    let text = std::fs::read_to_string(log_file).unwrap_or_default();
+    let output: String = text.lines().filter(|line| !line.starts_with("$ ")).collect::<Vec<_>>().join("\n");
+    if output.trim().is_empty() {
+        return "它退出前什么都没输出".into();
+    }
+    first_useful_error(&output)
 }
 
 /// Polls until the project's server answers, `exited` reports it gone (it exited, or the app is closing), or
@@ -218,6 +236,18 @@ mod tests {
     fn folder_comparison_ignores_separators_prefix_and_trailing_slash() {
         assert_eq!(normalize_folder("E:\\game\\"), normalize_folder("E:/game"));
         assert_eq!(normalize_folder("\\\\?\\E:\\game"), normalize_folder("E:/game"));
+    }
+
+    #[test]
+    fn a_dead_server_names_its_error_from_the_log() {
+        let dir = std::env::temp_dir().join(format!("qb-exit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("server.log");
+        std::fs::write(&log, "$ node questboard.js serve --project E:/x  (cwd E:/q)\nnode:events:497\n      throw er;\nError: listen EADDRINUSE: address already in use 127.0.0.1:6097\n    at Server.setupListenHandle\n").unwrap();
+        assert_eq!(exit_reason(&log), "Error: listen EADDRINUSE: address already in use 127.0.0.1:6097");
+        std::fs::write(&log, "$ node questboard.js serve --project E:/x  (cwd E:/q)\n").unwrap();
+        assert_eq!(exit_reason(&log), "它退出前什么都没输出");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
