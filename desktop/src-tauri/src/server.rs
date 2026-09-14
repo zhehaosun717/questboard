@@ -87,12 +87,30 @@ pub fn locate_questboard(candidates: &[PathBuf]) -> Result<PathBuf, String> {
         })
 }
 
+/// A path Node can load. Tauri hands out the installed app's resource folder as a verbatim path
+/// (`\\?\C:\…`); Node cannot resolve a script there and dies with "EISDIR: illegal operation on a directory,
+/// lstat 'C:'". Only the prefix goes: the rest of the path is already absolute.
+pub fn node_path(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+fn script_path(questboard_root: &Path) -> PathBuf {
+    node_path(questboard_root).join("src").join("cli").join("questboard.js")
+}
+
 /// The arguments that set up a project folder. Separate so a test can check them without running Node.
 pub fn init_args(questboard_root: &Path, project: &Path) -> Vec<String> {
     vec![
-        questboard_root.join("src").join("cli").join("questboard.js").to_string_lossy().into_owned(),
+        script_path(questboard_root).to_string_lossy().into_owned(),
         "init".into(),
-        project.to_string_lossy().into_owned(),
+        node_path(project).to_string_lossy().into_owned(),
     ]
 }
 
@@ -120,7 +138,7 @@ pub fn first_useful_error(stderr: &str) -> String {
 /// written to `log_file`, because a one-line dialog is never enough to debug a failed setup.
 pub fn run_init(node: &str, questboard_root: &Path, project: &Path, log_file: &Path) -> Result<String, String> {
     let mut command = Command::new(node);
-    command.args(init_args(questboard_root, project)).current_dir(questboard_root).stdin(Stdio::null());
+    command.args(init_args(questboard_root, project)).current_dir(node_path(questboard_root)).stdin(Stdio::null());
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     let output = command.output().map_err(|e| format!("启动 Node 失败（{node}）：{e}。需要安装 Node 22"))?;
@@ -145,21 +163,18 @@ pub fn spawn_server(node: &str, questboard_root: &Path, project: &Path, log_file
     }
     let mut log = File::create(log_file).map_err(|e| format!("无法写日志 {}：{e}", log_file.display()))?;
     // Which node and which questboard copy ran: an installed app carries its own copy, and "node" resolves by PATH.
-    let _ = writeln!(
-        log,
-        "$ {node} {} serve --project {}  (cwd {})",
-        questboard_root.join("src").join("cli").join("questboard.js").display(),
-        project.display(),
-        questboard_root.display()
-    );
+    let script = script_path(questboard_root);
+    let project = node_path(project);
+    let cwd = node_path(questboard_root);
+    let _ = writeln!(log, "$ {node} {} serve --project {}  (cwd {})", script.display(), project.display(), cwd.display());
     let err_log = log.try_clone().map_err(|e| e.to_string())?;
     let mut command = Command::new(node);
     command
-        .arg(questboard_root.join("src").join("cli").join("questboard.js"))
+        .arg(&script)
         .arg("serve")
         .arg("--project")
-        .arg(project)
-        .current_dir(questboard_root)
+        .arg(&project)
+        .current_dir(&cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(err_log));
@@ -236,6 +251,15 @@ mod tests {
     fn folder_comparison_ignores_separators_prefix_and_trailing_slash() {
         assert_eq!(normalize_folder("E:\\game\\"), normalize_folder("E:/game"));
         assert_eq!(normalize_folder("\\\\?\\E:\\game"), normalize_folder("E:/game"));
+    }
+
+    #[test]
+    fn node_gets_paths_without_the_verbatim_prefix() {
+        assert_eq!(node_path(Path::new(r"\\?\C:\Users\A\AppData\Local\questboard\questboard")), PathBuf::from(r"C:\Users\A\AppData\Local\questboard\questboard"));
+        assert_eq!(node_path(Path::new(r"\\?\UNC\server\share\q")), PathBuf::from(r"\\server\share\q"));
+        assert_eq!(node_path(Path::new("E:/questboard")), PathBuf::from("E:/questboard"));
+        let args = init_args(Path::new(r"\\?\C:\app\questboard"), Path::new(r"\\?\E:\game"));
+        assert!(!args[0].starts_with(r"\\?\") && !args[2].starts_with(r"\\?\"), "{args:?}");
     }
 
     #[test]
