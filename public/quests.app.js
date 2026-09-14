@@ -3,8 +3,8 @@
 (() => {
   const COLUMNS = [
     { key: 'open', num: '01', title: '悬赏中', sub: 'OPEN', statuses: ['posted', 'failed', 'bounced', 'stalled', 'lane_limited'] },
-    { key: 'run', num: '02', title: '进行中', sub: 'IN THE PIT', statuses: ['dispatched'] },
-    { key: 'check', num: '03', title: '待验收', sub: 'HAULED UP', statuses: ['delivered', 'reviewing'] },
+    { key: 'run', num: '02', title: '进行中', sub: 'ON QUEST', statuses: ['dispatched'] },
+    { key: 'check', num: '03', title: '待验收', sub: 'RETURNED', statuses: ['delivered', 'reviewing'] },
     { key: 'owner', num: '04', title: '等你', sub: 'YOUR CALL', statuses: ['needs_owner', 'owner_playtest'] },
     { key: 'done', num: '05', title: '已完成', sub: 'ARCHIVED', statuses: ['done', 'superseded', 'cancelled'], limit: 12 },
   ];
@@ -46,7 +46,7 @@
   function renderChips() {
     const s = state.snap;
     if (s.project && s.project.name) {
-      $('#projectName').textContent = `${s.project.name} · SALVAGE GUILD`;
+      $('#projectName').textContent = `${s.project.name} · ADVENTURERS' GUILD`;
       document.title = `${s.project.name} 悬赏板`;
     }
     const chips = [chip(state.connected ? 'ok' : 'bad', state.connected ? '实时连接' : '重连中…')];
@@ -269,7 +269,7 @@
       <h2>${esc(q.title)}</h2>
       <div class="d-meta">发布者 ${esc(q.postedBy || '—')}${q.brief ? ` · brief <code>${esc(q.brief)}</code>` : ''}</div>
       ${q.needsOwner ? section('YOUR CALL', '等你裁决', `<div class="ask-box">${esc(q.needsOwner)}</div><textarea id="rulingText" rows="3" placeholder="写下你的决定，coordinator 会收到"></textarea><div class="row end"><button class="btn primary" data-rule type="button">盖章裁决</button></div>`) : ''}
-      ${q.assignee ? section('IN THE PIT', '正在做', `<div class="rec">⚔ ${esc(q.assignee.model)} · worker <code>${esc(q.assignee.name)}</code> · ${clock(q.assignee.at)} 派出${live ? ` · ${esc(live.state)} · ${ago(live.elapsed)}` : ''}</div>${live && live.lastText ? `<pre>${esc(live.lastText)}</pre>` : ''}`) : ''}
+      ${q.assignee ? section('ON QUEST', '正在做', `<div class="rec">⚔ ${esc(q.assignee.model)} · worker <code>${esc(q.assignee.name)}</code> · ${clock(q.assignee.at)} 派出${live ? ` · ${esc(live.state)} · ${ago(live.elapsed)}` : ''}</div>${live && live.lastText ? `<pre>${esc(live.lastText)}</pre>` : ''}`) : ''}
       ${q.lastDetail ? section('LAST WORD', '最近结果', `<pre>${esc(q.lastDetail)}</pre>`) : ''}
       ${section('ASSIGN', `指派冒险者${openAny ? '' : '（现在谁都不能接）'}`, picks)}
       ${section('WIRING', '关系图', `<div class="graph-wrap" style="min-height:0">${graphSvg(related(q.id), q.id)}</div>`)}

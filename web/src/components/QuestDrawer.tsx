@@ -147,7 +147,7 @@ export function QuestDrawer({
       </DrawerSection>
 
       {assignee ? (
-        <DrawerSection en="IN THE PIT" zh={quest.status === 'dispatched' ? '正在做的冒险者' : '接手的冒险者'}>
+        <DrawerSection en="ON QUEST" zh={quest.status === 'dispatched' ? '正在做的冒险者' : '接手的冒险者'}>
           <div className="rec">
             ⚔ {assigneeName} · 模型 {assignee.model} · 编号 <code>{assignee.name}</code> · {formatClock(assignee.at)} 派出
             {live ? ` · ${live.state} · ${formatAgo(live.elapsed)}` : ''}

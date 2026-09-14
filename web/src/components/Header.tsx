@@ -23,8 +23,8 @@ export function Header({
       <div className="brand">
         <p className="eyebrow" id="projectName">
           {projectName
-            ? `${projectName} · SALVAGE GUILD`
-            : 'QUESTBOARD · SALVAGE GUILD'}
+            ? `${projectName} · ADVENTURERS' GUILD`
+            : "QUESTBOARD · ADVENTURERS' GUILD"}
         </p>
         {/* No standing motto here: this header is on every tab, so a board-only instruction was showing on
             设置 and 用量 too. The guild sidebar says how to dispatch, where the dispatching happens. */}

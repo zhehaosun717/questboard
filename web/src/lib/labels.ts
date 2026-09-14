@@ -25,8 +25,8 @@ export interface Column {
 
 export const COLUMNS: Column[] = [
   { key: 'open', num: '01', title: '悬赏中', sub: 'OPEN', statuses: ['posted', 'failed', 'bounced', 'stalled', 'lane_limited'] },
-  { key: 'run', num: '02', title: '进行中', sub: 'IN THE PIT', statuses: ['dispatched'] },
-  { key: 'check', num: '03', title: '待验收', sub: 'HAULED UP', statuses: ['delivered', 'reviewing'] },
+  { key: 'run', num: '02', title: '进行中', sub: 'ON QUEST', statuses: ['dispatched'] },
+  { key: 'check', num: '03', title: '待验收', sub: 'RETURNED', statuses: ['delivered', 'reviewing'] },
   { key: 'owner', num: '04', title: '等你', sub: 'YOUR CALL', statuses: ['needs_owner', 'owner_playtest'] },
   { key: 'done', num: '05', title: '已完成', sub: 'ARCHIVED', statuses: ['done', 'superseded', 'cancelled'], limit: 12 },
 ];
