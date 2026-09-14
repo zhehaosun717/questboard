@@ -215,3 +215,15 @@ pub fn run() {
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    // With Tauri's native drag-drop on (the default), WebView2 on Windows swallows HTML5 drags: dragging a card
+    // onto a quest shows the forbidden cursor and never drops, although the same page works in a browser.
+    #[test]
+    fn the_window_leaves_drag_and_drop_to_the_board() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let main = config["app"]["windows"].as_array().unwrap().iter().find(|w| w["label"] == "main").unwrap();
+        assert_eq!(main["dragDropEnabled"], serde_json::Value::Bool(false));
+    }
+}
