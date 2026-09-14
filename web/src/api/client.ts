@@ -1,6 +1,6 @@
 // The only module that talks to the board server. Errors carry the server's refusal reasons.
 import type {
-  AdventurerInput, Card, CardStatus, LanesReport, Message, OmoChange, OmoConfig, Quest, QuestEvent, QuestStatus, Reason,
+  AdventurerInput, Card, CardStatus, LaneServerStatus, LanesReport, Message, OmoChange, OmoConfig, Quest, QuestEvent, QuestStatus, Reason,
   SettingsReport, Snapshot, Thread, ThreadDetail, ThreadStatusFilter, UsageReport,
 } from './types';
 
@@ -80,6 +80,11 @@ export const api = {
   // nothing takes effect until the board server restarts.
   saveSettings: (raw: Record<string, unknown>) =>
     call<{ ok: true; restartRequired: boolean; raw: Record<string, unknown> }>('/api/settings', 'POST', { raw }),
+  // Server lanes of the running board: whether each answers, and whether the board can start it.
+  laneServers: () => call<{ lanes: LaneServerStatus[] }>('/api/settings/lanes'),
+  // Starts a lane's server from its configured serve command; resolves once it answers, throws with the reason.
+  startLaneServer: (laneId: string) =>
+    call<{ up: boolean; started: boolean }>(`/api/settings/lanes/${encodeURIComponent(laneId)}/start`, 'POST', {}),
 };
 
 // Live events. Returns a function that closes the stream.

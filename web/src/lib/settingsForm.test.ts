@@ -241,6 +241,25 @@ describe('settingsForm validateDrafts rules', () => {
     expect(validateDrafts(d)['briefs.recentDays']).toBeUndefined();
   });
 
+  it('rule 10: a serve command needs api, no blank argument and no placeholder, and round trips', () => {
+    const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', serve: ['opencode', 'serve', '--port', '6096'] } } };
+    const d = toDrafts(raw);
+    expect(laneAt(d, 0).serve).toEqual(['opencode', 'serve', '--port', '6096']);
+    expect(toRaw(raw, d)).toEqual(raw);
+    expect(validateDrafts(d)['lanes.0.serve']).toBeUndefined();
+
+    const lane = laneAt(d, 0);
+    lane.serve = ['opencode', ' '];
+    expect(validateDrafts(d)['lanes.0.serve']).toMatch(/空白/);
+    lane.serve = ['opencode', '{name}'];
+    expect(validateDrafts(d)['lanes.0.serve']).toMatch(/占位符/);
+    lane.serve = ['opencode', 'serve'];
+    lane.api = '';
+    expect(validateDrafts(d)['lanes.0.serve']).toMatch(/api/);
+    lane.serve = [];
+    expect('serve' in laneOf(toRaw(raw, d), 'oc')).toBe(false);
+  });
+
   it('rule 9: each lane env parsed with parseCardEnv', () => {
     const d = validDrafts();
     const lane = d.lanes[0];

@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import { LOCAL_HOSTS, readJsonBody, sendJson, writeRefusal } from './http.js';
 import { readRawConfig, saveProjectConfig } from '../core/config.js';
+import { laneServers, startLaneServer } from '../core/laneServer.js';
 import { createCredentials, openCodeAuthFile } from '../usage/credentials.js';
 import { PROVIDERS } from '../usage/providers.js';
 import { omoConfigFile } from '../integrations/omo.js';
@@ -21,6 +22,7 @@ export function describeProject(config) {
       run: lane.run,
       outputDir: lane.outputDir || null,
       api: lane.api || null,
+      serve: lane.serve || null,
       serialize: lane.serialize,
       defaultModel: lane.defaultModel || null,
     })),
@@ -28,13 +30,33 @@ export function describeProject(config) {
   };
 }
 
-export function createSettingsRoutes({ config, home, env = process.env, homedir, omoFile = omoConfigFile() }) {
+export function createSettingsRoutes({ config, home, env = process.env, homedir, omoFile = omoConfigFile(), fetchImpl = fetch, spawnImpl }) {
   const credentials = createCredentials({ env, ...(homedir ? { homedir } : {}) });
 
+  // GET /api/settings/lanes — which server lanes answer now. POST /api/settings/lanes/<id>/start — start one from
+  // its configured serve command. The command comes from the project config, never from the request.
+  async function handleLaneServers(request, response, parts) {
+    if (parts.length === 3 && request.method === 'GET') {
+      sendJson(response, 200, { lanes: await laneServers(config, { fetchImpl }) });
+      return;
+    }
+    if (parts.length === 5 && parts[4] === 'start' && request.method === 'POST') {
+      const refusal = writeRefusal(request);
+      if (refusal) { sendJson(response, 403, { error: refusal }); return; }
+      const result = await startLaneServer({ config, laneId: parts[3], fetchImpl, ...(spawnImpl ? { spawnImpl } : {}) });
+      sendJson(response, result.status, result.body);
+      return;
+    }
+    sendJson(response, 404, { error: 'not found' });
+  }
+
   async function handle(request, response, url) {
-    if (url.pathname !== '/api/settings') return false;
+    const parts = url.pathname.split('/').filter(Boolean);
+    const isLanes = parts[0] === 'api' && parts[1] === 'settings' && parts[2] === 'lanes';
+    if (url.pathname !== '/api/settings' && !isLanes) return false;
     const hostname = String(request.headers.host || '').split(':')[0];
     if (!LOCAL_HOSTS.has(hostname)) { sendJson(response, 403, { error: `host ${hostname || '(none)'} is not local` }); return true; }
+    if (isLanes) { await handleLaneServers(request, response, parts); return true; }
     if (request.method === 'POST') {
       const refusal = writeRefusal(request);
       if (refusal) { sendJson(response, 403, { error: refusal }); return true; }

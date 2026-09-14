@@ -1,10 +1,12 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { startFixture } from './fixture.js';
 import { tmpDir } from '../helpers.js';
+import { resolveConfig } from '../../src/core/config.js';
 import { loadRoster } from '../../src/core/roster.js';
 import { parseModelList, readOmo, saveOmo, stripJsonc, validateOmoItems } from '../../src/integrations/omo.js';
 import { createOmoRoutes } from '../../src/server/omoRoutes.js';
@@ -151,6 +153,36 @@ describe('OMO and settings routes', () => {
     } finally {
       fs.writeFileSync(file, `${JSON.stringify(original, null, 2)}\n`);
     }
+  });
+
+  it('reports server lanes and starts one from its configured command, refusing other sites', async () => {
+    const root = tmpDir('qb-settings-serve-');
+    const config = resolveConfig(root, { name: 'Serve', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096', serve: ['opencode', 'serve', '--port', '6096'] }, files: { run: ['x'], outputDir: 'out' } } });
+    let up = false;
+    const spawned = [];
+    const fetchImpl = async () => { if (!up) throw new Error('fetch failed'); return new Response('ok'); };
+    const spawnImpl = (file, args) => {
+      spawned.push([file, ...args]);
+      up = true;
+      const child = new EventEmitter();
+      child.pid = 4242;
+      child.unref = () => {};
+      return child;
+    };
+    const routes = createSettingsRoutes({ config, home: fx.home, fetchImpl, spawnImpl });
+    await serve(routes, async (call) => {
+      assert.deepEqual((await call('/api/settings/lanes')).body.lanes, [{ id: 'oc', api: 'http://127.0.0.1:6096', serve: ['opencode', 'serve', '--port', '6096'], up: false }]);
+      assert.equal((await call('/api/settings/lanes/oc/start', { method: 'POST', headers: { origin: 'http://evil.example' }, body: '{}' })).status, 403);
+      assert.equal(spawned.length, 0, 'a refused request starts nothing');
+      const started = await call('/api/settings/lanes/oc/start', { method: 'POST', body: '{}' });
+      assert.equal(started.status, 200, JSON.stringify(started.body));
+      assert.equal(started.body.started, true);
+      assert.equal(spawned.length, 1);
+      assert.ok(spawned[0].includes('opencode') && spawned[0].includes('6096'), JSON.stringify(spawned));
+      assert.equal((await call('/api/settings/lanes/oc/start', { method: 'POST', body: '{}' })).body.started, false);
+      assert.equal(spawned.length, 1, 'a server that answers is not started again');
+      assert.equal((await call('/api/settings/lanes/files/start', { method: 'POST', body: '{}' })).status, 400);
+    });
   });
 
   it('describes the project and says which key sources exist without returning keys', async () => {

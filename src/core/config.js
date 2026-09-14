@@ -61,6 +61,13 @@ function validateLane(id, lane) {
   }
   if (lane.outputDir !== undefined) result.outputDir = requireString(lane.outputDir, `${field}.outputDir`);
   if (lane.api !== undefined) result.api = requireString(lane.api, `${field}.api`);
+  // The command that starts a server lane's server (e.g. `opencode serve --port 6096`), so the board can start
+  // it when nothing answers at api. It runs once for the lane, not per quest, so it takes no placeholders.
+  if (lane.serve !== undefined) {
+    if (lane.api === undefined) fail(`${field}.serve starts the lane's server, so the lane also needs api`);
+    result.serve = checkTemplate(lane.serve, `${field}.serve`);
+    if (result.serve.some((arg) => /\{[a-z]+\}/.test(arg))) fail(`${field}.serve runs once for the whole lane, so it cannot use placeholders`);
+  }
   if (lane.deliveryDir !== undefined) result.deliveryDir = requireString(lane.deliveryDir, `${field}.deliveryDir`);
   // The model a lane's script uses when none is recorded; labels old registry rows as "inferred".
   if (lane.defaultModel !== undefined) result.defaultModel = requireString(lane.defaultModel, `${field}.defaultModel`);

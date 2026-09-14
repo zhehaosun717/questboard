@@ -1,9 +1,15 @@
+import type { LaneServerStatus } from '../../api/types';
 import type { LaneDraft } from '../../lib/settingsForm';
+import { LaneServerPanel, type LaneServerMessage } from './LaneServerPanel';
 
 interface LaneCardProps {
   lane: LaneDraft;
   index: number;
   errors: Record<string, string>;
+  server: LaneServerStatus | undefined;
+  serverStarting: boolean;
+  serverMessage: LaneServerMessage | undefined;
+  onStartServer: () => void;
   onUpdate: (patch: Partial<LaneDraft>) => void;
   onRemove: () => void;
 }
@@ -12,9 +18,14 @@ export function LaneCard({
   lane,
   index,
   errors,
+  server,
+  serverStarting,
+  serverMessage,
+  onStartServer,
   onUpdate,
   onRemove,
 }: LaneCardProps) {
+  const serveErr = errors[`lanes.${index}.serve`] || errors[`lanes.${lane.id}.serve`];
   const idErr = errors[`lanes.${index}.id`] || errors[`lanes.${lane.id}.id`];
   const runErr = errors[`lanes.${index}.run`] || errors[`lanes.${lane.id}.run`];
   const spacingErr = errors[`lanes.${index}.spacingMs`] || errors[`lanes.${lane.id}.spacingMs`];
@@ -122,6 +133,40 @@ export function LaneCard({
           />
         </div>
       </div>
+
+      {lane.api.trim() ? (
+        <div className="form-field">
+          <LaneServerPanel server={server} starting={serverStarting} message={serverMessage} onStart={onStartServer} />
+          <label>
+            启动服务的命令 (serve - 可选)
+            {serveErr ? <span className="field-error"> · {serveErr}</span> : null}
+          </label>
+          <div className="lane-placeholders-hint">
+            例如 <code>opencode</code> <code>serve</code> <code>--port</code> <code>6096</code>，每格一个参数；整条通道只跑一次，不能用占位符
+          </div>
+          <div className="lane-args-list">
+            {lane.serve.map((arg, argIdx) => (
+              <div key={argIdx} className="lane-arg-row">
+                <span className="arg-index">#{argIdx + 1}</span>
+                <input
+                  className="mono-input flex-grow"
+                  value={arg}
+                  placeholder="参数内容"
+                  onChange={(e) => onUpdate({ serve: lane.serve.map((old, i) => (i === argIdx ? e.target.value : old)) })}
+                />
+                <button type="button" className="btn ghost sm-btn" onClick={() => onUpdate({ serve: lane.serve.filter((_, i) => i !== argIdx) })}>
+                  删除
+                </button>
+              </div>
+            ))}
+            <div>
+              <button type="button" className="btn ghost sm-btn" onClick={() => onUpdate({ serve: [...lane.serve, ''] })}>
+                + 添加参数
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="form-grid-2">
         <div className="form-field">

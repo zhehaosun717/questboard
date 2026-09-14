@@ -171,6 +171,16 @@
 .danger-text { color: #f3a594 !important; border-color: rgba(217, 68, 46, 0.4) !important; }
 .danger-text:hover { color: #ffb8a8 !important; border-color: var(--blood) !important; }
 .path-resolved-help { display: block; font-size: 11px; color: var(--dim); margin-top: 3px; font-family: var(--mono); word-break: break-all; }
+/* Whether a server lane's server answers, and the button that starts it. */
+.lane-server { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; padding: 8px 10px; border-left: 3px solid #4a4239; background: rgba(255, 255, 255, .03); }
+.lane-server.is-up { border-left-color: var(--pcb); }
+.lane-server.is-down { border-left-color: var(--blood); background: rgba(217, 68, 46, .07); }
+.lane-server-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tag); }
+.lane-server-status code { margin-left: 6px; font-size: 11px; color: #a3947f; }
+.lane-server-note { font-size: 11px; color: #a3947f; }
+.lane-server-msg { flex-basis: 100%; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.lane-server-msg.ok { color: #86d6a3; }
+.lane-server-msg.bad { color: #f3a594; }
 .lane-session-block { border-top: 1px dashed #2d261f; padding-top: 12px; margin-top: 4px; display: flex; flex-direction: column; gap: 10px; }
 .lane-sub-title { margin: 0; font: 700 12px var(--body); color: var(--cable); }
 .settings-add-lane-wrap { display: flex; justify-content: flex-start; margin-top: 4px; }

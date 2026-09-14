@@ -280,7 +280,7 @@ export interface SettingsReport {
     paths: { data: string; events: string; registry: string; lock: string };
     briefs: { dispatchDirs: string[]; ownerDirs: string[]; recentDays: number };
     reviewPagesDir: string | null;
-    lanes: Array<{ id: string; run: string[]; outputDir: string | null; api: string | null; serialize: boolean; defaultModel: string | null }>;
+    lanes: Array<{ id: string; run: string[]; outputDir: string | null; api: string | null; serve: string[] | null; serialize: boolean; defaultModel: string | null }>;
     policy: { bannedModelPatterns: string[]; bannedAgents: string[] };
   };
   // questboard.config.json exactly as written — what the settings page edits. `project` above is the resolved
@@ -290,6 +290,15 @@ export interface SettingsReport {
   usageKeys: Array<{ id: string; name: string; sources: Array<{ kind: 'env' | 'opencode'; name: string; present: boolean }> }>;
   openCodeAuthFile: { file: string; exists: boolean };
   omo: { file: string; exists: boolean };
+}
+
+// A server lane as the running board sees it (src/core/laneServer.js): whether its server answers, and the
+// command the board would start it with (null when the config has none).
+export interface LaneServerStatus {
+  id: string;
+  api: string;
+  serve: string[] | null;
+  up: boolean;
 }
 
 export interface QuestEvent {

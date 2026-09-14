@@ -5,6 +5,8 @@ export interface LaneDraft {
   run: string[];
   outputDir: string;
   api: string;
+  /** The command that starts this lane's server; only for lanes with api. */
+  serve: string[];
   deliveryDir: string;
   defaultModel: string;
   editCounter: string;
@@ -90,6 +92,7 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
         run: strList(lane.run),
         outputDir: str(lane.outputDir),
         api: str(lane.api),
+        serve: strList(lane.serve),
         deliveryDir: str(lane.deliveryDir),
         defaultModel: str(lane.defaultModel),
         editCounter: str(lane.editCounter),
@@ -168,6 +171,8 @@ export function toRaw(raw: Record<string, unknown> | null | undefined, drafts: S
     laneObj.run = [...lane.run];
     setOrDelete(laneObj, 'outputDir', lane.outputDir);
     setOrDelete(laneObj, 'api', lane.api);
+    if (lane.serve.length > 0) laneObj.serve = [...lane.serve];
+    else delete laneObj.serve;
     setOrDelete(laneObj, 'deliveryDir', lane.deliveryDir);
     setOrDelete(laneObj, 'defaultModel', lane.defaultModel);
     setOrDelete(laneObj, 'editCounter', lane.editCounter);
@@ -244,6 +249,19 @@ export function validateDrafts(drafts: SettingsDrafts): Record<string, string> {
       errors[`lanes.${i}.run`] = '执行命令不能为空'; if (laneId) errors[`lanes.${laneId}.run`] = '执行命令不能为空';
     } else if (lane.run.some((arg) => typeof arg !== 'string' || !arg.trim())) {
       errors[`lanes.${i}.run`] = '执行命令参数不能为空白'; if (laneId) errors[`lanes.${laneId}.run`] = '执行命令参数不能为空白';
+    }
+
+    if (lane.serve.length > 0) {
+      const serveErr = !lane.api.trim()
+        ? '只有填了接口服务 (api) 的通道才需要启动命令'
+        : lane.serve.some((arg) => !arg.trim())
+          ? '启动命令参数不能为空白'
+          : lane.serve.some((arg) => /\{[a-z]+\}/.test(arg))
+            ? '启动命令对整条通道只跑一次，不能用占位符'
+            : '';
+      if (serveErr) {
+        errors[`lanes.${i}.serve`] = serveErr; if (laneId) errors[`lanes.${laneId}.serve`] = serveErr;
+      }
     }
 
     const spacingStr = lane.spacingMs.trim();
