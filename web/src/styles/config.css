@@ -49,6 +49,24 @@
 .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .row-derived { opacity: 0.85; }
 
+/* Roster sections by provider: jump chips above the table, one foldable header row per provider. */
+.provider-jump { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.provider-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; font: 700 12px var(--body); color: var(--cream); background: #1a1612; border: 1px solid var(--rivet); border-radius: 999px; cursor: pointer; }
+.provider-chip:hover { color: var(--tag); border-color: var(--amber); }
+.provider-chip span { font: 700 10px var(--mono); color: var(--amber); }
+/* Muted, but --dim on the chip ground measured 4.43:1; this grey clears 4.5. */
+.provider-chip.none-free,
+.provider-chip.none-free span { color: #a3947f; }
+.roster-table .provider-row { scroll-margin-top: 12px; }
+.roster-table .provider-row th { position: static; padding: 0; text-transform: none; letter-spacing: 0; background: linear-gradient(90deg, rgba(242, 177, 52, 0.12), rgba(242, 177, 52, 0) 55%), #171310; border-top: 6px solid #0f0c0a; }
+.roster-table thead + .provider-group .provider-row th { border-top: 0; }
+.provider-toggle { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; text-align: left; color: var(--cream); background: transparent; border: 0; border-left: 3px solid var(--amber); cursor: pointer; }
+.provider-toggle:hover { background: rgba(255, 255, 255, 0.03); }
+.provider-caret { width: 12px; color: var(--amber); }
+.provider-name { font: 400 16px var(--han); letter-spacing: 0.04em; color: var(--tag); }
+.provider-count { font: 11px var(--mono); color: var(--dim); }
+.provider-lanes { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+
 /* ── roster form & delete modals ─────────────────────────── */
 .roster-form-dialog { width: min(620px, 94vw); max-height: 90vh; overflow-y: auto; }
 .roster-form-body { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }

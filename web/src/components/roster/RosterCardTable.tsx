@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import type { Card } from '../../api/types';
-import { formatMonthDay } from '../../lib/board';
-import { BILLING, CARD_STATUS } from '../../lib/labels';
+import { groupByProvider } from '../../lib/rosterGroups';
+import { RosterCardRow } from './RosterCardRow';
 
 interface RosterCardTableProps {
   cards: Card[];
@@ -10,150 +11,108 @@ interface RosterCardTableProps {
   onDelete: (card: Card) => void;
 }
 
-export function RosterCardTable({
-  cards,
-  onOpenStatus,
-  onEdit,
-  onDuplicate,
-  onDelete,
-}: RosterCardTableProps) {
+const COLUMN_COUNT = 8;
+const groupAnchor = (index: number) => `roster-provider-${index}`;
+
+// One section per provider: a flat list of 28 cards made one model hard to find. The chips jump to a section,
+// and a section header folds its rows away.
+export function RosterCardTable({ cards, onOpenStatus, onEdit, onDuplicate, onDelete }: RosterCardTableProps) {
+  const [folded, setFolded] = useState<readonly string[]>([]);
+
   if (cards.length === 0) {
     return <div className="empty">名册中暂无冒险者</div>;
   }
 
-  return (
-    <div className="roster-table-wrap">
-      <table className="roster-table">
-        <thead>
-          <tr>
-            <th>冒险者</th>
-            <th>服务商</th>
-            <th>通道</th>
-            <th>模型 / 代理</th>
-            <th>计费</th>
-            <th>并发</th>
-            <th>专长</th>
-            <th>状态</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {cards.map((card) => {
-            const isDerived = Boolean(card.derived);
-            const billingLabel = card.billing
-              ? BILLING[card.billing] ?? card.billing
-              : '-';
+  const groups = groupByProvider(cards);
 
+  const toggle = (provider: string) =>
+    setFolded((prev) => (prev.includes(provider) ? prev.filter((p) => p !== provider) : [...prev, provider]));
+
+  // Scroll first, then unfold: the section header is always rendered (folding hides only the rows below it),
+  // and unfolding a section never moves its own header. The jump is instant on purpose — waiting a frame or
+  // animating with behavior:'smooth' both did nothing in a window the browser was not repainting.
+  const jump = (provider: string, index: number) => {
+    document.getElementById(groupAnchor(index))?.scrollIntoView({ block: 'start' });
+    setFolded((prev) => (prev.includes(provider) ? prev.filter((p) => p !== provider) : prev));
+  };
+
+  return (
+    <>
+      <nav className="provider-jump" aria-label="按服务商跳转">
+        {groups.map((group, index) => (
+          <button
+            key={group.provider}
+            type="button"
+            className={group.available === 0 ? 'provider-chip none-free' : 'provider-chip'}
+            title={`跳到 ${group.provider}：${group.cards.length} 张，空闲 ${group.available}`}
+            onClick={() => jump(group.provider, index)}
+          >
+            {group.provider}
+            <span>{group.cards.length}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="roster-table-wrap">
+        <table className="roster-table">
+          <thead>
+            <tr>
+              <th>冒险者</th>
+              <th>通道</th>
+              <th>模型 / 代理</th>
+              <th>计费</th>
+              <th>并发</th>
+              <th>专长</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          {groups.map((group, index) => {
+            const isFolded = folded.includes(group.provider);
             return (
-              <tr key={card.id} className={isDerived ? 'row-derived' : ''}>
-                <td>
-                  <div className="adv-cell-name">
-                    <strong>{card.name}</strong>
-                    <code className="adv-cell-id">{card.id}</code>
-                  </div>
-                </td>
-                <td>{card.provider}</td>
-                <td>
-                  <span className="lane-chip">{card.lane}</span>
-                </td>
-                <td>
-                  <div className="adv-cell-model">
-                    <span>
-                      {card.model}
-                      {card.variant ? ` · ${card.variant}` : ''}
-                    </span>
-                    {card.agent ? (
-                      <span className="adv-agent-badge">{card.agent}</span>
-                    ) : null}
-                  </div>
-                </td>
-                <td>
-                  <span className={card.billing === 'payg' ? 'pay' : ''}>
-                    {billingLabel}
-                  </span>
-                </td>
-                <td>{card.maxParallel ?? 1}</td>
-                <td className="adv-cell-strengths">
-                  {card.strengths && card.strengths.length > 0 ? (
-                    <div className="strengths-tags">
-                      {card.strengths.map((s) => (
-                        <span key={s} className="tag-strength">
-                          {s}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="muted">-</span>
-                  )}
-                </td>
-                <td>
-                  <div className="adv-cell-status">
-                    <div className="status-row">
-                      <i className={`led ${card.status === 'available' ? 'ok' : card.status === 'limited' ? 'warn' : 'bad'}`} />
-                      <span className={`st-label st-${card.status}`}>
-                        {CARD_STATUS[card.status] ?? card.status}
-                      </span>
-                    </div>
-                    {card.statusSince ? (
-                      <span className="status-since">
-                        {formatMonthDay(card.statusSince)} 起
-                      </span>
-                    ) : null}
-                    {card.statusReason ? (
-                      <span className="status-reason" title={card.statusReason}>
-                        {card.statusReason}
-                      </span>
-                    ) : null}
-                    {isDerived ? (
-                      <span className="derived-hint">
-                        由通道数据推断，不在名册里
-                      </span>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="adv-cell-actions">
-                  <div className="action-buttons">
+              <tbody key={group.provider} className="provider-group">
+                <tr id={groupAnchor(index)} className="provider-row">
+                  <th colSpan={COLUMN_COUNT}>
                     <button
-                      className="btn action-btn"
                       type="button"
-                      onClick={() => onOpenStatus(card)}
+                      className="provider-toggle"
+                      aria-expanded={!isFolded}
+                      onClick={() => toggle(group.provider)}
                     >
-                      改状态
+                      <span className="provider-caret" aria-hidden="true">
+                        {isFolded ? '▸' : '▾'}
+                      </span>
+                      <span className="provider-name">{group.provider}</span>
+                      <span className="provider-count">
+                        {group.cards.length} 张 · 空闲 {group.available}
+                      </span>
+                      <span className="provider-lanes">
+                        {group.lanes.map((lane) => (
+                          <span key={lane} className="lane-chip">
+                            {lane}
+                          </span>
+                        ))}
+                      </span>
                     </button>
-                    <button
-                      className="btn action-btn"
-                      type="button"
-                      disabled={isDerived}
-                      title={isDerived ? '由通道数据推断，不在名册里' : undefined}
-                      onClick={() => onEdit(card)}
-                    >
-                      编辑
-                    </button>
-                    <button
-                      className="btn action-btn"
-                      type="button"
-                      disabled={isDerived}
-                      title={isDerived ? '由通道数据推断，不在名册里' : '照这张工牌再开一张，只改要改的'}
-                      onClick={() => onDuplicate(card)}
-                    >
-                      复制
-                    </button>
-                    <button
-                      className="btn action-btn danger-text"
-                      type="button"
-                      disabled={isDerived}
-                      title={isDerived ? '由通道数据推断，不在名册里' : undefined}
-                      onClick={() => onDelete(card)}
-                    >
-                      删除
-                    </button>
-                  </div>
-                </td>
-              </tr>
+                  </th>
+                </tr>
+                {isFolded
+                  ? null
+                  : group.cards.map((card) => (
+                      <RosterCardRow
+                        key={card.id}
+                        card={card}
+                        onOpenStatus={onOpenStatus}
+                        onEdit={onEdit}
+                        onDuplicate={onDuplicate}
+                        onDelete={onDelete}
+                      />
+                    ))}
+              </tbody>
             );
           })}
-        </tbody>
-      </table>
-    </div>
+        </table>
+      </div>
+    </>
   );
 }
