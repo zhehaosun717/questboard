@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, isQueueOnly } from '../lib/board';
 import { KIND, OPEN_STATUSES, STATUS } from '../lib/labels';
+import { getQuestFlowKey, getQuestVerdict, QUEST_FLOW_LABEL } from '../lib/questState';
 
 interface QuestCardProps {
   quest: Quest;
@@ -26,8 +27,9 @@ export function QuestCard({
 }: QuestCardProps) {
   const [isOver, setIsOver] = useState(false);
 
-  const verdict = pickingCardId ? snap.eligibility[quest.id]?.[pickingCardId] : undefined;
+  const verdict = pickingCardId ? getQuestVerdict(snap, quest.id, pickingCardId) : undefined;
   const isOpen = OPEN_STATUSES.includes(quest.status);
+  const flowKey = getQuestFlowKey(quest);
 
   let dropClass = '';
   let refuseMessage = '';
@@ -41,18 +43,25 @@ export function QuestCard({
     else if (isQueue) dropClass = 'drop-queue';
     else if (isNo) dropClass = 'drop-no';
 
-    if (!verdict.ok && verdict.reasons.length > 0) {
-      const firstReason = verdict.reasons[0];
-      const extraCount = verdict.reasons.length - 1;
-      refuseMessage = `✗ ${firstReason ? firstReason.message : ''}${
-        extraCount > 0 ? `（还有 ${extraCount} 条）` : ''
-      }`;
+    if (!verdict.ok) {
+      if (verdict.reasons.length === 0) {
+        refuseMessage = '✗ 没有记录';
+      } else {
+        const firstReason = verdict.reasons[0];
+        const extraCount = verdict.reasons.length - 1;
+        refuseMessage = `✗ ${firstReason?.message ?? '没有记录'}${
+          extraCount > 0 ? `（还有 ${extraCount} 条）` : ''
+        }`;
+      }
     }
   }
 
-  const live = quest.assignee ? snap.live[quest.assignee.name] : null;
-  const adv = quest.assignee
-    ? snap.roster.find((a) => a.id === quest.assignee!.adventurerId)
+  // Hoisted: narrowing on quest.assignee does not survive into the find() callback, because a property
+  // access could change between the check and the call.
+  const assignee = quest.assignee;
+  const live = assignee ? snap.live[assignee.name] : null;
+  const adv = assignee
+    ? snap.roster.find((a) => a.id === assignee.adventurerId)
     : null;
   const threads = snap.threads[quest.id] || [];
 
@@ -137,6 +146,12 @@ export function QuestCard({
           </span>
         </div>
         <h3>{quest.title}</h3>
+        {flowKey !== 'other' ? (
+          <div className={`q-flow q-flow-${flowKey}`}>
+            <i aria-hidden="true" />
+            {QUEST_FLOW_LABEL[flowKey]}
+          </div>
+        ) : null}
         <span className={`stamp${statusChanged ? ' thunk' : ''}`}>
           {STATUS[quest.status] ?? quest.status}
         </span>

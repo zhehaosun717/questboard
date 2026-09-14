@@ -95,11 +95,11 @@ export function CardBadge({
         <span className="a-st">{label}</span>
       </div>
       <div className="a-model">
-        {card.model}
+        <span className="a-key">模型</span> {card.model}
         {card.variant ? ` · ${card.variant}` : ''}
       </div>
       <div className="a-meta">
-        {card.provider} · {card.lane} ·{' '}
+        <span className="a-key">通道</span> {card.lane} · {card.provider} ·{' '}
         <span className={card.billing === 'payg' ? 'pay' : ''}>
           {BILLING[card.billing || ''] || card.billing || ''}
         </span>

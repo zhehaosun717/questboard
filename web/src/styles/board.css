@@ -1,5 +1,3 @@
-/* questboard — the salvage guild's commission wall (ported from public/quests.css; class names are the contract). 
-   Strata-dark ground, shipping-tag quests with rubber stamps, robot ID badges for adventurers. */
 :root {
   --soil: #110f0c; --soil2: #1a1611; --steel: #26231f; --steel2: #35302a; --rivet: #5a5249;
   --tag: #e9ddc1; --tag-fiber: rgba(120, 95, 60, .05); --ink: #241c13; --ink-soft: #6d5c46;
@@ -32,8 +30,6 @@ code, .mono { font-family: var(--mono); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: #0c0a08; }
 ::-webkit-scrollbar-thumb { background: #3a342d; border: 2px solid #0c0a08; border-radius: 6px; }
-
-/* ── header ─────────────────────────────────────────────── */
 .top { position: relative; display: flex; align-items: flex-end; gap: 28px; flex-wrap: wrap; padding: 22px 30px 20px; }
 .top::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 7px; opacity: .9;
@@ -55,15 +51,12 @@ code, .mono { font-family: var(--mono); }
 .plate:hover { transform: translateY(-1px); }
 .plate:active { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 1px 0 #000; }
 .tab.on { color: #1a0f07; background: radial-gradient(circle at 8px 50%, #7a2f10 0 2px, transparent 3px), linear-gradient(180deg, #f07a3f, var(--rust)); }
-
 .chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 30px 0; }
 .chip {
   display: inline-flex; align-items: center; gap: 7px; padding: 3px 11px 3px 9px; border-radius: 2px; font: 500 12px var(--body); color: var(--cable);
   background: linear-gradient(180deg, #211d19, #181512); border: 1px solid #000; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05); text-decoration: none;
 }
 .chip.bad { color: #f3a594; } .chip.warn { color: #f5cd7b; }
-
-/* ── LEDs ───────────────────────────────────────────────── */
 .led { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: #4a433b; box-shadow: inset 0 -1px 1px rgba(0, 0, 0, .6); }
 .led.ok, .chip.ok .led { background: var(--pcb); box-shadow: 0 0 6px var(--pcb); }
 .led.warn, .chip.warn .led { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
@@ -72,8 +65,6 @@ code, .mono { font-family: var(--mono); }
 .led.run { animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
 @keyframes blink { 50% { opacity: .25; } }
-
-/* ── layout & columns ───────────────────────────────────── */
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 24px; padding: 20px 30px 48px; }
 .columns { display: grid; grid-template-columns: repeat(5, minmax(222px, 1fr)); gap: 14px; overflow-x: auto; padding: 4px 2px 10px; }
 .col {
@@ -92,8 +83,6 @@ code, .mono { font-family: var(--mono); }
 .list { display: flex; flex-direction: column; gap: 12px; padding: 12px 10px 16px; }
 .empty { padding: 26px 8px; text-align: center; color: #5d5347; font: 700 14px/1.6 var(--display); letter-spacing: .2em; }
 .empty code { display: block; margin-top: 6px; font-size: 11px; letter-spacing: 0; color: var(--dim); }
-
-/* ── quest = shipping tag ───────────────────────────────── */
 .quest { --stamp: var(--ink-soft); --tape: var(--grey); position: relative; cursor: pointer; outline: none; filter: drop-shadow(0 3px 0 rgba(0, 0, 0, .55)) drop-shadow(0 8px 12px rgba(0, 0, 0, .3)); transition: transform .18s cubic-bezier(.2, .9, .3, 1.3), opacity .18s, filter .18s; }
 .quest:hover { transform: translateY(-2px) rotate(-.4deg); }
 .quest:focus-visible .tag { box-shadow: inset 0 0 0 3px var(--amber); }
@@ -114,6 +103,11 @@ code, .mono { font-family: var(--mono); }
 .pips i { width: 7px; height: 7px; transform: rotate(45deg); border: 1px solid var(--ink-soft); }
 .pips i.on { background: var(--rust); border-color: var(--rust-dk); }
 .quest h3 { margin: 7px 0 7px; font: 700 14px/1.35 var(--body); }
+.q-flow { display: flex; align-items: center; gap: 5px; width: fit-content; margin: 2px 0 7px; padding: 2px 7px 2px 5px; font: 700 11px/1.3 var(--body); border-left: 3px solid var(--grey); background: rgba(36, 28, 19, .08); }
+.q-flow i { width: 7px; height: 7px; border-radius: 50%; background: var(--grey); }
+.q-flow-open { color: var(--pcb-dk); border-left-color: var(--pcb-dk); } .q-flow-open i { background: var(--pcb-dk); }
+.q-flow-run { color: var(--cobalt); border-left-color: var(--cobalt); } .q-flow-run i { background: var(--cobalt); }
+.q-flow-owner { color: var(--rust-dk); border-left-color: var(--rust); background: rgba(242, 177, 52, .24); box-shadow: inset 0 0 0 1px rgba(157, 109, 16, .24); } .q-flow-owner i { background: var(--rust); }
 .stamp {
   display: inline-block; padding: 0 7px 1px; font: 400 15px/1.3 var(--han); letter-spacing: .12em; color: var(--stamp);
   border: 2px solid var(--stamp); border-radius: 3px; transform: rotate(-5deg); opacity: .88; mix-blend-mode: multiply;
@@ -132,7 +126,6 @@ code, .mono { font-family: var(--mono); }
 .q-refuse { display: none; margin: 9px -12px -10px -13px; padding: 4px 10px 5px; font: 700 11px/1.4 var(--body); color: #fff; background: var(--blood); }
 .quest.enter { animation: dropin .55s cubic-bezier(.2, .9, .3, 1.25) both; animation-delay: calc(var(--i, 0) * 40ms); }
 @keyframes dropin { from { opacity: 0; transform: translateY(-22px) rotate(-4deg); } to { opacity: 1; transform: none; } }
-
 body.picking .quest { opacity: .32; }
 body.picking .quest.drop-ok { opacity: 1; transform: translateY(-4px) rotate(-.8deg); filter: drop-shadow(0 3px 0 rgba(0, 0, 0, .55)) drop-shadow(0 0 14px rgba(63, 174, 107, .55)); }
 body.picking .quest.drop-ok .tag { box-shadow: inset 0 0 0 3px var(--pcb); }
@@ -143,8 +136,6 @@ body.picking .quest.drop-queue { opacity: .92; }
 body.picking .quest.drop-queue .tag { box-shadow: inset 0 0 0 2px var(--amber-dk); }
 body.picking .quest.drop-queue .q-refuse { display: block; color: #1a1206; background: var(--amber); }
 .quest.over { transform: translateY(-6px) scale(1.035) rotate(-1.4deg) !important; }
-
-/* ── guild = robot ID badges ────────────────────────────── */
 .guild { align-self: start; position: sticky; top: 14px; max-height: calc(100vh - 28px); overflow-y: auto; padding: 16px 14px 10px; border: 1px solid #000; border-radius: 3px; background: linear-gradient(180deg, #221e1a, #14110e); box-shadow: 0 14px 34px rgba(0, 0, 0, .5); }
 .sec-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
 .sec-head h2 { margin: 0; font: 400 24px/1.1 var(--han); color: var(--tag); letter-spacing: .05em; }
@@ -184,8 +175,6 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: #1a1206; backg
 .bf-toggle { align-self: center; justify-self: start; font-size: 14px; }
 .bf span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .bf code { display: block; margin-top: 3px; font-size: 10px; color: var(--dim); word-break: break-all; }
-
-/* ── reviews ─────────────────────────────────────────────── */
 .reviews { margin-top: 22px; padding: 14px 16px 16px; border: 1px solid #000; border-radius: 3px; background: linear-gradient(180deg, rgba(34, 30, 26, .94), rgba(18, 15, 12, .94)); }
 .rv-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
 .rv { display: flex; flex-direction: column; gap: 5px; padding: 9px 11px; color: var(--cream); text-decoration: none; background: #0e0c09; border: 1px dashed rgba(201, 180, 143, .25); border-radius: 2px; transition: border-color .15s, transform .15s; }
@@ -195,10 +184,6 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: #1a1206; backg
 .meter { display: flex; gap: 3px; }
 .meter i { flex: 1; height: 7px; background: #2a251f; border-radius: 1px; }
 .meter i.on { background: var(--amber); box-shadow: 0 0 5px rgba(242, 177, 52, .6); }
-
-/* ── graph ───────────────────────────────────────────────── */
-/* No grid image here: React Flow's own <Background> draws the 24px pattern and pans and zooms with the
-   canvas. A CSS grid stays nailed to the viewport, so the two slide against each other while dragging. */
 .graph-wrap { overflow: auto; min-height: 320px; border: 1px solid #000; border-radius: 3px; background-color: #13110d; }
 .graph-wrap .hint { padding: 10px 14px 0; }
 .g-id { font: 900 15px var(--display); letter-spacing: .03em; }
@@ -206,7 +191,6 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: #1a1206; backg
 .node { cursor: pointer; }
 .node:hover rect:first-child { stroke-width: 3; }
 
-/* ── drawer = dossier ────────────────────────────────────── */
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 20; width: min(610px, 100%); overflow-y: auto; padding: 20px 22px 50px 30px; background: linear-gradient(180deg, #221e19, #15120e); box-shadow: -18px 0 40px rgba(0, 0, 0, .6); animation: slidein .28s cubic-bezier(.2, .9, .3, 1) both; }
 .drawer::before { content: ""; position: fixed; top: 0; bottom: 0; width: 8px; margin-left: -30px; background: repeating-linear-gradient(-45deg, var(--amber) 0 10px, #15120e 10px 20px); }
 @keyframes slidein { from { transform: translateX(46px); opacity: 0; } }
@@ -218,6 +202,8 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: #1a1206; backg
 .drawer h2 { margin: 6px 0 4px; font: 400 30px/1.15 var(--han); color: var(--tag); letter-spacing: .03em; }
 .d-meta { font-size: 12px; color: var(--dim); }
 .d-meta code { color: var(--cable); }
+.drawer-attention { margin-top: 14px; padding: 9px 11px; color: var(--ink); background: repeating-linear-gradient(-45deg, #f2c35f 0 12px, #e9b44a 12px 24px); font-weight: 700; }
+.drawer-attention span { margin-right: 4px; font-size: 17px; }
 .d-sec { margin-top: 20px; }
 .d-sec h3 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; padding-bottom: 5px; font: 400 18px var(--han); color: var(--tag); border-bottom: 1px solid #3a332b; }
 .d-sec h3 span { font: 700 11px var(--display); letter-spacing: .3em; color: var(--rust); }
@@ -226,33 +212,34 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: #1a1206; backg
 .pick + .pick { margin-top: 5px; }
 .pick.ok { border-left-color: var(--pcb); }
 .pick.no { border-left-color: var(--blood); opacity: .82; }
-/* Model names are mostly Latin; ZCOOL is cramped for them at list size. */
 .pick strong { font: 700 14px var(--body); color: var(--tag); }
 .pick .a-model { display: inline; margin-left: 6px; }
 .why { margin-top: 2px; font-size: 11px; color: #f09a88; }
 .rec { font-size: 12px; color: var(--dim); }
 .rec + .rec { margin-top: 3px; }
+.receipt { display: grid; gap: 7px; }
+.receipt-block { padding: 9px 10px; color: var(--cream); background: rgba(255, 255, 255, .035); border-left: 3px solid var(--rivet); }
+.receipt-block h4 { margin: 0 0 5px; font: 700 12px var(--body); color: var(--cable); }
+.receipt-lines { display: grid; gap: 3px; }
+.receipt-lines p, .receipt-none, .receipt-pending { margin: 0; font-size: 12px; word-break: break-word; }
+.receipt-none { color: var(--dim); }
+.receipt-pending { color: #f5cd7b; font-weight: 700; }
+.receipt-done { color: #86d6a3; font-weight: 700; }
 pre { margin: 0; max-height: 230px; overflow-y: auto; padding: 9px 10px; white-space: pre-wrap; word-break: break-word; font: 11px/1.5 var(--mono); color: var(--cable); background: #0a0806; border: 1px solid #000; }
 textarea, select, input { width: 100%; padding: 7px 9px; font: 13px var(--body); color: var(--cream); background: #0c0a08; border: 1px solid #3a332b; border-radius: 2px; }
 textarea:focus, select:focus, input:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
 .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 .row.end { justify-content: flex-end; }
-
-/* ── buttons ─────────────────────────────────────────────── */
 .btn { padding: 5px 13px; font: 700 13px var(--body); color: var(--cream); background: var(--steel2); border: 1px solid #000; border-radius: 2px; box-shadow: 0 2px 0 #000; }
 .btn.primary { padding: 4px 16px 5px; font: 400 17px var(--han); letter-spacing: .1em; color: #1a0e06; background: var(--rust); border: 2px solid #1a0e06; box-shadow: 3px 3px 0 #000; transform: rotate(-1.5deg); transition: transform .1s, box-shadow .1s; }
 .btn.primary:hover { transform: rotate(-1.5deg) translate(-1px, -1px); box-shadow: 4px 4px 0 #000; }
 .btn.primary:active { transform: rotate(-1.5deg) translate(2px, 2px); box-shadow: 1px 1px 0 #000; }
 .btn.primary:disabled { opacity: .5; cursor: progress; }
 .btn.danger { color: #f3a594; background: transparent; border-color: var(--blood); box-shadow: none; }
-/* Ghost buttons sit on two grounds. Default to the dark steel chrome (thread header, review bar, settings,
-   lane cards), where the old ink-on-black was unreadable; the cream paper modal re-darkens them below. */
 .btn.ghost { color: var(--cream); background: transparent; border: 1px solid var(--rivet); box-shadow: none; }
 .btn.ghost:hover { color: var(--tag); border-color: var(--cable); }
 .order .btn.ghost { color: var(--ink); border-color: var(--ink); }
 .order .btn.ghost:hover { color: var(--ink); border-color: var(--ink-soft); }
-
-/* ── modal = paper work order ────────────────────────────── */
 .modal-back { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(8, 6, 4, .74); backdrop-filter: blur(2px); }
 .order {
   position: relative; width: min(470px, 92vw); padding: 22px 24px 20px; color: var(--ink); transform: rotate(-.6deg);
@@ -268,13 +255,11 @@ textarea:focus, select:focus, input:focus { outline: 2px solid var(--amber); out
 .order-lines dt { font: 700 11px/1.9 var(--display); letter-spacing: .2em; color: var(--ink-soft); }
 .order-lines dd { font-size: 13px; word-break: break-all; }
 .order-lines code { font-size: 12px; }
-/* The tape paints its own yellow ground, so it must name its own ink: inherited cream is unreadable here. */
 .warn-tape { margin-top: 10px; padding: 6px 9px; font-weight: 700; font-size: 12px; color: #3a2a08; background: repeating-linear-gradient(-45deg, #f2c35f 0 10px, #e5ad3f 10px 20px); }
 .order label { display: block; margin-top: 10px; font: 700 11px var(--display); letter-spacing: .2em; color: var(--ink-soft); }
 .order input, .order select { color: var(--ink); background: #f7f0de; border-color: rgba(36, 28, 19, .45); }
 .reasons { margin: 10px 0 0; padding-left: 18px; color: var(--blood); font-weight: 700; }
 
-/* ── receipts ────────────────────────────────────────────── */
 .toasts { position: fixed; left: 18px; bottom: 16px; z-index: 40; display: flex; flex-direction: column; gap: 8px; }
 .toast {
   max-width: 360px; padding: 8px 13px 15px; font: 12px/1.45 var(--mono); color: var(--ink); background: #f3ecd8;
@@ -287,7 +272,6 @@ textarea:focus, select:focus, input:focus { outline: 2px solid var(--amber); out
 @media (max-width: 1180px) { .layout { grid-template-columns: 1fr; } .guild { position: static; max-height: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
-/* ── react-flow nodes & drag states ──────────────────────── */
 .rf-quest-node { width: 180px; height: 50px; background: var(--tag); border: 1px solid #000; border-radius: 2px; display: flex; cursor: pointer; position: relative; overflow: hidden; box-sizing: border-box; }
 .rf-quest-node.focused { border: 3px solid #f2b134; }
 .rf-quest-bar { width: 7px; height: 100%; flex-shrink: 0; }
@@ -305,7 +289,6 @@ textarea:focus, select:focus, input:focus { outline: 2px solid var(--amber); out
 .rf-quest-node.drop-no, .react-flow__node.drop-no .rf-quest-node, .react-flow__node.refused .rf-quest-node, .react-flow__node.drop-refused .rf-quest-node { outline: 2px solid var(--blood); box-shadow: 0 0 10px rgba(217, 68, 46, .6); }
 .react-flow__handle { opacity: 0; pointer-events: none; }
 
-/* ── react-flow controls, minimap & attribution ─────────── */
 .react-flow__minimap { background-color: #13110d; border: 1px solid #000; border-radius: 2px; }
 .react-flow__controls { border: 1px solid #000; border-radius: 2px; box-shadow: 0 2px 6px rgba(0, 0, 0, .6); overflow: hidden; }
 .react-flow__controls-button { background: var(--steel2); border: none; border-bottom: 1px solid var(--rivet); color: var(--cable); fill: var(--cable); }

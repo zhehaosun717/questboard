@@ -3,7 +3,10 @@ import { api } from '../api/client';
 import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, formatClock, isSafeReviewUrl, relatedQuestIds } from '../lib/board';
 import { KIND, STATUS } from '../lib/labels';
+import { getQuestFlowKey, getQuestVerdict, hasEligibleCard } from '../lib/questState';
+import { DrawerSection } from './quest/DrawerSection';
 import { GraphView } from './GraphView';
+import { QuestReceipt } from './quest/QuestReceipt';
 
 export interface QuestDrawerProps {
   quest: Quest;
@@ -16,26 +19,6 @@ export interface QuestDrawerProps {
   refresh: () => void;
   pushToast: (message: string) => void;
   setDragging: (dragging: boolean) => void;
-}
-
-function DrawerSection({
-  en,
-  zh,
-  children,
-}: {
-  en: string;
-  zh: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="d-sec">
-      <h3>
-        <span>{en}</span>
-        {zh}
-      </h3>
-      {children}
-    </section>
-  );
 }
 
 export function QuestDrawer({
@@ -58,8 +41,8 @@ export function QuestDrawer({
     ? (snap.reviewPages || []).find((p) => p.page === quest.reviewPage)
     : null;
 
-  const verdicts = snap.eligibility[quest.id] || {};
-  const openAny = Object.values(verdicts).some((v) => v.ok);
+  const openAny = hasEligibleCard(snap, quest.id);
+  const flowKey = getQuestFlowKey(quest);
 
   const handleRule = async () => {
     const text = draft.trim();
@@ -130,6 +113,17 @@ export function QuestDrawer({
         ) : null}
       </div>
 
+      {flowKey === 'owner' ? (
+        <div className="drawer-attention">
+          <span>等我处理</span>
+          {quest.needsOwner ? ` · ${quest.needsOwner}` : ''}
+        </div>
+      ) : null}
+
+      <DrawerSection en="RECEIPT" zh="交付回执">
+        <QuestReceipt quest={quest} snap={snap} />
+      </DrawerSection>
+
       {quest.needsOwner && (
         <DrawerSection en="YOUR CALL" zh="等你裁决">
           <div className="ask-box">{quest.needsOwner}</div>
@@ -175,21 +169,20 @@ export function QuestDrawer({
         zh={`指派冒险者${openAny ? '' : '（现在谁都不能接）'}`}
       >
         {snap.roster.map((card) => {
-          const v = verdicts[card.id] || {
-            ok: false,
-            reasons: [{ code: '', message: '无数据' }],
-          };
-          const reasonsText = v.reasons?.length
-            ? v.reasons.map((r) => r.message).join('；')
-            : '不可用';
+          const v = getQuestVerdict(snap, quest.id, card.id);
+          const reasonsText = v
+            ? v.reasons.length > 0
+              ? v.reasons.map((r) => r.message).join('；')
+              : '没有记录'
+            : '没有记录';
           return (
-            <div key={card.id} className={`pick ${v.ok ? 'ok' : 'no'}`}>
+            <div key={card.id} className={`pick ${v?.ok ? 'ok' : 'no'}`}>
               <div>
                 <strong>{card.name}</strong>
-                <span className="a-model">{card.model}</span>
-                {!v.ok && <div className="why">{reasonsText}</div>}
+                <span className="a-model">模型 {card.model} · 通道 {card.lane}</span>
+                {!v?.ok && <div className="why">{reasonsText}</div>}
               </div>
-              {v.ok && (
+              {v?.ok && (
                 <button
                   className="btn primary"
                   type="button"
