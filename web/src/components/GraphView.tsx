@@ -214,8 +214,9 @@ function GraphViewInner({
   );
 
   const handleNodeDragStart = useCallback(
-    (_event: React.MouseEvent | MouseEvent | TouchEvent, node: Node) => {
-      if (node.type !== 'card') return;
+    (_event: React.MouseEvent | MouseEvent | TouchEvent, _node: Node) => {
+      // Hold snapshot updates for any node drag: each update rebuilds the nodes from the layout, which snapped a
+      // quest node being moved straight back under the pointer.
       setDragging?.(true);
     },
     [setDragging],
@@ -277,6 +278,7 @@ function GraphViewInner({
     (event: React.MouseEvent | MouseEvent | TouchEvent, node: Node) => {
       // A quest node is moved only to tidy the graph: remember where the owner put it, and nothing else.
       if (node.type === 'quest') {
+        setDragging?.(false);
         if (compact) return;
         const next = {
           ...movedPositions,
