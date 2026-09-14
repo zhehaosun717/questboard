@@ -100,7 +100,7 @@ export function nextStep(quest: Quest, snap: Snapshot): NextStep {
   // An open question outranks the kind: a 你来 quest waiting on a ruling is waiting on a decision, not on work.
   if (quest.needsOwner.trim() || quest.status === 'needs_owner') {
     const question = quest.needsOwner.trim() || '有一个问题等你拍板。';
-    const after = quest.kind === 'owner' ? '拍板后写下决定，做完点「做完了」。' : '拍板后委托回到悬赏中，可以派冒险者。';
+    const after = quest.kind === 'owner' ? '拍板后写下决定，做完点「做完了」。' : '拍板后委托回到委托板，可以派冒险者。';
     return { who: 'you', tone: 'you', title: '等你拍板', detail: `${question}——${after}`, action: 'owner-task' };
   }
 

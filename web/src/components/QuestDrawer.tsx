@@ -156,7 +156,7 @@ export function QuestDrawer({
         </DrawerSection>
       ) : null}
 
-      <DrawerSection en="WIRING" zh="关系图">
+      <DrawerSection en="WIRING" zh="冒险地图">
         <div className="graph-wrap" style={{ minHeight: 0, height: 260 }}>
           <GraphView
             snap={snap}

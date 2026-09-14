@@ -67,13 +67,13 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
       pushToast('退回要写明哪里不对，下一个接手的冒险者要看');
       return;
     }
-    if (!window.confirm(`把 ${quest.id} 退回悬赏中重做？`)) return;
+    if (!window.confirm(`把 ${quest.id} 退回委托板重做？`)) return;
     void run(async () => {
       await api.rule(quest.id, `退回重做：${reason}`);
       await api.setQuestStatus(quest.id, 'posted', `退回重做：${reason}`);
       await closeReviews();
       onDraftChange('');
-      pushToast(`${quest.id} 已退回，回到悬赏中`);
+      pushToast(`${quest.id} 已退回，回到委托板`);
       refresh();
     }, '退回没成功');
   };

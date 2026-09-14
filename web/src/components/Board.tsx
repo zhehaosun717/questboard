@@ -39,7 +39,7 @@ function DoneColumn({
   if (!open) {
     return (
       <section className={`col c-${col.key} collapsed`}>
-        <button className="col-toggle" type="button" title="展开已完成" onClick={() => onToggle(true)}>
+        <button className="col-toggle" type="button" title={`展开${col.title}`} onClick={() => onToggle(true)}>
           <span className="col-num">{col.num}</span>
           <span className="count">{items.length}</span>
           <span className="v-title">{col.title}</span>
@@ -57,7 +57,7 @@ function DoneColumn({
           <span>{col.sub}</span>
         </div>
         <span className="count">{items.length}</span>
-        <button className="col-fold" type="button" title="收起已完成" onClick={() => onToggle(false)}>
+        <button className="col-fold" type="button" title={`收起${col.title}`} onClick={() => onToggle(false)}>
           收起
         </button>
       </header>

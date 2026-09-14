@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Board } from './components/Board';
+import { InTray } from './components/InTray';
 import { BriefShelf } from './components/BriefShelf';
 import { CardModal } from './components/CardModal';
 import { Chips } from './components/Chips';
@@ -48,7 +49,7 @@ export function App() {
 
   useEffect(() => {
     if (snap?.project?.name) {
-      document.title = `${snap.project.name} 悬赏板`;
+      document.title = `${snap.project.name} 委托板`;
     }
   }, [snap?.project?.name]);
 
@@ -128,14 +129,17 @@ export function App() {
                 />
               ) : null
             ) : snap ? (
-              <Board
-                snap={snap}
-                pickingCardId={pickingCardId}
-                onSelectQuest={setSelectedQuestId}
-                onDropCard={(questId, cardId) =>
-                  setWorkOrder({ questId, cardId })
-                }
-              />
+              <>
+                <InTray snap={snap} onOpenQuest={setSelectedQuestId} />
+                <Board
+                  snap={snap}
+                  pickingCardId={pickingCardId}
+                  onSelectQuest={setSelectedQuestId}
+                  onDropCard={(questId, cardId) =>
+                    setWorkOrder({ questId, cardId })
+                  }
+                />
+              </>
             ) : null}
             <BriefShelf unpostedBriefs={snap?.unpostedBriefs} />
           </main>

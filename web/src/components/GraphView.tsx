@@ -10,9 +10,11 @@ import { buildGraph } from '../lib/graphLayout';
 import { type PlacedCard, placedCardNodes } from '../lib/graphPlaced';
 import { applyPositions, loadPositions, type NodePositions, savePositions } from '../lib/graphPositions';
 import { getDropVerdict } from '../lib/questState';
-import { NODE_COLORS, OPEN_STATUSES } from '../lib/labels';
+import { OPEN_STATUSES } from '../lib/labels';
+import { pinColor } from '../lib/mapLook';
 import { CardNode } from './CardNode';
 import { QuestNode } from './QuestNode';
+import '../styles/map.css';
 
 export interface GraphViewProps {
   snap: Snapshot;
@@ -127,13 +129,24 @@ function GraphViewInner({
       placedCards,
       snap.roster,
       new Set(graphData.nodes.map((n) => n.id)),
-    );
+    ).map((node) => {
+      const isWorking = snap.quests.some(
+        (q) => q.status === 'dispatched' && q.assignee?.adventurerId === node.id,
+      );
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          isWorking,
+        },
+      };
+    });
     for (const n of [...graphData.nodes, ...placed]) {
       layoutPositionsRef.current.set(n.id, { ...n.position });
     }
     setNodes([...applyPositions(laidOut, movedPositions), ...placed]);
     setEdges(visibleEdges);
-  }, [graphData, onSelectQuest, intersectingQuests, movedPositions, placedCards, snap.roster, setNodes, setEdges, visibleEdges]);
+  }, [graphData, onSelectQuest, intersectingQuests, movedPositions, placedCards, snap.roster, snap.quests, setNodes, setEdges, visibleEdges]);
 
   // fitView does nothing until React Flow has measured the nodes, so wait for that before fitting.
   useEffect(() => {
@@ -339,7 +352,7 @@ function GraphViewInner({
 
   if (targetQuestIds.length === 0) {
     return (
-      <div id={compact ? undefined : 'graphView'} className="graph-wrap">
+      <div id={compact ? undefined : 'graphView'} className={`graph-wrap map-view ${compact ? 'compact' : ''}`}>
         <div className="empty">没有进行中的委托</div>
       </div>
     );
@@ -362,29 +375,29 @@ function GraphViewInner({
       minZoom={0.2}
       maxZoom={2}
     >
-      <Background id={backgroundId} color="#c9b48f" gap={24} size={1} />
+      <Background id={backgroundId} color="rgba(43, 33, 24, 0.12)" gap={24} size={1} />
       {!compact && <Controls />}
       {!compact && (
         <MiniMap
           nodeColor={(n) => {
-            if (n.type === 'card') return '#2f2a25';
+            if (n.type === 'card') return '#3f6f9e';
             const q = (n.data as { quest?: Quest })?.quest;
-            return (q && NODE_COLORS[q.status]) || '#857b70';
+            return q ? pinColor(q.status) : '#9a8b72';
           }}
-          maskColor="rgba(19, 17, 13, 0.7)"
+          maskColor="rgba(43, 33, 24, 0.25)"
         />
       )}
     </ReactFlow>
   );
 
   if (compact) {
-    return <div style={{ width: '100%', height: '100%' }}>{flowContent}</div>;
+    return <div className="map-view compact" style={{ width: '100%', height: '100%' }}>{flowContent}</div>;
   }
 
   return (
     <div
       id="graphView"
-      className="graph-wrap"
+      className="graph-wrap map-view"
       style={{ height: '64vh', minHeight: 480, display: 'flex', flexDirection: 'column' }}
     >
       <p
@@ -398,9 +411,7 @@ function GraphViewInner({
         }}
       >
         <span>
-          实线：父委托 → 子委托（编码 → 复核 → 修复）。虚线：冒险者做过的委托，绿色表示正在做。红点线：文件冲突。点节点看档案。
-          把名册里的冒险者拖到空白处，就能把这个模型放上图；再拖到委托上派工，选中按 Delete 移走。
-          委托节点可以拖动整理位置，会记住。
+          地点 = 委托，路 = 前后关系，蓝色虚线 = 冒险者正在做，红点线 = 文件冲突。点地点看卷宗。把名册里的冒险者拖到空白处放上地图，再拖到地点上派出，选中按 Delete 移走。地点可以拖动整理位置，会记住。
         </span>
         <span style={{ display: 'flex', gap: 6 }}>
           {Object.keys(movedPositions).length > 0 ? (

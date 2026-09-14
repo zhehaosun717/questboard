@@ -1,10 +1,13 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import type { Quest } from '../api/types';
-import { KIND, NODE_COLORS, STATUS } from '../lib/labels';
+import { KIND } from '../lib/labels';
+import { pinColor, questStatusLine } from '../lib/mapLook';
 
 export interface QuestNodeData extends Record<string, unknown> {
   quest: Quest;
   isFocus?: boolean;
+  /** Roster name of the adventurer working on it, when there is one. */
+  adventurerName?: string;
   dropClass?: string;
   onSelect?: (questId: string) => void;
 }
@@ -15,8 +18,8 @@ export function QuestNode({ id, data }: NodeProps<QuestNodeType>) {
   const quest = data.quest;
   const isFocus = Boolean(data.isFocus);
   const dropClass = (data.dropClass as string) || '';
-  const color = (quest && NODE_COLORS[quest.status]) || '#857b70';
-  const shortTitle = quest ? (quest.title || '').slice(0, 11) : '';
+  const color = quest ? pinColor(quest.status) : '#9a8b72';
+  const statusLine = quest ? questStatusLine(quest, data.adventurerName) : '';
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -50,12 +53,20 @@ export function QuestNode({ id, data }: NodeProps<QuestNodeType>) {
         position={Position.Left}
         style={{ opacity: 0, width: 1, height: 1 }}
       />
-      <div className="rf-quest-bar" style={{ backgroundColor: color }} />
-      <div className="rf-quest-body">
-        <span className="g-id">{quest.id}</span>
-        <span className="g-sub">
-          {KIND[quest.kind] || quest.kind} · {STATUS[quest.status] || quest.status} · {shortTitle}
+      <div
+        className="map-pin"
+        style={{ backgroundColor: color }}
+        title={`${quest.id} (${quest.status})`}
+      />
+      <div className="place">
+        <span className="id mono">
+          {quest.id}
+          {quest.kind ? ` · ${KIND[quest.kind] || quest.kind}` : ''}
         </span>
+        <b className="title" title={quest.title}>
+          {quest.title}
+        </b>
+        <span className="status-line">{statusLine}</span>
       </div>
       <Handle
         type="source"

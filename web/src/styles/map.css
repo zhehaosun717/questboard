@@ -1,0 +1,320 @@
+.map-view {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(79, 138, 75, 0.18), transparent 18%),
+    radial-gradient(circle at 72% 64%, rgba(63, 111, 158, 0.2), transparent 20%),
+    radial-gradient(circle at 50% 50%, #e6d5ad, #cdb886 70%, #a88f5c);
+  color: #2b2118;
+}
+
+.map-view::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 59px, rgba(43, 33, 24, 0.07) 59px 60px),
+    repeating-linear-gradient(90deg, transparent 0 59px, rgba(43, 33, 24, 0.07) 59px 60px);
+  z-index: 0;
+}
+
+.graph-wrap.map-view {
+  background:
+    radial-gradient(circle at 20% 30%, rgba(79, 138, 75, 0.18), transparent 18%),
+    radial-gradient(circle at 72% 64%, rgba(63, 111, 158, 0.2), transparent 20%),
+    radial-gradient(circle at 50% 50%, #e6d5ad, #cdb886 70%, #a88f5c);
+  border: 1px solid rgba(43, 33, 24, 0.4);
+  box-shadow: inset 0 0 24px rgba(43, 33, 24, 0.18);
+}
+
+.map-view.compact {
+  border-radius: 3px;
+}
+
+.map-view .react-flow {
+  background: transparent;
+}
+
+.map-view .react-flow__pane {
+  cursor: grab;
+}
+
+.map-view .react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.graph-wrap.map-view .hint {
+  color: #4a3826;
+  background: rgba(230, 213, 173, 0.85);
+  border-bottom: 1px solid rgba(43, 33, 24, 0.2);
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  z-index: 5;
+}
+
+.graph-wrap.map-view .hint .btn {
+  background: #ecdcb9;
+  color: #2b2118;
+  border: 1px solid rgba(43, 33, 24, 0.35);
+  box-shadow: 0 1px 2px rgba(43, 33, 24, 0.15);
+  border-radius: 3px;
+}
+
+.graph-wrap.map-view .hint .btn:hover {
+  background: #faf2dc;
+  border-color: rgba(43, 33, 24, 0.6);
+  color: #17130f;
+}
+
+.graph-wrap.map-view .empty {
+  color: #6e5a44;
+  font-family: var(--han, "ZCOOL XiaoWei", "Noto Serif SC", serif);
+  font-size: 16px;
+  letter-spacing: 0.15em;
+  padding: 48px 16px;
+}
+
+.map-view .rf-quest-node {
+  width: 180px;
+  min-height: 52px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  cursor: pointer;
+  position: relative;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.map-view .map-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  border: 2px solid rgba(43, 33, 24, 0.75);
+  flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(43, 33, 24, 0.35);
+  transition: transform 0.15s ease;
+}
+
+.map-view .rf-quest-node:hover .map-pin {
+  transform: rotate(-45deg) scale(1.15);
+}
+
+.map-view .place {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  background: rgba(250, 242, 222, 0.95);
+  color: #2b2118;
+  border: 1px solid rgba(43, 33, 24, 0.35);
+  border-radius: 3px;
+  box-shadow: 0 3px 8px rgba(43, 33, 24, 0.25);
+  line-height: 1.25;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.map-view .rf-quest-node:hover .place {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 12px rgba(43, 33, 24, 0.32);
+}
+
+.map-view .place .id {
+  font-family: var(--mono, "IBM Plex Mono", Consolas, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  color: #6e5a44;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-view .place .title {
+  font-family: var(--body, "Noto Sans SC", sans-serif);
+  font-size: 12px;
+  font-weight: 700;
+  color: #2b2118;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-view .place .status-line {
+  font-size: 10.5px;
+  color: #6e5a44;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-view .rf-quest-node.focused {
+  border: none;
+}
+
+.map-view .rf-quest-node.drop-ok,
+.map-view .react-flow__node.drop-ok .rf-quest-node,
+.map-view .react-flow__node.ok .rf-quest-node,
+.map-view .rf-quest-node.drop-queue,
+.map-view .react-flow__node.drop-queue .rf-quest-node,
+.map-view .react-flow__node.queue .rf-quest-node,
+.map-view .rf-quest-node.drop-no,
+.map-view .react-flow__node.drop-no .rf-quest-node,
+.map-view .react-flow__node.refused .rf-quest-node,
+.map-view .react-flow__node.drop-refused .rf-quest-node {
+  outline: none;
+  box-shadow: none;
+}
+
+.map-view .rf-quest-node.focused .place {
+  outline: 3px solid #c9a24a;
+  outline-offset: 2px;
+  box-shadow: 0 0 12px rgba(201, 162, 74, 0.85);
+}
+
+.map-view .rf-quest-node.drop-ok .place,
+.map-view .react-flow__node.drop-ok .place,
+.map-view .react-flow__node.ok .place {
+  outline: 3px solid #4f8a4b;
+  outline-offset: 2px;
+  box-shadow: 0 0 14px rgba(79, 138, 75, 0.85);
+}
+
+.map-view .rf-quest-node.drop-queue .place,
+.map-view .react-flow__node.drop-queue .place,
+.map-view .react-flow__node.queue .place {
+  outline: 2px solid #c9a24a;
+  outline-offset: 2px;
+  box-shadow: 0 0 12px rgba(201, 162, 74, 0.75);
+}
+
+.map-view .rf-quest-node.drop-no .place,
+.map-view .react-flow__node.drop-no .place,
+.map-view .react-flow__node.refused .place,
+.map-view .react-flow__node.drop-refused .place {
+  outline: 2px solid #a8322a;
+  outline-offset: 2px;
+  box-shadow: 0 0 12px rgba(168, 50, 42, 0.8);
+}
+
+.map-view .rf-card-node {
+  width: auto;
+  min-width: 50px;
+  height: auto;
+  min-height: 50px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0;
+  box-sizing: border-box;
+  cursor: grab;
+  user-select: none;
+}
+
+.map-view .rf-card-node:active {
+  cursor: grabbing;
+}
+
+.map-view .token {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #3f6f9e;
+  color: #ffffff;
+  font-family: var(--han, "ZCOOL XiaoWei", "Noto Serif SC", serif);
+  font-size: 15px;
+  font-weight: 700;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 5px rgba(43, 33, 24, 0.4);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.map-view .token.working,
+.map-view .rf-card-node.working .token {
+  box-shadow: 0 0 0 3px rgba(63, 111, 158, 0.5), 0 0 12px rgba(63, 111, 158, 0.75);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .map-view .rf-card-node.working .token {
+    animation: map-token-bob 2.8s ease-in-out infinite;
+  }
+  @keyframes map-token-bob {
+    50% {
+      transform: translateY(-3px);
+      box-shadow: 0 0 0 5px rgba(63, 111, 158, 0.6), 0 0 16px rgba(63, 111, 158, 0.85);
+    }
+  }
+}
+
+.map-view .token-name {
+  font-family: var(--body, "Noto Sans SC", sans-serif);
+  font-size: 11px;
+  font-weight: 600;
+  color: #2b2118;
+  max-width: 90px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(250, 242, 222, 0.9);
+}
+
+.map-view .react-flow__controls {
+  border: 1px solid rgba(43, 33, 24, 0.35);
+  border-radius: 3px;
+  box-shadow: 0 2px 6px rgba(43, 33, 24, 0.25);
+  background: #eadcbc;
+  overflow: hidden;
+}
+
+.map-view .react-flow__controls-button {
+  background: #eadcbc;
+  border: none;
+  border-bottom: 1px solid rgba(43, 33, 24, 0.2);
+  color: #2b2118;
+  fill: #2b2118;
+}
+
+.map-view .react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+.map-view .react-flow__controls-button:hover {
+  background: #fbf4e2;
+  color: #000000;
+  fill: #000000;
+}
+
+.map-view .react-flow__minimap {
+  background-color: rgba(234, 220, 188, 0.92);
+  border: 1px solid rgba(43, 33, 24, 0.35);
+  border-radius: 3px;
+  box-shadow: 0 2px 8px rgba(43, 33, 24, 0.2);
+}
+
+.map-view .react-flow__attribution {
+  background: rgba(234, 220, 188, 0.85);
+  border: 1px solid rgba(43, 33, 24, 0.3);
+  border-radius: 2px;
+  padding: 2px 4px;
+}
+
+.map-view .react-flow__attribution a {
+  color: #5c4731;
+}

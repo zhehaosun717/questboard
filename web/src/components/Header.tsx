@@ -28,7 +28,7 @@ export function Header({
         </p>
         {/* No standing motto here: this header is on every tab, so a board-only instruction was showing on
             设置 and 用量 too. The guild sidebar says how to dispatch, where the dispatching happens. */}
-        <h1>悬赏板</h1>
+        <h1>委托板</h1>
       </div>
       <nav className="nav" aria-label="视图">
         <button
@@ -45,7 +45,7 @@ export function Header({
           type="button"
           onClick={() => onTabChange('graph')}
         >
-          关系图
+          冒险地图
         </button>
         <button
           className={`plate tab${tab === 'threads' ? ' on' : ''}`}

@@ -68,8 +68,11 @@ export function CardBadge({
     }
   };
 
+  const initial = (card.name.trim()[0] || '?').toUpperCase();
+
   const classNames = [
     'adv',
+    'plate',
     `st-${card.status}`,
     full ? 'full' : '',
     isDragging ? 'is-dragging' : '',
@@ -90,40 +93,47 @@ export function CardBadge({
       onDragEnd={handleDragEnd}
     >
       <i className={`led ${led}`} />
-      <div className="a-top">
-        <span className="a-name">{card.name}</span>
-        <span className="a-st">{label}</span>
-      </div>
-      <div className="a-model">
-        <span className="a-key">模型</span> {card.model}
-        {card.variant ? ` · ${card.variant}` : ''}
-      </div>
-      <div className="a-meta">
-        <span className="a-key">接入方式</span> {card.lane} · {card.provider} ·{' '}
-        <span className={card.billing === 'payg' ? 'pay' : ''}>
-          {BILLING[card.billing || ''] || card.billing || ''}
-        </span>
-      </div>
-      {busyQuests.length > 0 ? (
-        <div className="a-work">
-          {busyQuests.map((q) => (
-            <span key={q.id}>{q.id}</span>
-          ))}
+      <div className="adv-body">
+        <div className="crest" aria-hidden="true">
+          {initial}
         </div>
-      ) : null}
-      {card.derived ? (
-        <div className="a-note derived">
-          ⟳ {card.derived.reason}（自动判断，限额过去后自动恢复）
+        <div className="adv-main">
+          <div className="a-top">
+            <span className="a-name">{card.name}</span>
+            <span className="a-st">{label}</span>
+          </div>
+          <div className="a-model">
+            <span className="a-key">模型</span> {card.model}
+            {card.variant ? ` · ${card.variant}` : ''}
+          </div>
+          <div className="a-meta">
+            <span className="a-key">接入方式</span> {card.lane} · {card.provider} ·{' '}
+            <span className={card.billing === 'payg' ? 'pay' : ''}>
+              {BILLING[card.billing || ''] || card.billing || ''}
+            </span>
+          </div>
+          {busyQuests.length > 0 ? (
+            <div className="a-work">
+              {busyQuests.map((q) => (
+                <span key={q.id}>{q.id}</span>
+              ))}
+            </div>
+          ) : null}
+          {card.derived ? (
+            <div className="a-note derived">
+              ⟳ {card.derived.reason}（自动判断，限额过去后自动恢复）
+            </div>
+          ) : null}
+          {card.status !== 'available' && !card.derived ? (
+            <div className="a-note derived">
+              {CARD_STATUS[card.status] || card.status}
+              {card.statusSince ? ` · ${formatMonthDay(card.statusSince)} 起` : ''}
+              {card.statusReason ? ` · ${card.statusReason}` : ''}
+            </div>
+          ) : null}
+          {card.notes ? <div className="a-note">{card.notes}</div> : null}
         </div>
-      ) : null}
-      {card.status !== 'available' && !card.derived ? (
-        <div className="a-note derived">
-          {CARD_STATUS[card.status] || card.status}
-          {card.statusSince ? ` · ${formatMonthDay(card.statusSince)} 起` : ''}
-          {card.statusReason ? ` · ${card.statusReason}` : ''}
-        </div>
-      ) : null}
-      {card.notes ? <div className="a-note">{card.notes}</div> : null}
+      </div>
     </article>
   );
 }

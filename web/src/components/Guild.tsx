@@ -59,7 +59,7 @@ export function Guild({
 
   return (
     <aside
-      className="guild"
+      className="guild roster"
       aria-labelledby="guildTitle"
       onMouseLeave={() => onHoverCard(null)}
     >

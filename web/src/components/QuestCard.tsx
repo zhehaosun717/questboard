@@ -3,6 +3,7 @@ import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, isQueueOnly } from '../lib/board';
 import { KIND, OPEN_STATUSES, STATUS } from '../lib/labels';
 import { nextStep } from '../lib/nextStep';
+import { rankOf, sealFor } from '../lib/questLook';
 import { getDropVerdict, isAwaitingSignOff } from '../lib/questState';
 
 interface QuestCardProps {
@@ -31,6 +32,9 @@ export function QuestCard({
   const verdict = pickingCardId ? getDropVerdict(snap, quest, pickingCardId) : undefined;
   const isOpen = OPEN_STATUSES.includes(quest.status);
   const step = nextStep(quest, snap);
+  const isCounter = quest.status === 'delivered' || quest.status === 'reviewing';
+  const seal = isCounter ? sealFor(quest, snap) : null;
+  const rank = rankOf(quest.priority);
 
   let dropClass = '';
   let refuseMessage = '';
@@ -80,7 +84,6 @@ export function QuestCard({
     meta.push(`第 ${quest.dispatches.length} 次`);
   }
 
-  const heat = 4 - (quest.priority || 2);
   const showDetail =
     ['failed', 'bounced', 'stalled', 'delivered', 'lane_limited'].includes(quest.status) &&
     quest.lastDetail;
@@ -115,6 +118,8 @@ export function QuestCard({
 
   const classNames = [
     'quest',
+    isCounter ? 'counter' : 'notice',
+    seal ? 'has-seal' : '',
     `k-${quest.kind}`,
     `s-${quest.status}`,
     isNew ? 'enter' : '',
@@ -137,13 +142,21 @@ export function QuestCard({
       onDrop={handleDrop}
     >
       <div className="tag">
+        {seal ? (
+          <span className={`seal seal-${seal.verdict}`}>
+            {seal.line1}
+            <br />
+            {seal.line2}
+          </span>
+        ) : null}
         <div className="q-top">
           <span className="tape">{KIND[quest.kind] ?? quest.kind}</span>
           <span className="pid">{quest.id}</span>
-          <span className="pips" title={`优先级 ${quest.priority || 2}`}>
-            {[1, 2, 3].map((n) => (
-              <i key={n} className={n <= heat ? 'on' : ''} />
-            ))}
+          <span
+            className={`rank${rank === 'S' ? ' s' : ''}`}
+            title={`优先级 ${quest.priority || 2}`}
+          >
+            {rank}
           </span>
         </div>
         <h3>{quest.title}</h3>

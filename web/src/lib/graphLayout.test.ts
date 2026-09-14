@@ -60,7 +60,8 @@ describe('graphLayout buildGraph', () => {
 
     const parentChildEdge = edges.find((e) => e.source === 'P1' && e.target === 'C1');
     expect(parentChildEdge).toBeDefined();
-    expect(parentChildEdge?.style?.stroke).toBe('#c9b48f');
+    expect(parentChildEdge?.style?.stroke).toBe('#2b2118');
+    expect(parentChildEdge?.style?.strokeDasharray).toBe('6 5');
   });
 
   it('card nodes exist for dispatched cards', () => {
@@ -158,10 +159,10 @@ describe('graphLayout buildGraph', () => {
     const pastEdge = edges.find((e) => e.source === 'card-past' && e.target === 'Q_past');
 
     expect(runningEdge).toBeDefined();
-    expect(runningEdge?.style?.stroke).toBe('#3fae6b');
+    expect(runningEdge?.style?.stroke).toBe('#3f6f9e');
 
     expect(pastEdge).toBeDefined();
-    expect(pastEdge?.style?.stroke).toBe('#5f5446');
+    expect(pastEdge?.style?.stroke).toBe('#9cc2e8');
   });
 
   it('conflict edges', () => {
@@ -177,7 +178,7 @@ describe('graphLayout buildGraph', () => {
 
     expect(conflictEdge).toBeDefined();
     expect(conflictEdge?.data?.kind).toBe('conflict');
-    expect(conflictEdge?.style?.stroke).toBe('#d9442e');
+    expect(conflictEdge?.style?.stroke).toBe('#a8322a');
     expect(conflictEdge?.style?.strokeDasharray).toBe('2 5');
   });
 

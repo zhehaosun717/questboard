@@ -65,7 +65,7 @@ describe('board pure helpers', () => {
     const openCol: Column = {
       key: 'open',
       num: '01',
-      title: '悬赏中',
+      title: '委托板',
       sub: 'OPEN',
       statuses: ['posted'],
     };
@@ -81,7 +81,7 @@ describe('board pure helpers', () => {
     const doneCol: Column = {
       key: 'done',
       num: '05',
-      title: '已完成',
+      title: '卷宗室',
       sub: 'ARCHIVED',
       statuses: ['done'],
       limit: 2,

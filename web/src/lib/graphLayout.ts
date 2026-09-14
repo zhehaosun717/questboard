@@ -82,6 +82,7 @@ export function buildGraph(
       data: {
         quest: q,
         isFocus: q.id === focusId,
+        adventurerName: q.assignee ? snap.roster.find((card) => card.id === q.assignee?.adventurerId)?.name : undefined,
       },
     });
   }
@@ -103,12 +104,17 @@ export function buildGraph(
       statusSetBy: null,
     };
 
+    const isWorking = snap.quests.some(
+      (q) => q.status === 'dispatched' && q.assignee?.adventurerId === cardId,
+    );
+
     nodes.push({
       id: cardId,
       type: 'card',
       position: { x, y },
       data: {
         card,
+        isWorking,
       },
     });
   }
@@ -116,7 +122,7 @@ export function buildGraph(
   // Build React Flow edges
   const edges: Edge[] = [];
 
-  // 1. Parent -> Child (solid, #c9b48f)
+  // 1. Parent -> Child (dashed dark-ink trails)
   for (const q of relevantQuests) {
     for (const p of q.parents || []) {
       if (p !== q.id && relevantQuestIds.has(p)) {
@@ -125,13 +131,17 @@ export function buildGraph(
           source: p,
           target: q.id,
           type: 'default',
-          style: { stroke: '#c9b48f', strokeWidth: 2 },
+          style: {
+            stroke: '#2b2118',
+            strokeWidth: 2,
+            strokeDasharray: '6 5',
+          },
         });
       }
     }
   }
 
-  // 2. Card -> Quest (dashed, green #3fae6b when running, otherwise #5f5446)
+  // 2. Card -> Quest (dashed blue: #3f6f9e when running, #9cc2e8 when past)
   const cardQuestSeen = new Set<string>();
   for (const q of relevantQuests) {
     for (const d of q.dispatches || []) {
@@ -148,7 +158,7 @@ export function buildGraph(
         target: q.id,
         type: 'default',
         style: {
-          stroke: isRunning ? '#3fae6b' : '#5f5446',
+          stroke: isRunning ? '#3f6f9e' : '#9cc2e8',
           strokeWidth: isRunning ? 2.6 : 1.4,
           strokeDasharray: '6 5',
         },
@@ -156,7 +166,7 @@ export function buildGraph(
     }
   }
 
-  // 3. Conflicts (dotted red #d9442e)
+  // 3. Conflicts (dotted wax red #a8322a)
   const conflictSeen = new Set<string>();
   for (const q of relevantQuests) {
     for (const c of q.conflicts || []) {
@@ -171,7 +181,7 @@ export function buildGraph(
             type: 'default',
             data: { kind: 'conflict' },
             style: {
-              stroke: '#d9442e',
+              stroke: '#a8322a',
               strokeWidth: 1.6,
               strokeDasharray: '2 5',
             },
