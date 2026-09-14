@@ -223,7 +223,7 @@ export function validateDrafts(drafts: SettingsDrafts): Record<string, string> {
   }
 
   if (!drafts.lanes || drafts.lanes.length === 0) {
-    errors.lanes = '至少需要配置一条通道';
+    errors.lanes = '至少需要配置一种接入方式';
     return errors;
   }
 
@@ -234,12 +234,12 @@ export function validateDrafts(drafts: SettingsDrafts): Record<string, string> {
     const laneId = lane.id.trim();
 
     if (!laneId) {
-      errors[`lanes.${i}.id`] = '通道 ID 不能为空';
+      errors[`lanes.${i}.id`] = '接入方式 ID 不能为空';
     } else if (!LANE_ID_PATTERN.test(laneId)) {
-      const msg = '通道 ID 必须以小写字母开头，只能包含小写字母、数字和连字符，最多 32 个字符';
+      const msg = '接入方式 ID 必须以小写字母开头，只能包含小写字母、数字和连字符，最多 32 个字符';
       errors[`lanes.${i}.id`] = msg; errors[`lanes.${laneId}.id`] = msg; errors[`lanes.${laneId}`] = msg;
     } else if (seenIds.has(laneId)) {
-      const msg = `通道 ID「${laneId}」重复`;
+      const msg = `接入方式 ID「${laneId}」重复`;
       errors[`lanes.${i}.id`] = msg; errors[`lanes.${laneId}.id`] = msg;
     } else {
       seenIds.add(laneId);
@@ -253,11 +253,11 @@ export function validateDrafts(drafts: SettingsDrafts): Record<string, string> {
 
     if (lane.serve.length > 0) {
       const serveErr = !lane.api.trim()
-        ? '只有填了接口服务 (api) 的通道才需要启动命令'
+        ? '只有填了接口服务 (api) 的接入方式才需要启动命令'
         : lane.serve.some((arg) => !arg.trim())
           ? '启动命令参数不能为空白'
           : lane.serve.some((arg) => /\{[a-z]+\}/.test(arg))
-            ? '启动命令对整条通道只跑一次，不能用占位符'
+            ? '启动命令对整个接入方式只跑一次，不能用占位符'
             : '';
       if (serveErr) {
         errors[`lanes.${i}.serve`] = serveErr; if (laneId) errors[`lanes.${laneId}.serve`] = serveErr;

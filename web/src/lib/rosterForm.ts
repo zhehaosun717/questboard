@@ -86,9 +86,9 @@ export function validateCardForm(
   // lane: required, must be one of lanes
   const rawLane = values.lane?.trim() ?? '';
   if (!rawLane) {
-    errors.lane = '通道不能为空';
+    errors.lane = '接入方式不能为空';
   } else if (!lanes.includes(rawLane)) {
-    errors.lane = '通道不在允许的通道列表中';
+    errors.lane = '接入方式不在允许的接入方式列表中';
   }
 
   // model: required

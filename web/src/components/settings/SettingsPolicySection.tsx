@@ -33,13 +33,13 @@ export function SettingsPolicySection({ draft, roster, onChange }: SettingsPolic
   return (
     <div className="config-policy-section">
       <div className="config-policy-intro">
-        <h2>禁用规则</h2>
-        <p>规则只作用于当前项目，不会全局禁用模型或执行角色。</p>
+        <h2>派出禁令</h2>
+        <p>禁令只作用于当前项目，不会全局禁止派出模型或执行角色。</p>
       </div>
       <BanRuleEditor
         cards={cards}
         field="bannedModelPatterns"
-        label="禁用模型"
+        label="禁止派出模型"
         hint="搜索名册中的模型，也可以手动输入尚未入册的模型名。"
         patterns={models}
         onPatternsChange={(patterns) => update("bannedModelPatterns", patterns)}
@@ -47,8 +47,8 @@ export function SettingsPolicySection({ draft, roster, onChange }: SettingsPolic
       <BanRuleEditor
         cards={cards}
         field="bannedAgents"
-        label="禁用执行角色"
-        hint="匹配工牌的 agent 字段，例如 Sisyphus；这不是冒险者名册。"
+        label="禁止派出执行角色"
+        hint="匹配冒险者的 agent 字段，例如 Sisyphus；这不是冒险者名册。"
         patterns={agents}
         onPatternsChange={(patterns) => update("bannedAgents", patterns)}
       />

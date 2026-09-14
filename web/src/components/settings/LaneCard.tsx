@@ -65,7 +65,7 @@ export function LaneCard({
       <div className="settings-lane-header">
         <div className="form-field flex-grow">
           <label htmlFor={`cfg-lane-id-${index}`}>
-            通道 ID
+            接入方式 ID
             {idErr ? <span className="field-error"> · {idErr}</span> : null}
           </label>
           <input
@@ -77,7 +77,7 @@ export function LaneCard({
           />
         </div>
         <button type="button" className="btn ghost danger-text" onClick={onRemove}>
-          删除这条通道
+          删除这种接入方式
         </button>
       </div>
 
@@ -142,7 +142,7 @@ export function LaneCard({
             {serveErr ? <span className="field-error"> · {serveErr}</span> : null}
           </label>
           <div className="lane-placeholders-hint">
-            例如 <code>opencode</code> <code>serve</code> <code>--port</code> <code>6096</code>，每格一个参数；整条通道只跑一次，不能用占位符
+            例如 <code>opencode</code> <code>serve</code> <code>--port</code> <code>6096</code>，每格一个参数；整个接入方式只跑一次，不能用占位符
           </div>
           <div className="lane-args-list">
             {lane.serve.map((arg, argIdx) => (
@@ -170,7 +170,7 @@ export function LaneCard({
 
       <div className="form-grid-2">
         <div className="form-field">
-          <label htmlFor={`cfg-lane-deliv-${index}`}>交付目录 (deliveryDir - 可选)</label>
+          <label htmlFor={`cfg-lane-deliv-${index}`}>交差目录 (deliveryDir - 可选)</label>
           <input
             id={`cfg-lane-deliv-${index}`}
             value={lane.deliveryDir}

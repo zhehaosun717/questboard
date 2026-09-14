@@ -53,7 +53,7 @@ export function Chips({ snap, connected, error }: ChipsProps) {
       {snap.env.treeLocked && (
         <span className="chip warn">
           <i className="led" />
-          🔒 coordinator 正在验证，暂停派遣
+          🔒 coordinator 正在验证，暂停派出
         </span>
       )}
       {Object.entries(snap.laneLimits || {}).map(([lane, limit]) => (

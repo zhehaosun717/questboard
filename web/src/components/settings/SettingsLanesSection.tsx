@@ -87,7 +87,7 @@ export function SettingsLanesSection({
 
   return (
     <section className="settings-section">
-      <h3 className="settings-sec-title">通道 (Lanes)</h3>
+      <h3 className="settings-sec-title">接入方式 (Lanes)</h3>
       {errors.lanes ? (
         <div className="warn-tape settings-error-banner">{errors.lanes}</div>
       ) : null}
@@ -112,7 +112,7 @@ export function SettingsLanesSection({
 
       <div className="settings-add-lane-wrap">
         <button type="button" className="btn secondary" onClick={addLane}>
-          + 添加通道
+          + 添加接入方式
         </button>
       </div>
     </section>

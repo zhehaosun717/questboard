@@ -17,7 +17,7 @@ export function BriefShelf({ unpostedBriefs = [] }: BriefShelfProps) {
         <h2 id="briefsTitle">还没上板的 brief</h2>
       </header>
       <p className="hint">
-        最近 7 天写好、还没发布也没派过的 brief。coordinator 发布后才能指派。
+        最近 7 天写好、还没发布也没派过的 brief。coordinator 发布后才能派出。
       </p>
       <div id="briefs" className="bf-list">
         {unpostedBriefs.length === 0 ? (

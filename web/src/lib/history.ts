@@ -52,7 +52,7 @@ export function laneLabel(lane: string): string {
 
 export function formatHistoryEvent(entry: LaneHistoryEntry): string {
   if (entry.event === 'dispatch') {
-    return `派遣 → ${laneLabel(entry.lane)} ${entry.model}`;
+    return `派出 → ${laneLabel(entry.lane)} ${entry.model}`;
   }
   return entry.text;
 }

@@ -177,7 +177,7 @@ export function QuestCard({
         ) : null}
         {/* The same drag means different things by status, so say which before the drop. */}
         {dropClass === 'drop-ok' ? (
-          <div className="q-drop-hint">{isAwaitingSignOff(quest) ? '放下：派去审核' : '放下：派去做'}</div>
+          <div className="q-drop-hint">{isAwaitingSignOff(quest) ? '放下：派去复核' : '放下：派去做'}</div>
         ) : (
           <div className="q-refuse">{refuseMessage}</div>
         )}

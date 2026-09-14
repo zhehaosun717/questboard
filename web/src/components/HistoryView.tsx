@@ -58,7 +58,7 @@ export function HistoryView() {
       <header className="history-head">
         <div>
           <span className="eyebrow">DISPATCH LOG</span>
-          <h2>派遣记录</h2>
+          <h2>派出记录</h2>
         </div>
         <div className="history-timestamp">
           {error ? (
@@ -124,20 +124,20 @@ export function HistoryView() {
           <thead>
             <tr>
               <th>委托</th>
-              <th>通道</th>
+              <th>接入方式</th>
               <th>模型</th>
               <th>状态</th>
               <th>运行时长</th>
               <th>编辑次数</th>
               <th>最近一句话</th>
-              <th>worker 名</th>
+              <th>编号</th>
             </tr>
           </thead>
           <tbody>
             {packages.length === 0 ? (
               <tr>
                 <td colSpan={8} className="empty">
-                  暂无调度记录
+                  暂无派出记录
                 </td>
               </tr>
             ) : (

@@ -62,7 +62,7 @@ export function QuestReceipt({ quest, snap }: QuestReceiptProps) {
             {quest.files.length > 0 ? <p>委托书允许改的文件：{quest.files.join('、')}</p> : null}
             {latestDispatch ? (
               <p>
-                最近一次派遣：{latestDispatch.model} · 通道 {latestDispatch.lane} · 编号 {latestDispatch.name} ·{' '}
+                最近一次派出：{latestDispatch.model} · 接入方式 {latestDispatch.lane} · 编号 {latestDispatch.name} ·{' '}
                 {formatClock(latestDispatch.at)}
               </p>
             ) : null}

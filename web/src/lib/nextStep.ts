@@ -2,7 +2,7 @@
 // which controls to show. The card shows the title; the dossier opens on the whole step with its controls.
 // Every entry point used to decide this on its own, which is how "等我处理" came to mean three things.
 import type { Quest, Snapshot } from '../api/types';
-import { currentReviews, parseVerdict, type ReviewVerdict, VERDICT_LABEL } from './evidence';
+import { acceptedOnBoard, currentReviews, parseVerdict, type ReviewVerdict, VERDICT_LABEL } from './evidence';
 import { OPEN_STATUSES } from './labels';
 import { hasEligibleCard, isArchived, isAwaitingSignOff, sharedRefusals } from './questState';
 
@@ -20,15 +20,15 @@ export interface NextStep {
   targetId?: string;
 }
 
-export const WHO_LABEL: Record<StepWho, string> = { you: '等你', adventurer: '等冒险者', reviewer: '等审核员', nobody: '' };
+export const WHO_LABEL: Record<StepWho, string> = { you: '等你', adventurer: '等冒险者', reviewer: '等复核的冒险者', nobody: '' };
 
 const REPORTED = new Set<Quest['status']>(['delivered', 'reviewing']);
 
 const SIGN_OFF_ADVICE: Record<ReviewVerdict, string> = {
-  pass: '审核员认为通过。看一眼交回的东西，就可以验收。',
-  findings: '审核通过，但列了问题。看完决定验收还是打回。',
-  fail: '审核员认为不通过。看完结论，多半要打回重做。',
-  unknown: '审核报告里没写结论，自己看报告再定。',
+  pass: '复核的冒险者认为通过。看一眼交回的东西，就可以验收。',
+  findings: '复核通过，但列了问题。看完决定验收还是退回。',
+  fail: '复核的冒险者认为不通过。看完结论，多半要退回重做。',
+  unknown: '复核报告里没写结论，自己看报告再定。',
 };
 
 function cardName(snap: Snapshot, adventurerId: string, fallback: string): string {
@@ -37,8 +37,8 @@ function cardName(snap: Snapshot, adventurerId: string, fallback: string): strin
 
 function archivedStep(quest: Quest): NextStep {
   if (quest.status === 'done') {
-    const onBoard = (quest.lastDetail ?? '').includes('验收通过');
-    const detail = quest.kind === 'owner' ? '你做完了。' : onBoard ? '你在看板上验收通过了。' : '已标成完成（不是在看板上验收的）。';
+    const onBoard = acceptedOnBoard(quest.lastDetail ?? '');
+    const detail = quest.kind === 'owner' ? '你做完了。' : onBoard ? '你在看板上验收了。' : '已标成完成（不是在看板上验收的）。';
     return { who: 'nobody', tone: 'done', title: '已完成', detail, action: 'none' };
   }
   const title = quest.status === 'superseded' ? '已被取代' : '已取消';
@@ -50,24 +50,24 @@ function signOffStep(quest: Quest, snap: Snapshot): NextStep {
   const open = reviews.find((review) => !isArchived(review) && !REPORTED.has(review.status));
   if (open) {
     const detail = open.assignee
-      ? `${cardName(snap, open.assignee.adventurerId, open.assignee.model)} 正在审，结论回来后这里等你验收。`
-      : `审核委托 ${open.id} 还没派出去，打开它派一个冒险者。`;
+      ? `${cardName(snap, open.assignee.adventurerId, open.assignee.model)} 正在复核，结论回来后这里等你验收。`
+      : `复核委托 ${open.id} 还没派出去，打开它派一个冒险者。`;
     return {
-      who: 'reviewer', tone: 'working', title: `等审核员：${open.id}`,
-      detail: `${detail}你也可以不等，直接验收或打回。`, action: 'sign-off', targetId: open.id,
+      who: 'reviewer', tone: 'working', title: `等复核的冒险者：${open.id}`,
+      detail: `${detail}你也可以不等，直接验收或退回。`, action: 'sign-off', targetId: open.id,
     };
   }
   const reported = [...reviews].reverse().find((review) => REPORTED.has(review.status) || review.status === 'done');
   if (reported) {
     const verdict = parseVerdict(reported.lastDetail ?? '');
     return {
-      who: 'you', tone: 'you', title: `等你验收 · 审核${VERDICT_LABEL[verdict]}`,
+      who: 'you', tone: 'you', title: `等你验收 · 复核${VERDICT_LABEL[verdict]}`,
       detail: SIGN_OFF_ADVICE[verdict], action: 'sign-off', targetId: reported.id,
     };
   }
   return {
     who: 'you', tone: 'you', title: '等你验收',
-    detail: '冒险者说做完了，还没人核实。看完交回的东西，验收或打回；想先让模型审，把工牌拖到这张委托上。',
+    detail: '冒险者说做完了，还没人核实。看完交回的东西，验收或退回；想先让模型复核，把冒险者拖到这张委托上。',
     action: 'sign-off',
   };
 }
@@ -77,12 +77,12 @@ function openStep(quest: Quest, snap: Snapshot): NextStep {
     const count = Object.values(snap.eligibility[quest.id] ?? {}).filter((verdict) => verdict.ok).length;
     const again = quest.status === 'failed' ? '上次失败了。' : quest.status === 'bounced' || quest.status === 'lane_limited' ? '上次被限额退回。' : '';
     return {
-      who: 'you', tone: 'ready', title: `可以派 · ${count} 张工牌能接`,
-      detail: `${again}把名册里的工牌拖到这张委托上派它去做，做完会交回来等你验收。`, action: 'assign',
+      who: 'you', tone: 'ready', title: `可以派 · ${count} 个冒险者能接`,
+      detail: `${again}把名册里的冒险者拖到这张委托上派它去做，做完会交差等你验收。`, action: 'assign',
     };
   }
   const shared = sharedRefusals(snap, quest.id);
-  const detail = shared.length > 0 ? shared.map((reason) => reason.message).join('；') : '每张工牌各有原因，打开看。';
+  const detail = shared.length > 0 ? shared.map((reason) => reason.message).join('；') : '每个冒险者各有原因，打开看。';
   return { who: 'nobody', tone: 'waiting', title: '暂时派不了', detail, action: 'assign' };
 }
 
@@ -91,10 +91,10 @@ export function nextStep(quest: Quest, snap: Snapshot): NextStep {
 
   if (quest.kind === 'review' && REPORTED.has(quest.status)) {
     const parentId = quest.parents[0];
-    const title = `审核结论：${VERDICT_LABEL[parseVerdict(quest.lastDetail ?? '')]}`;
+    const title = `复核结论：${VERDICT_LABEL[parseVerdict(quest.lastDetail ?? '')]}`;
     return parentId
-      ? { who: 'you', tone: 'you', title, detail: `报告交回来了。去 ${parentId} 看结论，决定验收还是打回。`, action: 'none', targetId: parentId }
-      : { who: 'you', tone: 'you', title, detail: '报告交回来了，但找不到它审核的委托。', action: 'none' };
+      ? { who: 'you', tone: 'you', title, detail: `复核报告交回来了。去 ${parentId} 看结论，决定验收还是退回。`, action: 'none', targetId: parentId }
+      : { who: 'you', tone: 'you', title, detail: '复核报告交回来了，但找不到它复核的委托。', action: 'none' };
   }
 
   // An open question outranks the kind: a 你来 quest waiting on a ruling is waiting on a decision, not on work.
@@ -124,7 +124,7 @@ export function nextStep(quest: Quest, snap: Snapshot): NextStep {
     }
     return {
       who: 'adventurer', tone: 'working', title: `${cardName(snap, assignee.adventurerId, assignee.model)} 在做`,
-      detail: '做完会自动交回来，变成待验收。', action: 'none',
+      detail: '做完会自动交差，变成待验收。', action: 'none',
     };
   }
 

@@ -17,7 +17,7 @@ export function SettingsBriefsSection({
       <div className="settings-card">
         <div className="settings-fields-grid">
           <div className="form-field">
-            <label htmlFor="cfg-briefs-dispatch">派遣目录（逗号分隔）</label>
+            <label htmlFor="cfg-briefs-dispatch">派出目录（逗号分隔）</label>
             <input
               id="cfg-briefs-dispatch"
               value={draft.dispatchDirs}
@@ -37,7 +37,7 @@ export function SettingsBriefsSection({
           </div>
 
           <div className="form-field">
-            <label htmlFor="cfg-briefs-pkg">任务包正则模式 (packagePattern)</label>
+            <label htmlFor="cfg-briefs-pkg">委托包正则模式 (packagePattern)</label>
             <input
               id="cfg-briefs-pkg"
               className="mono-input"

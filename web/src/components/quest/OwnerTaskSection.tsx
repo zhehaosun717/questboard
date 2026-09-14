@@ -47,7 +47,7 @@ export function OwnerTaskSection({ quest, draft, onDraftChange, refresh, pushToa
         await api.rule(quest.id, text);
         onDraftChange('');
       }
-      await api.setQuestStatus(quest.id, 'done', 'owner 在任务板上标记完成');
+      await api.setQuestStatus(quest.id, 'done', 'owner 在看板上标记完成');
       pushToast(`${quest.id} 已完成`);
       refresh();
     } catch (err) {

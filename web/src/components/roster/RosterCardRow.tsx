@@ -10,7 +10,7 @@ export interface RosterCardRowProps {
   onDelete: (card: Card) => void;
 }
 
-const DERIVED_HINT = '由通道数据推断，不在名册里';
+const DERIVED_HINT = '由接入方式数据推断，不在名册里';
 
 export function RosterCardRow({ card, onOpenStatus, onEdit, onDuplicate, onDelete }: RosterCardRowProps) {
   const isDerived = Boolean(card.derived);
@@ -87,7 +87,7 @@ export function RosterCardRow({ card, onOpenStatus, onEdit, onDuplicate, onDelet
             className="btn action-btn"
             type="button"
             disabled={isDerived}
-            title={isDerived ? DERIVED_HINT : '照这张工牌再开一张，只改要改的'}
+            title={isDerived ? DERIVED_HINT : '照这位冒险者再开一位，只改要改的'}
             onClick={() => onDuplicate(card)}
           >
             复制

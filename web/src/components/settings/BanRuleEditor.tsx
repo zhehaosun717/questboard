@@ -27,9 +27,9 @@ const MODES: Array<{ value: BanRuleMode; label: string }> = [
 ];
 
 function cardLabel(card: BanRuleCard): string {
-  const name = card.name ?? card.id ?? "未命名工牌";
+  const name = card.name ?? card.id ?? "未命名冒险者";
   const model = card.model ?? "未指定模型";
-  const channel = card.channel ?? "未指定通道";
+  const channel = card.channel ?? "未指定接入方式";
   return `${name} · ${model} · ${channel}`;
 }
 
@@ -97,7 +97,7 @@ export function BanRuleEditor({ cards, field, label, hint, patterns, onPatternsC
           {MODES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
         <input aria-label={`${label}规则`} value={value} onChange={(event) => setValue(event.target.value)} placeholder={mode === "regex" ? "输入正则表达式" : "输入名称，例如 gpt-4.1"} />
-        <button type="button" className="btn" onClick={addRule} disabled={value.length === 0 || inputError !== undefined}>添加禁用规则</button>
+        <button type="button" className="btn" onClick={addRule} disabled={value.length === 0 || inputError !== undefined}>添加派出禁令</button>
       </div>
       {inputError !== undefined && <p className="config-policy-error">{inputError}</p>}
       {field === "bannedModelPatterns" && <div className="config-policy-roster-picker">
@@ -135,13 +135,13 @@ export function BanRuleEditor({ cards, field, label, hint, patterns, onPatternsC
               <button type="button" className="config-policy-remove" onClick={() => onPatternsChange(patterns.filter((_, itemIndex) => itemIndex !== index))}>删除</button>
             </div>
             {rule.valid ? (
-              <div className="config-policy-preview"><strong>将禁用 {affected.length} 张工牌</strong>{affected.length > 0 ? <span>{affected.map(cardLabel).join("；")}</span> : <span>当前没有工牌会被影响</span>}</div>
+              <div className="config-policy-preview"><strong>将禁止派出 {affected.length} 个冒险者</strong>{affected.length > 0 ? <span>{affected.map(cardLabel).join("；")}</span> : <span>当前没有冒险者会被影响</span>}</div>
             ) : <p className="config-policy-error">{rule.error ?? "规则无效"}</p>}
             {rule.valid && rule.mode === "regex" && isAdvancedOpen(index) && <p className="config-policy-advanced-note">匹配方式：{displayMode(rule.mode)}。保存时仍按原始正则存储。</p>}
           </div>
         ))}
       </div>
-      <p className="config-policy-footnote">这里禁用的是使用该{field === "bannedModelPatterns" ? "模型" : "执行角色"}的全部工牌；想暂停单张工牌，请去公会名册修改它的状态。</p>
+      <p className="config-policy-footnote">这里禁止派出的是使用该{field === "bannedModelPatterns" ? "模型" : "执行角色"}的全部冒险者；想暂停单个冒险者，请去公会名册修改它的状态。</p>
     </section>
   );
 }

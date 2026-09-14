@@ -90,7 +90,7 @@ export function HistoryRow({ pkg, isExpanded, onToggle }: HistoryRowProps) {
 
               {pkg.history && pkg.history.length > 0 && (
                 <div className="hist-sub-history">
-                  <strong>派遣历史</strong>
+                  <strong>派出历史</strong>
                   <div className="hist-events-list">
                     {pkg.history.map((ev, i) => (
                       <div key={i} className="hist-event-item">

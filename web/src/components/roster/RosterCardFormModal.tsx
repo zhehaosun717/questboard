@@ -69,7 +69,7 @@ export function RosterCardFormModal({
 
     // Saving upserts by id, so reusing the source id would overwrite the card being copied.
     if (isDuplicate && card && id.trim() === card.id) {
-      setErrors({ id: '复制出来的 ID 要和原工牌不同，否则会覆盖原来那张' });
+      setErrors({ id: '复制出来的 ID 要和原冒险者不同，否则会覆盖原来那位' });
       return;
     }
 
@@ -103,7 +103,7 @@ export function RosterCardFormModal({
           {!card
             ? 'NEW ADVENTURER · 录入档案'
             : isDuplicate
-              ? 'DUPLICATE ADVENTURER · 照着再开一张'
+              ? 'DUPLICATE ADVENTURER · 照着再开一位'
               : 'EDIT ADVENTURER · 修改档案'}
         </p>
         <h2 id="cardFormTitle">
@@ -165,7 +165,7 @@ export function RosterCardFormModal({
           <div className="form-grid-2">
             <div className="form-field">
               <label htmlFor="card-lane">
-                通道
+                接入方式
                 {errors.lane ? <span className="field-error"> · {errors.lane}</span> : null}
               </label>
               <select
@@ -298,7 +298,7 @@ export function RosterCardFormModal({
               id="card-env"
               rows={3}
               value={env}
-              placeholder={'OPENAI_BASE_URL=https://api.example.com/v1\n# 密钥请放系统环境变量，通道命令会继承'}
+              placeholder={'OPENAI_BASE_URL=https://api.example.com/v1\n# 密钥请放系统环境变量，接入方式命令会继承'}
               onChange={(e) => setEnv(e.target.value)}
             />
           </div>

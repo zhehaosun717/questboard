@@ -51,9 +51,9 @@ export function WorkOrderModal({
         aria-labelledby="orderTitle"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="eyebrow">{isReview ? 'REVIEW ORDER · 审核令' : 'WORK ORDER · 派遣令'}</p>
+        <p className="eyebrow">{isReview ? 'REVIEW ORDER · 复核令' : 'WORK ORDER · 派出令'}</p>
         <h2 id="orderTitle">
-          派 <em>{card.name}</em> 去{isReview ? '审核' : '做'} <em>{quest.id}</em>
+          派 <em>{card.name}</em> 去{isReview ? '复核' : '做'} <em>{quest.id}</em>
         </h2>
         <dl className="order-lines">
           <dt>委托</dt>
@@ -73,7 +73,7 @@ export function WorkOrderModal({
           <dd>
             {isReview ? (
               <>
-                看板写一份审核简报 <code>REVIEW-{quest.id}</code>，让它对照 <code>{quest.brief}</code> 逐条核对，只读不改
+                看板写一份复核简报 <code>REVIEW-{quest.id}</code>，让它对照 <code>{quest.brief}</code> 逐条核对，只读不改
               </>
             ) : (
               <code>{quest.brief}</code>
@@ -84,17 +84,17 @@ export function WorkOrderModal({
           <textarea
             className="order-note"
             rows={2}
-            placeholder="想让它重点看什么（可不写，会写进审核简报）"
+            placeholder="想让它重点看什么（可不写，会写进复核简报）"
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
         ) : null}
         {card.billing === 'payg' && (
-          <div className="warn-tape">⚠ 按量付费通道，会直接花钱</div>
+          <div className="warn-tape">⚠ 按量付费接入方式，会直接花钱</div>
         )}
         {quest.status === 'stalled' && (
           <div className="warn-tape">
-            ⚠ 上一个 worker 卡住了，但可能还在改文件。确认它已经停了再派。
+            ⚠ 上一个冒险者失联了，但可能还在改文件。确认它已经停了再派出。
           </div>
         )}
         {errors.length > 0 && (
@@ -117,7 +117,7 @@ export function WorkOrderModal({
             onClick={handleConfirm}
             autoFocus
           >
-            {isReview ? '盖章派去审核' : '盖章派遣'}
+            {isReview ? '盖章派去复核' : '盖章派出'}
           </button>
         </div>
       </div>

@@ -24,7 +24,7 @@ export function LaneServerPanel({ server, starting, message, onStart }: LaneServ
       <div className="lane-server-status">
         <i className={`led ${server.up ? 'ok' : 'bad'}`} aria-hidden="true" />
         <span>
-          {server.up ? '服务在运行' : '服务没开，派到这条通道的委托会失败'}
+          {server.up ? '服务在运行' : '服务没开，派到这种接入方式的委托会失败'}
           <code>{server.api}</code>
         </span>
       </div>

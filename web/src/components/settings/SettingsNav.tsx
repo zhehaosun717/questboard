@@ -8,8 +8,8 @@ interface SettingsNavProps {
 
 const groups: Array<{ id: SettingsGroupId; label: string; hint: string }> = [
   { id: 'project-files', label: '项目与文件', hint: '项目、简报、评审页' },
-  { id: 'execution', label: '执行通道', hint: '通道与运行参数' },
-  { id: 'policy', label: '派遣限制', hint: '规则与限制' },
+  { id: 'execution', label: '接入方式', hint: '接入方式与运行参数' },
+  { id: 'policy', label: '派出禁令', hint: '规则与限制' },
   { id: 'local', label: '本机与连接', hint: '只读检查' },
 ];
 

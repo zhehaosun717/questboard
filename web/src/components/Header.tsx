@@ -69,7 +69,7 @@ export function Header({
           type="button"
           onClick={() => onTabChange('history')}
         >
-          派遣记录
+          派出记录
         </button>
         <button
           className={`plate tab${tab === 'roster' ? ' on' : ''}`}

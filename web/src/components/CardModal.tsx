@@ -43,7 +43,7 @@ export function CardModal({ card, onClose, onSuccess, onError }: CardModalProps)
           <dd>
             <code>{card.model}</code>
           </dd>
-          <dt>通道</dt>
+          <dt>接入方式</dt>
           <dd>
             {card.provider} · {card.lane}
           </dd>
@@ -61,7 +61,7 @@ export function CardModal({ card, onClose, onSuccess, onError }: CardModalProps)
           ))}
         </select>
         <label htmlFor="advNote">
-          REASON 原因（会显示在工牌上，写明为什么、到什么时候）
+          REASON 原因（会显示在冒险者上，写明为什么、到什么时候）
         </label>
         <input
           id="advNote"

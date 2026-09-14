@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { evidenceFor, parseVerdict } from './evidence';
+import { acceptedOnBoard, evidenceFor, parseVerdict } from './evidence';
 import { makeAssignee, makeCard, makeQuest, makeSnapshot } from './testFixtures';
+
+describe('acceptedOnBoard', () => {
+  it('returns true for legacy and new acceptance details, and false for neither', () => {
+    expect(acceptedOnBoard('验收通过')).toBe(true);
+    expect(acceptedOnBoard('owner 验收通过')).toBe(true);
+    expect(acceptedOnBoard('owner 验收')).toBe(true);
+    expect(acceptedOnBoard('owner 验收：已测试')).toBe(true);
+    expect(acceptedOnBoard('已完成')).toBe(false);
+    expect(acceptedOnBoard('')).toBe(false);
+  });
+});
 
 describe('parseVerdict', () => {
   it('reads the verdict line the review brief asks for', () => {
@@ -33,9 +44,9 @@ describe('evidenceFor', () => {
     const review = (status: 'delivered' | 'dispatched', lastDetail: string) =>
       makeQuest({ id: 'REVIEW-d', kind: 'review', parents: ['d'], status, lastDetail, createdAt: '2026-09-13T02:00:00.000Z', assignee: makeAssignee('card-2') });
     const rung = (r: ReturnType<typeof review>) => evidenceFor(work(), makeSnapshot({ quests: [work(), r] }))[1];
-    expect(rung(review('delivered', 'VERDICT: FAIL'))).toMatchObject({ state: 'bad', note: 'REVIEW-d：审核不通过' });
+    expect(rung(review('delivered', 'VERDICT: FAIL'))).toMatchObject({ state: 'bad', note: 'REVIEW-d：复核不通过' });
     expect(rung(review('delivered', 'no verdict here'))?.state).toBe('pending');
-    expect(rung(review('dispatched', ''))?.note).toBe('REVIEW-d 审核中');
+    expect(rung(review('dispatched', ''))?.note).toBe('REVIEW-d 复核中');
   });
 
   it('ignores a review from before the latest dispatch', () => {
@@ -44,7 +55,8 @@ describe('evidenceFor', () => {
   });
 
   it('tells an owner acceptance on the board from a quest marked done elsewhere', () => {
-    expect(evidenceFor(work({ status: 'done', lastDetail: 'owner 验收通过' }), makeSnapshot())[2]?.note).toBe('你在看板上验收通过');
+    expect(evidenceFor(work({ status: 'done', lastDetail: 'owner 验收通过' }), makeSnapshot())[2]?.note).toBe('你在看板上验收');
+    expect(evidenceFor(work({ status: 'done', lastDetail: 'owner 验收' }), makeSnapshot())[2]?.note).toBe('你在看板上验收');
     expect(evidenceFor(work({ status: 'done', lastDetail: '' }), makeSnapshot())[2]?.note).toBe('已标成完成，不是在看板上验收的');
   });
 

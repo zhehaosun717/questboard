@@ -24,7 +24,7 @@ describe('nextStep', () => {
       eligibility: { p: { 'card-1': { ok: true, reasons: [] }, 'card-2': { ok: false, reasons: [conflict] } } },
     });
     const step = nextStep(makeQuest({ id: 'p' }), snap);
-    expect([step.tone, step.action, step.title]).toEqual(['ready', 'assign', '可以派 · 1 张工牌能接']);
+    expect([step.tone, step.action, step.title]).toEqual(['ready', 'assign', '可以派 · 1 个冒险者能接']);
   });
 
   it('says once why nobody can take an open quest', () => {
@@ -65,7 +65,7 @@ describe('nextStep', () => {
       id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'delivered', lastDetail: 'FINDINGS\n1. x\nVERDICT: FAIL',
       createdAt: '2026-09-13T02:00:00.000Z',
     });
-    expect(nextStep(work, makeSnapshot({ quests: [work, review] })).title).toBe('等你验收 · 审核不通过');
+    expect(nextStep(work, makeSnapshot({ quests: [work, review] })).title).toBe('等你验收 · 复核不通过');
   });
 
   it('ignores a review from an earlier round', () => {
@@ -79,11 +79,12 @@ describe('nextStep', () => {
   it('sends a returned review to the work it reviews instead of offering sign-off on the review', () => {
     const review = makeQuest({ id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'delivered', lastDetail: 'VERDICT: PASS' });
     const step = nextStep(review, makeSnapshot());
-    expect([step.title, step.targetId, step.action]).toEqual(['审核结论：通过', 'd', 'none']);
+    expect([step.title, step.targetId, step.action]).toEqual(['复核结论：通过', 'd', 'none']);
   });
 
   it('tells an accepted quest from one marked done elsewhere', () => {
-    expect(nextStep(makeQuest({ id: 'a', status: 'done', lastDetail: 'owner 验收通过' }), makeSnapshot()).detail).toContain('验收通过');
+    expect(nextStep(makeQuest({ id: 'a', status: 'done', lastDetail: 'owner 验收通过' }), makeSnapshot()).detail).toContain('你在看板上验收了');
+    expect(nextStep(makeQuest({ id: 'a', status: 'done', lastDetail: 'owner 验收' }), makeSnapshot()).detail).toContain('你在看板上验收了');
     expect(nextStep(makeQuest({ id: 'b', status: 'done', lastDetail: '' }), makeSnapshot()).detail).toContain('不是在看板上验收');
   });
 });

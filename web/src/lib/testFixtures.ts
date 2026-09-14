@@ -29,9 +29,9 @@ export function makeQuest(partial: Partial<Quest> & { id: string }): Quest {
 export function makeCard(id: string, overrides: Partial<Card> = {}): Card {
   return {
     id,
-    name: '测试工牌',
+    name: '测试冒险者',
     provider: '测试提供方',
-    lane: '测试通道',
+    lane: '测试接入方式',
     model: '测试模型',
     family: '测试系列',
     status: 'available',
@@ -46,7 +46,7 @@ export function makeAssignee(adventurerId: string, overrides: Partial<Assignee> 
   return {
     adventurerId,
     family: null,
-    lane: '测试通道',
+    lane: '测试接入方式',
     model: `${adventurerId}-model`,
     variant: '',
     name: `${adventurerId}-worker`,
@@ -59,7 +59,7 @@ export function makeAssignee(adventurerId: string, overrides: Partial<Assignee> 
 export function makeSnapshot(parts: Partial<Snapshot> = {}): Snapshot {
   return {
     generatedAt: AT,
-    project: { name: '测试项目', lanes: ['测试通道'] },
+    project: { name: '测试项目', lanes: ['测试接入方式'] },
     quests: [],
     roster: [makeCard('card-1')],
     eligibility: {},

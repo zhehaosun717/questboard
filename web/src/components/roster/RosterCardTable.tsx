@@ -58,7 +58,7 @@ export function RosterCardTable({ cards, onOpenStatus, onEdit, onDuplicate, onDe
           <thead>
             <tr>
               <th>冒险者</th>
-              <th>通道</th>
+              <th>接入方式</th>
               <th>模型 / 代理</th>
               <th>计费</th>
               <th>并发</th>

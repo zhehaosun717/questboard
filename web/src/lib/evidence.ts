@@ -49,32 +49,36 @@ export function currentReviews(quest: Quest, snap: Snapshot): Quest[] {
 
 function claimedRung(quest: Quest, snap: Snapshot): Rung {
   const last = quest.dispatches[quest.dispatches.length - 1];
-  const base = { key: 'claimed' as const, label: '冒险者交回' };
+  const base = { key: 'claimed' as const, label: '冒险者交差' };
   if (!last) return { ...base, state: 'skipped', note: '还没派过冒险者' };
   const who = snap.roster.find((card) => card.id === last.adventurerId)?.name ?? last.model;
   if (CLAIMED.has(quest.status)) return { ...base, state: 'done', note: `${who} 说做完了——它自己说的，不算核实` };
   if (quest.status === 'dispatched') return { ...base, state: 'pending', note: `${who} 还在做` };
-  return { ...base, state: 'pending', note: '还没交回' };
+  return { ...base, state: 'pending', note: '还没交差' };
 }
 
 function reviewedRung(quest: Quest, snap: Snapshot): Rung {
-  const base = { key: 'reviewed' as const, label: '审核结论' };
+  const base = { key: 'reviewed' as const, label: '复核结论' };
   const reviews = currentReviews(quest, snap);
   const latest = reviews[reviews.length - 1];
-  if (!latest) return { ...base, state: 'skipped', note: '没有派审核' };
+  if (!latest) return { ...base, state: 'skipped', note: '没有派复核' };
   if (!REPORTED.has(latest.status)) {
-    return { ...base, state: 'pending', note: latest.assignee ? `${latest.id} 审核中` : `${latest.id} 还没派出去` };
+    return { ...base, state: 'pending', note: latest.assignee ? `${latest.id} 复核中` : `${latest.id} 还没派出去` };
   }
   const verdict = parseVerdict(latest.lastDetail ?? '');
   const state: RungState = verdict === 'fail' ? 'bad' : verdict === 'unknown' ? 'pending' : 'done';
-  return { ...base, state, note: `${latest.id}：审核${VERDICT_LABEL[verdict]}` };
+  return { ...base, state, note: `${latest.id}：复核${VERDICT_LABEL[verdict]}` };
+}
+
+export function acceptedOnBoard(detail: string): boolean {
+  return detail.includes('验收通过') || detail.includes('owner 验收');
 }
 
 function acceptedRung(quest: Quest): Rung {
   const base = { key: 'accepted' as const, label: '你验收' };
   if (quest.status === 'done') {
-    const onBoard = (quest.lastDetail ?? '').includes('验收通过');
-    return { ...base, state: 'done', note: onBoard ? '你在看板上验收通过' : '已标成完成，不是在看板上验收的' };
+    const onBoard = acceptedOnBoard(quest.lastDetail ?? '');
+    return { ...base, state: 'done', note: onBoard ? '你在看板上验收' : '已标成完成，不是在看板上验收的' };
   }
   if (quest.status === 'superseded' || quest.status === 'cancelled') return { ...base, state: 'skipped', note: '委托已不再需要' };
   return { ...base, state: 'pending', note: isAwaitingSignOff(quest) ? '等你验收' : '还没到这一步' };

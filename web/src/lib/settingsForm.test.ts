@@ -175,7 +175,7 @@ describe('settingsForm validateDrafts rules', () => {
   it('rule 3: at least one lane', () => {
     const d = validDrafts();
     d.lanes = [];
-    expect(validateDrafts(d).lanes).toMatch(/至少需要配置一条通道/);
+    expect(validateDrafts(d).lanes).toMatch(/至少需要配置一种接入方式/);
   });
 
   it('rule 4: every lane id matching ^[a-z][a-z0-9-]{0,31}$ and unique', () => {

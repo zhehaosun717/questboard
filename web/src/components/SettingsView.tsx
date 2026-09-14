@@ -223,8 +223,8 @@ export function SettingsView({ roster }: SettingsViewProps) {
             <h2>系统设置</h2>
             <p className="settings-group-caption">
               {activeGroup === 'project-files' ? '项目与文件' : null}
-              {activeGroup === 'execution' ? '执行通道' : null}
-              {activeGroup === 'policy' ? '派遣限制' : null}
+              {activeGroup === 'execution' ? '接入方式' : null}
+              {activeGroup === 'policy' ? '派出禁令' : null}
               {activeGroup === 'local' ? '本机与连接' : null}
             </p>
           </div>

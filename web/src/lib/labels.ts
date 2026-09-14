@@ -3,12 +3,12 @@ import type { CardStatus, QuestEvent, QuestKind, QuestStatus } from '../api/type
 
 export const STATUS: Record<QuestStatus, string> = {
   // delivered is the worker's own claim, so it is not called 已交付 (it read as finished): it waits for sign-off.
-  posted: '待接', dispatched: '进行中', delivered: '待验收', reviewing: '审核中', needs_owner: '等裁决',
-  owner_playtest: '等你试玩', lane_limited: '通道受限', bounced: '限额退回', failed: '失败', stalled: '卡住',
+  posted: '待接', dispatched: '进行中', delivered: '待验收', reviewing: '复核中', needs_owner: '等裁决',
+  owner_playtest: '等你试玩', lane_limited: '接入方式受限', bounced: '限额退回', failed: '失败', stalled: '失联',
   done: '已完成', superseded: '已取代', cancelled: '已取消',
 };
 
-export const KIND: Record<QuestKind, string> = { code: '代码', review: '审核', art: '美术', tool: '工具', owner: '你来' };
+export const KIND: Record<QuestKind, string> = { code: '代码', review: '复核', art: '美术', tool: '工具', owner: '你来' };
 
 export const CARD_STATUS: Record<CardStatus, string> = { available: '空闲', limited: '限额', broke: '没钱', paused: '暂停', disabled: '停用' };
 
@@ -42,17 +42,17 @@ export function describeEvent(event: QuestEvent): string {
   const who = event.model ? `（${event.model}）` : '';
   const texts: Record<string, string> = {
     posted: `新委托 ${event.package}`,
-    review_posted: `新审核委托 ${event.package}`,
-    assigned: `${event.package} 已指派${who}`,
+    review_posted: `新复核委托 ${event.package}`,
+    assigned: `${event.package} 已派出${who}`,
     dispatched: `${event.package} 脚本已启动${who}`,
-    delivered: `${event.package} 交回了，待验收${who}`,
+    delivered: `${event.package} 交差了，待验收${who}`,
     failed: `${event.package} 失败${who}`,
     bounced: `${event.package} 限额退回${who}`,
-    stalled: `${event.package} 卡住了${who}`,
+    stalled: `${event.package} 失联了${who}`,
     cancelled: `${event.package} 已取消`,
-    released: `${event.package} 的 worker 已释放，可以重新派`,
+    released: `${event.package} 的冒险者已释放，可以重新派`,
     owner_ruling: `${event.package} 已裁决`,
-    delivery_write_failed: `${event.package} 交付文件没写成：${event.detail}`,
+    delivery_write_failed: `${event.package} 交差文件没写成：${event.detail}`,
   };
   const status = event.event.replace(/^status_/, '') as QuestStatus;
   return texts[event.event] ?? `${event.package} → ${STATUS[status] ?? event.event}`;

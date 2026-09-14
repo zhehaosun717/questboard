@@ -72,7 +72,7 @@ function DoneColumn({
         ) : (
           <div className="empty">— 空 —</div>
         )}
-        <a className="done-more" href="#/history">全部历史在「派遣记录」</a>
+        <a className="done-more" href="#/history">全部历史在「派出记录」</a>
       </div>
     </section>
   );

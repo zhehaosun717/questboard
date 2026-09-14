@@ -60,7 +60,7 @@ export function QuestDrawer({
       return;
     }
     try {
-      await api.setQuestStatus(quest.id, 'cancelled', 'owner 在任务板上取消');
+      await api.setQuestStatus(quest.id, 'cancelled', 'owner 在看板上取消');
       refresh();
     } catch (err) {
       pushToast(`取消失败：${err instanceof Error ? err.message : String(err)}`);
@@ -73,7 +73,7 @@ export function QuestDrawer({
       return;
     }
     try {
-      await api.releaseWorker(quest.id, `owner 在任务板上确认 worker ${name} 已停止`);
+      await api.releaseWorker(quest.id, `owner 在看板上确认冒险者 ${name} 已停止`);
       refresh();
     } catch (err) {
       pushToast(`释放失败：${err instanceof Error ? err.message : String(err)}`);
@@ -200,7 +200,7 @@ export function QuestDrawer({
       ) : null}
 
       {quest.dispatches && quest.dispatches.length > 0 ? (
-        <DrawerSection en="LOG" zh="派遣记录">
+        <DrawerSection en="LOG" zh="派出记录">
           {quest.dispatches.map((d, i) => (
             <div key={i} className="rec">
               {new Date(d.at).toLocaleString('zh-CN')} · {d.model} · 编号 <code>{d.name}</code> · {d.by || ''}

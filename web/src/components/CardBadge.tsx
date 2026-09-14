@@ -99,7 +99,7 @@ export function CardBadge({
         {card.variant ? ` · ${card.variant}` : ''}
       </div>
       <div className="a-meta">
-        <span className="a-key">通道</span> {card.lane} · {card.provider} ·{' '}
+        <span className="a-key">接入方式</span> {card.lane} · {card.provider} ·{' '}
         <span className={card.billing === 'payg' ? 'pay' : ''}>
           {BILLING[card.billing || ''] || card.billing || ''}
         </span>

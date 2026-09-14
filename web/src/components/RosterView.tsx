@@ -45,7 +45,7 @@ export function RosterView({ snap, refresh, pushToast }: RosterViewProps) {
         <div className="roster-sec-title-row">
           <h3>公会名册 ({snap.roster?.length ?? 0})</h3>
           <p className="hint">
-            管理当前项目可派工的冒险者工牌。通道推断出的工牌不能直接编辑。
+            管理当前项目可派工的冒险者。接入方式推断出的冒险者不能直接编辑。
           </p>
         </div>
 

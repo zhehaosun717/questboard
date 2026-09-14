@@ -68,7 +68,7 @@ export function Guild({
         <h2 id="guildTitle">冒险者公会</h2>
       </header>
       <p className="hint">
-        拖动或悬停一张工牌：能接的委托会亮起，不能接的会写明原因。点工牌改状态。
+        拖动或悬停一位冒险者：能接的委托会亮起，不能接的会写明原因。点冒险者改状态。
       </p>
       <div id="guild">
         {groups.map((group) => (
