@@ -72,10 +72,10 @@ export function threadsByPackage(boardStore, packageIds) {
   return result;
 }
 
-export function buildSnapshot({ config, store, adventurers, boardStore, lanes }) {
+export function buildSnapshot({ config, store, adventurers, boardStore, lanes, downLanes = null }) {
   const quests = withFileSets(config, store.list());
   const roster = effectiveRoster(adventurers, lanes);
-  const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)) };
+  const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), ...(downLanes ? { downLanes } : {}) };
   const byQuest = {};
   for (const quest of quests) {
     byQuest[quest.id] = eligibility({ quest, roster, quests, policy: config.policy, env: { ...env, briefExists: briefExists(config, quest) } });

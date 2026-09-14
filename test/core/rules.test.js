@@ -33,6 +33,16 @@ describe('canDispatch', () => {
     assert.ok(codes(check(quest({ allowedLanes: ['agy'] }))).includes('lane_not_allowed'));
   });
 
+  it('refuses a card whose lane server is down and shows the server address', () => {
+    const downEnv = { ...env, downLanes: new Map([['opencode', 'http://127.0.0.1:6096']]) };
+    const ocResult = check(quest(), card('oc-mimo'), [quest()], downEnv);
+    assert.ok(codes(ocResult).includes('lane_server_down'));
+    const reason = ocResult.reasons.find((r) => r.code === 'lane_server_down');
+    assert.match(reason.message, /http:\/\/127\.0\.0\.1:6096/);
+    const otherResult = check(quest(), luna, [quest()], downEnv);
+    assert.ok(!codes(otherResult).includes('lane_server_down'));
+  });
+
   it('enforces the parallel limit', () => {
     const running = quest({ id: 'LOOK-2F', status: 'dispatched', assignee: { adventurerId: 'codex-luna' } });
     assert.ok(codes(check(quest(), luna, [running, quest()])).includes('adventurer_busy'));

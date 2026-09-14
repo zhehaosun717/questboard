@@ -10,7 +10,7 @@ import { writeApiDelivery } from '../core/deliveries.js';
 const EVIDENCE_WAIT_MS = 10000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery }) {
+export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null }) {
   const queues = new Map();
   const pendingDeliveries = new Set();
 
@@ -73,7 +73,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     if (repeated(quest, requestKey)) return { status: 200, body: { quest: store.get(questId), repeated: true } };
     const stale = staleRevision(quest, ifRevision);
     if (stale) return stale;
-    const env = { treeLocked: lockPresent(config), briefExists: briefExists(config, quest), laneIds: new Set(Object.keys(config.lanes)) };
+    const env = { treeLocked: lockPresent(config), briefExists: briefExists(config, quest), laneIds: new Set(Object.keys(config.lanes)), ...(getDownLanes() ? { downLanes: getDownLanes() } : {}) };
     const verdict = canDispatch({ quest, adventurer, quests, policy: config.policy, env });
     if (!verdict.ok) return { status: 409, body: { error: 'refused', reasons: verdict.reasons } };
     const name = workerName(quest);

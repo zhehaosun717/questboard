@@ -5,7 +5,7 @@ import { createServer } from '../../src/server/server.js';
 import { saveRoster } from '../../src/core/roster.js';
 import { makeProject, tmpDir, CARDS } from '../helpers.js';
 
-export async function startFixture({ runResult = () => ({ code: 0 }), writeDelivery } = {}) {
+export async function startFixture({ runResult = () => ({ code: 0 }), writeDelivery, checkLaneServers } = {}) {
   const project = makeProject({ reviewPages: { dir: 'docs/art' } });
   project.write('docs/briefs/RUN-4-the-way-back.md', 'RUN-4 — the way back');
   project.write('docs/briefs/REVIEW-26-review-run-4.md', 'review');
@@ -19,6 +19,7 @@ export async function startFixture({ runResult = () => ({ code: 0 }), writeDeliv
   const server = createServer({
     config: project.config, home, evidenceWaitMs: 0, getLanes: () => holder.lanes,
     writeDelivery: writeDelivery || (async (config, lane, name) => path.join(config.root, '.work', 'oc', `${name}.md`)),
+    checkLaneServers,
     runners: {
       run: async (step) => { calls.push(step); return runResult(step); },
       session: async (step) => { calls.push(step); return { code: 0, session: 'ses_x' }; },

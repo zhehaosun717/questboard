@@ -17,6 +17,7 @@ const MESSAGES = {
   model_banned: (quest, adventurer) => `模型 ${adventurer.model} 在禁用名单里`,
   agent_banned: (quest, adventurer) => `人格 ${adventurer.agent} 在禁用名单里`,
   lane_not_allowed: (quest) => `coordinator 只允许这些通道：${quest.allowedLanes.join('、')}`,
+  lane_server_down: (quest, adventurer, detail) => `${adventurer.lane} 通道的服务没开（${detail} 连不上）：先到 设置 → 执行通道 点「一键启动服务」`,
   adventurer_busy: (quest, adventurer) => `已在做 ${adventurer.maxParallel || 1} 个任务，满了`,
   reviewer_coded_parent: (quest, adventurer, detail) => `同一模型写过被审核的 ${detail}，不能自己审自己`,
   // Most packages in a design round share a partial, so a conflict reads as a queue, not an error.
@@ -87,6 +88,7 @@ function runningConflict(quest, quests) {
 function adventurerReasons(quest, adventurer, policy, env) {
   const reasons = [];
   if (env && env.laneIds && !env.laneIds.has(adventurer.lane)) reasons.push(reason('lane_missing', quest, adventurer));
+  if (env && env.downLanes && env.downLanes.has(adventurer.lane)) reasons.push(reason('lane_server_down', quest, adventurer, env.downLanes.get(adventurer.lane)));
   if (adventurer.status && adventurer.status !== 'available') {
     const code = MESSAGES[`adventurer_${adventurer.status}`] ? `adventurer_${adventurer.status}` : 'adventurer_disabled';
     reasons.push(reason(code, quest, adventurer));

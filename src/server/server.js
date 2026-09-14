@@ -18,7 +18,7 @@ import { createUsageService } from '../usage/service.js';
 export const HOST = '127.0.0.1';
 const POLL_MS = 15000;
 
-export function createServer({ config, home = homePaths(), runners, getLanes, evidenceWaitMs, writeDelivery, fetchImpl, webDist, usage = createUsageService(), omo = createOmoRoutes(), settingsEnv } = {}) {
+export function createServer({ config, home = homePaths(), runners, getLanes, evidenceWaitMs, writeDelivery, fetchImpl, webDist, usage = createUsageService(), omo = createOmoRoutes(), settingsEnv, checkLaneServers } = {}) {
   if (!config) throw new Error('createServer needs a project config');
   const boardStore = new BoardStore(config.paths.data);
   const store = new QuestStore(config);
@@ -26,7 +26,7 @@ export function createServer({ config, home = homePaths(), runners, getLanes, ev
   const collector = createCollector(config, { fetchImpl });
   let lanesCache = null;
   const lanes = getLanes || (() => lanesCache);
-  const quests = createQuestRoutes({ config, store, boardStore, statusLog, rosterFile: home.roster, getLanes: lanes, runners, evidenceWaitMs, writeDelivery });
+  const quests = createQuestRoutes({ config, store, boardStore, statusLog, rosterFile: home.roster, getLanes: lanes, runners, evidenceWaitMs, writeDelivery, ...(checkLaneServers ? { checkLaneServers } : {}) });
   const routes = [createPageRoutes({ config, ...(webDist ? { webDist } : {}) }), quests, createBoardRoutes({ config, boardStore }), createUsageRoutes({ usage }), omo, createSettingsRoutes({ config, home, ...(settingsEnv ? { env: settingsEnv } : {}) })];
 
   const server = http.createServer(async (request, response) => {
@@ -53,7 +53,7 @@ export function createServer({ config, home = homePaths(), runners, getLanes, ev
     pollTimer.unref();
   };
   server.on('close', () => { quests.stop(); if (pollTimer) clearInterval(pollTimer); });
-  Object.assign(server, { boardStore, store, statusLog, questRoutes: quests, collector });
+  Object.assign(server, { boardStore, store, statusLog, questRoutes: quests, collector, refreshLaneHealth: quests.refreshLaneHealth });
   return server;
 }
 

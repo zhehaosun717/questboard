@@ -11,6 +11,7 @@ import { eventsAfter } from '../core/events.js';
 import { isReviewable, requestReview, reviewEligibility } from '../core/reviewRequest.js';
 import { withFileSets } from '../core/briefs.js';
 import { lockPresent } from '../core/snapshot.js';
+import { laneServers } from '../core/laneServer.js';
 
 const SYNC_INTERVAL_MS = 5000;
 const HEARTBEAT_MS = 20000;
@@ -18,8 +19,9 @@ const MANUAL_STATUSES = new Set([...QUEST_STATUSES].filter((status) => status !=
 const REQUEST_KEY_PATTERN = /^[\w.:-]{1,80}$/;
 const EVENTS_MAX = 500;
 
-export function createQuestRoutes({ config, store, boardStore, statusLog, rosterFile, getLanes = () => null, runners, evidenceWaitMs, writeDelivery }) {
-  const dispatcher = createDispatcher({ config, store, runners, evidenceWaitMs, writeDelivery });
+export function createQuestRoutes({ config, store, boardStore, statusLog, rosterFile, getLanes = () => null, runners, evidenceWaitMs, writeDelivery, checkLaneServers = () => laneServers(config) }) {
+  let downLanes = null;
+  const dispatcher = createDispatcher({ config, store, runners, evidenceWaitMs, writeDelivery, getDownLanes: () => downLanes });
   const clients = new Set();
   const timers = [];
   let lastLanes = null;
@@ -31,8 +33,17 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
 
   // Missing roster: the board still opens, empty, so the first card can be added from the 冒险者 tab.
   const adventurers = () => applyStatuses(loadRosterOrEmpty(rosterFile).adventurers, statusLog.current());
-  const snapshot = () => buildSnapshot({ config, store, adventurers: adventurers(), boardStore, lanes: getLanes() });
+  const snapshot = () => buildSnapshot({ config, store, adventurers: adventurers(), boardStore, lanes: getLanes(), downLanes });
   const findCard = (id) => effectiveRoster(adventurers(), getLanes()).find((a) => a.id === id);
+
+  async function refreshLaneHealth() {
+    try {
+      const rows = await checkLaneServers();
+      downLanes = new Map(rows.filter((r) => !r.up).map((r) => [r.id, r.api]));
+    } catch (error) {
+      process.stderr.write(`questboard: lane health check failed: ${error.stack || error.message}\n`);
+    }
+  }
 
   function applyLanes() {
     try {
@@ -123,7 +134,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
         if (!card) { sendJson(response, 400, { error: `no adventurer ${body.adventurer}` }); return; }
         const parent = store.get(questId);
         if (isReviewable(parent)) {
-          const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)) };
+          const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), ...(downLanes ? { downLanes } : {}) };
           const quests = withFileSets(config, store.list());
           const verdict = reviewEligibility({ parent, roster: [card], quests, policy: config.policy, env })[card.id];
           if (!verdict.ok) { sendJson(response, 409, { error: 'refused', reasons: verdict.reasons }); return; }
@@ -183,6 +194,8 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
   }
 
   function start() {
+    refreshLaneHealth();
+    timers.push(setInterval(refreshLaneHealth, SYNC_INTERVAL_MS));
     timers.push(setInterval(applyLanes, SYNC_INTERVAL_MS));
     timers.push(setInterval(() => { for (const client of clients) client.write(': ping\n\n'); }, HEARTBEAT_MS));
     for (const timer of timers) timer.unref();
@@ -194,5 +207,5 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     clients.clear();
   }
 
-  return { handle, start, stop, applyLanes, snapshot };
+  return { handle, start, stop, applyLanes, snapshot, refreshLaneHealth };
 }

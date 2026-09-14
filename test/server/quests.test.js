@@ -162,4 +162,23 @@ describe('quest API', () => {
     assert.equal(gemini.status, 'limited');
     assert.equal(fx.server.statusLog.current().has('agy-gemini'), false, 'a bounce is not written into the status log');
   });
+
+  it('refuses dispatch and shows server down in eligibility when a lane server is down', async () => {
+    const downFx = await startFixture({
+      checkLaneServers: async () => [{ id: 'opencode', api: 'http://oc.test', serve: null, up: false }],
+    });
+    try {
+      const posted = await downFx.api('/api/quests', 'POST', { package: 'RUN-4', brief: 'docs/briefs/RUN-4-the-way-back.md' });
+      assert.equal(posted.status, 201);
+      await downFx.server.refreshLaneHealth();
+      const { body } = await downFx.api('/api/quests');
+      assert.ok(body.eligibility['RUN-4']['oc-mimo'].reasons.some((r) => r.code === 'lane_server_down'));
+      assert.equal(body.eligibility['RUN-4']['codex-luna'].reasons.some((r) => r.code === 'lane_server_down'), false);
+      const assigned = await downFx.api('/api/quests/RUN-4/assign', 'POST', { adventurer: 'oc-mimo' });
+      assert.equal(assigned.status, 409);
+      assert.ok(assigned.body.reasons.some((r) => r.code === 'lane_server_down'));
+    } finally {
+      await downFx.close();
+    }
+  });
 });
