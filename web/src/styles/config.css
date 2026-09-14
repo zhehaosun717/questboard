@@ -176,3 +176,120 @@
   .settings-save-actions { justify-content: stretch; }
   .settings-save-actions .btn { flex: 1 1 0; }
 }
+.config-policy-section {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.config-policy-intro,
+.config-policy-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.config-policy-intro h2,
+.config-policy-heading h3 {
+  margin: 0;
+}
+
+.config-policy-intro p,
+.config-policy-heading p,
+.config-policy-footnote,
+.config-policy-advanced-note {
+  color: var(--config-muted, #77808d);
+  margin: 0.35rem 0 0;
+}
+
+.config-policy-group {
+  border: 1px solid var(--config-border, #d9dee7);
+  border-radius: 0.65rem;
+  padding: 1rem;
+}
+
+.config-policy-scope {
+  border: 1px solid var(--config-border, #d9dee7);
+  border-radius: 999px;
+  color: var(--config-muted, #77808d);
+  font-size: 0.8rem;
+  padding: 0.2rem 0.55rem;
+  white-space: nowrap;
+}
+
+.config-policy-add-row,
+.config-policy-rule-main {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.config-policy-add-row {
+  margin-top: 0.9rem;
+}
+
+.config-policy-add-row input {
+  flex: 1 1 16rem;
+}
+
+.config-policy-rules {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+}
+
+.config-policy-rule {
+  background: var(--config-subtle, #f7f8fa);
+  border-radius: 0.5rem;
+  padding: 0.7rem;
+}
+
+.config-policy-rule-main input {
+  flex: 1 1 12rem;
+}
+
+.config-policy-rule-main code {
+  overflow-wrap: anywhere;
+}
+
+.config-policy-preview {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.55rem;
+}
+
+.config-policy-error {
+  color: var(--config-danger, #b42318);
+  margin: 0.55rem 0 0;
+}
+
+.config-policy-remove,
+.config-policy-advanced-toggle {
+  background: transparent;
+  border: 0;
+  color: var(--config-muted, #77808d);
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.config-policy-remove {
+  margin-left: auto;
+}
+.config-policy-roster-picker {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+}
+
+.config-policy-model-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.8rem;
+}
+
+.config-policy-model-list label {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.35rem;
+}

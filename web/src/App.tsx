@@ -187,7 +187,7 @@ export function App() {
               />
             )}
             {route.tab === 'usage' && <UsageView />}
-            {route.tab === 'settings' && <SettingsView />}
+            {route.tab === 'settings' && <SettingsView roster={snap?.roster ?? []} />}
           </main>
         </div>
       )}

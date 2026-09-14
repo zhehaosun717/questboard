@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { SettingsReport } from '../api/types';
+import type { Card, SettingsReport } from '../api/types';
 import {
   type BriefsDraft,
   type LaneDraft,
@@ -21,7 +21,12 @@ import { SettingsProjectSection } from './settings/SettingsProjectSection';
 import { SettingsReviewSection } from './settings/SettingsReviewSection';
 import { SettingsUsageKeysSection } from './settings/SettingsUsageKeysSection';
 
-export function SettingsView() {
+interface SettingsViewProps {
+  // The machine roster, so 派遣限制 can search real models and show which cards a rule would ban.
+  roster: readonly Card[];
+}
+
+export function SettingsView({ roster }: SettingsViewProps) {
   const [settings, setSettings] = useState<SettingsReport | null>(null);
   const [drafts, setDrafts] = useState<SettingsDrafts | null>(null);
   const [initialDraft, setInitialDraft] = useState<SettingsDrafts | null>(null);
@@ -176,7 +181,13 @@ export function SettingsView() {
           />
         );
       case 'policy':
-        return <SettingsPolicySection draft={drafts.policy} onChange={updatePolicy} />;
+        return (
+          <SettingsPolicySection
+            draft={drafts.policy}
+            roster={roster}
+            onChange={updatePolicy}
+          />
+        );
       case 'local':
         return (
           <>

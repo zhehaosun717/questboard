@@ -1,120 +1,59 @@
-import type { PolicyDraft } from '../../lib/settingsForm';
+import type { Card } from "../../api/types";
+import type { BanRuleCard } from "../../lib/banRules";
+import type { PolicyDraft } from "../../lib/settingsForm";
+import { BanRuleEditor } from "./BanRuleEditor";
 
 interface SettingsPolicySectionProps {
   draft: PolicyDraft;
+  roster: readonly Card[];
   onChange: (patch: Partial<PolicyDraft>) => void;
 }
 
-export function SettingsPolicySection({
-  draft,
-  onChange,
-}: SettingsPolicySectionProps) {
-  const updateModelPattern = (idx: number, val: string) => {
-    const next = [...draft.bannedModelPatterns];
-    next[idx] = val;
-    onChange({ bannedModelPatterns: next });
+// A roster card calls its lane `lane`; the ban-rule editor shows it as the card's channel.
+function toBanRuleCards(roster: readonly Card[]): BanRuleCard[] {
+  return roster.map((card) => ({
+    id: card.id,
+    name: card.name,
+    model: card.model,
+    agent: card.agent ?? null,
+    channel: card.lane,
+  }));
+}
+
+export function SettingsPolicySection({ draft, roster, onChange }: SettingsPolicySectionProps) {
+  const cards = toBanRuleCards(roster);
+
+  const update = (field: "bannedModelPatterns" | "bannedAgents", patterns: string[]) => {
+    onChange({ [field]: patterns });
   };
 
-  const removeModelPattern = (idx: number) => {
-    onChange({
-      bannedModelPatterns: draft.bannedModelPatterns.filter((_, i) => i !== idx),
-    });
-  };
-
-  const addModelPattern = () => {
-    onChange({
-      bannedModelPatterns: [...draft.bannedModelPatterns, ''],
-    });
-  };
-
-  const updateAgent = (idx: number, val: string) => {
-    const next = [...draft.bannedAgents];
-    next[idx] = val;
-    onChange({ bannedAgents: next });
-  };
-
-  const removeAgent = (idx: number) => {
-    onChange({
-      bannedAgents: draft.bannedAgents.filter((_, i) => i !== idx),
-    });
-  };
-
-  const addAgent = () => {
-    onChange({
-      bannedAgents: [...draft.bannedAgents, ''],
-    });
-  };
+  const models = draft.bannedModelPatterns;
+  const agents = draft.bannedAgents;
 
   return (
-    <section className="settings-section">
-      <h3 className="settings-sec-title">规则 (Policy)</h3>
-      <div className="settings-card">
-        <div className="policy-group">
-          <label className="policy-group-title">禁止模型模式 (bannedModelPatterns)</label>
-          <p className="hint">每项为一个正则表达式，匹配到的模型将被拒绝派单.</p>
-          <div className="policy-inputs-list">
-            {draft.bannedModelPatterns.map((pattern, idx) => (
-              <div key={idx} className="policy-input-row">
-                <input
-                  className="mono-input flex-grow"
-                  value={pattern}
-                  placeholder="例如 -fast(\\b|-)"
-                  onChange={(e) => updateModelPattern(idx, e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="btn ghost sm-btn"
-                  onClick={() => removeModelPattern(idx)}
-                >
-                  删除
-                </button>
-              </div>
-            ))}
-            <div>
-              <button
-                type="button"
-                className="btn ghost sm-btn"
-                onClick={addModelPattern}
-              >
-                + 添加禁止模型模式
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="policy-group" style={{ marginTop: '16px' }}>
-          <label className="policy-group-title">禁止代理 (bannedAgents)</label>
-          <p className="hint">每项为一个代理名称，禁止的代理将不能被选用.</p>
-          <div className="policy-inputs-list">
-            {draft.bannedAgents.map((agent, idx) => (
-              <div key={idx} className="policy-input-row">
-                <input
-                  className="flex-grow"
-                  value={agent}
-                  placeholder="例如 sisyphus"
-                  onChange={(e) => updateAgent(idx, e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="btn ghost sm-btn"
-                  onClick={() => removeAgent(idx)}
-                >
-                  删除
-                </button>
-              </div>
-            ))}
-            <div>
-              <button
-                type="button"
-                className="btn ghost sm-btn"
-                onClick={addAgent}
-              >
-                + 添加禁止代理
-              </button>
-            </div>
-          </div>
-        </div>
+    <div className="config-policy-section">
+      <div className="config-policy-intro">
+        <h2>禁用规则</h2>
+        <p>规则只作用于当前项目，不会全局禁用模型或执行角色。</p>
       </div>
-    </section>
+      <BanRuleEditor
+        cards={cards}
+        field="bannedModelPatterns"
+        label="禁用模型"
+        hint="搜索名册中的模型，也可以手动输入尚未入册的模型名。"
+        patterns={models}
+        onPatternsChange={(patterns) => update("bannedModelPatterns", patterns)}
+      />
+      <BanRuleEditor
+        cards={cards}
+        field="bannedAgents"
+        label="禁用执行角色"
+        hint="匹配工牌的 agent 字段，例如 Sisyphus；这不是冒险者名册。"
+        patterns={agents}
+        onPatternsChange={(patterns) => update("bannedAgents", patterns)}
+      />
+    </div>
   );
 }
+
+export default SettingsPolicySection;
