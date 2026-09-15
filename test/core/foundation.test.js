@@ -46,6 +46,20 @@ describe('config', () => {
     assert.deepEqual(fillTemplate(['a', '{name}-{model}'], { name: 'run4', model: 'm' }), ['a', 'run4-m']);
     assert.throws(() => fillTemplate(['{agent}'], { agent: '' }, 'lanes.opencode.env'), /needs \{agent\}/);
   });
+
+  it('validates an optional per-lane health contract without disturbing lanes that omit it', () => {
+    const withHealth = resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096', health: { path: '/global/health', json: { healthy: true } } } } });
+    assert.deepEqual(withHealth.lanes.oc.health, { path: '/global/health', json: { healthy: true } });
+    // Existing fields (run, serve as an argv array) are untouched by adding health.
+    const withServeAndHealth = resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096', serve: ['opencode', 'serve'], health: { path: '/global/health' } } } });
+    assert.deepEqual(withServeAndHealth.lanes.oc.serve, ['opencode', 'serve']);
+    assert.deepEqual(withServeAndHealth.lanes.oc.health, { path: '/global/health' });
+    assert.equal(resolveConfig('E:/g', { name: 'G', lanes }).lanes.codex.health, undefined, 'lanes without health stay legacy');
+
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], outputDir: 'o', health: { path: '/h' } } } }), /needs api/);
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096', health: { path: 'no-slash' } } } }), /must start with \//);
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096', health: { path: '/h', json: 'nope' } } } }), /health\.json must be an object/);
+  });
 });
 
 describe('status log', () => {

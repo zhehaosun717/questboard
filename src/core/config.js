@@ -68,6 +68,33 @@ function validateLane(id, lane) {
     result.serve = checkTemplate(lane.serve, `${field}.serve`);
     if (result.serve.some((arg) => /\{[a-z]+\}/.test(arg))) fail(`${field}.serve runs once for the whole lane, so it cannot use placeholders`);
   }
+  // Optional: how the board tells this lane's server is actually healthy, not just "something answered".
+  // Without it, the board keeps its long-standing behaviour of treating any HTTP reply as reachable — custom
+  // lanes whose response shape is unknown stay compatible, and the board never guesses a provider's contract.
+  if (lane.health !== undefined) {
+    if (lane.api === undefined) fail(`${field}.health checks the lane's server, so the lane also needs api`);
+    if (!lane.health || typeof lane.health !== 'object' || Array.isArray(lane.health)) fail(`${field}.health must be an object`);
+    // checkServerHealth joins api and health.path by plain concatenation (`${api}${path}`). A trailing / on
+    // api, or a ? or # anywhere in it, makes that join ambiguous (`//global/health`, `?x=1/global/health`,
+    // `#frag/global/health`) and can turn a healthy server into a false conflict. Reject rather than guess.
+    if (/\/$/.test(lane.api)) fail(`${field}.health needs api without a trailing /, since it is joined directly with health.path: ${lane.api}`);
+    if (/[?#]/.test(lane.api)) fail(`${field}.health needs api without a query or fragment, since it is joined directly with health.path: ${lane.api}`);
+    const healthPath = requireString(lane.health.path, `${field}.health.path`);
+    if (!healthPath.startsWith('/')) fail(`${field}.health.path must start with /`);
+    if (healthPath.startsWith('//') || healthPath.includes('\\')) fail(`${field}.health.path must be a plain path, not // or contain \\: ${healthPath}`);
+    result.health = { path: healthPath };
+    if (lane.health.json !== undefined) {
+      if (!lane.health.json || typeof lane.health.json !== 'object' || Array.isArray(lane.health.json)) fail(`${field}.health.json must be an object of expected fields`);
+      // Expected values are compared with `!==`, so an object or array here could never match (reference
+      // equality) and would silently make the lane permanently unhealthy. Primitives only.
+      for (const [key, value] of Object.entries(lane.health.json)) {
+        if (value !== null && !['string', 'number', 'boolean'].includes(typeof value)) {
+          fail(`${field}.health.json.${key} must be a string, number, boolean, or null`);
+        }
+      }
+      result.health.json = { ...lane.health.json };
+    }
+  }
   if (lane.deliveryDir !== undefined) result.deliveryDir = requireString(lane.deliveryDir, `${field}.deliveryDir`);
   // The model a lane's script uses when none is recorded; labels old registry rows as "inferred".
   if (lane.defaultModel !== undefined) result.defaultModel = requireString(lane.defaultModel, `${field}.defaultModel`);
