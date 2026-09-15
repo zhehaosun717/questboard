@@ -1,0 +1,17 @@
+/* QB-FB-G: a step that waits on the coordinator's technical review is neither the owner's red "等你" nor
+   idle grey — it is work inside the review loop. Scoped to the coordinator tone so existing tones stay as
+   they are; colours match the NODE_COLORS already used for delivered and reviewing. */
+.q-next-coordinator {
+  color: #b9a3e0;
+  border-left-color: #9a7ccf;
+  background: rgba(154, 124, 207, 0.14);
+}
+
+.q-next-coordinator i {
+  background: #9a7ccf;
+}
+
+.next-step-coordinator {
+  border-left-color: #9a7ccf;
+  background: linear-gradient(90deg, rgba(154, 124, 207, 0.18), rgba(154, 124, 207, 0.03));
+}

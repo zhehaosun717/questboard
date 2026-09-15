@@ -2,6 +2,9 @@ import type { Quest, Snapshot } from '../api/types';
 import { nextStep, type NextStep } from './nextStep';
 import { isArchived } from './questState';
 
+// The owner's in-tray: only what the OWNER must do. Returned code and tool work waits on the coordinator's
+// technical review and stays out (nextStep says who); a review quest's verdict is decided on the work it
+// reviews and never enters twice. One exception outranks the kind: an explicit question on the quest itself.
 export type TrayKind = 'sign-off' | 'decide' | 'release' | 'owner';
 
 export interface TrayItem {
@@ -48,10 +51,14 @@ export function inTrayItems(snap: Snapshot): TrayItem[] {
   const items: TrayItem[] = [];
 
   for (const quest of snap.quests) {
-    // A returned review is decided on the work it reviews, which is already in the tray as 交差.
-    if (isArchived(quest) || quest.kind === 'review') {
+    // A review's verdict is judged on the work it reviews and never asks for acceptance on its own.
+    // The one thing that can pull a review into the tray is an explicit question on it.
+    const asked = Boolean(quest.needsOwner && quest.needsOwner.trim()) || quest.status === 'needs_owner';
+    if (isArchived(quest) || (quest.kind === 'review' && !asked)) {
       continue;
     }
+    // Only steps whose next move is the owner's (who === 'you') enter the tray. Technical sign-off waits
+    // on the coordinator instead: it is deliberately not the owner's inbox.
     const step = nextStep(quest, snap);
     if (step.who !== 'you') {
       continue;

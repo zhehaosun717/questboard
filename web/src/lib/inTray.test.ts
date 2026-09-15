@@ -27,6 +27,7 @@ describe('inTrayItems', () => {
     });
     const workQuest = makeQuest({
       id: 'work',
+      kind: 'art',
       status: 'reviewing',
       dispatches: [round],
     });
@@ -50,8 +51,19 @@ describe('inTrayItems', () => {
     expect(items.map((i) => i.quest.id)).not.toContain('unassignable');
   });
 
-  it('lists returned work once: the work to sign off, not also its returned review', () => {
-    const work = makeQuest({ id: 'work', status: 'reviewing', dispatches: [round] });
+  it('keeps returned code and tool work out of the owner tray: the coordinator verifies it', () => {
+    const code = makeQuest({ id: 'code', kind: 'code', status: 'delivered', dispatches: [round] });
+    const tool = makeQuest({ id: 'tool', kind: 'tool', status: 'reviewing', dispatches: [round] });
+    const review = makeQuest({
+      id: 'REVIEW-code', kind: 'review', parents: ['code'], status: 'delivered',
+      lastDetail: 'VERDICT: PASS', createdAt: '2026-09-13T02:00:00.000Z',
+    });
+    const items = inTrayItems(makeSnapshot({ quests: [code, tool, review] }));
+    expect(items.map((i) => i.quest.id)).toEqual([]);
+  });
+
+  it('lists returned art once: the work to sign off, not also its returned review', () => {
+    const work = makeQuest({ id: 'work', kind: 'art', status: 'reviewing', dispatches: [round] });
     const review = makeQuest({
       id: 'REVIEW-work', kind: 'review', parents: ['work'], status: 'delivered',
       lastDetail: 'VERDICT: PASS', createdAt: '2026-09-13T02:00:00.000Z',
@@ -60,9 +72,30 @@ describe('inTrayItems', () => {
     expect(items.map((i) => [i.quest.id, i.kind])).toEqual([['work', 'sign-off']]);
   });
 
+  it('counts a returned technical review once: its verdict sits on the parent, nothing enters the tray twice', () => {
+    const code = makeQuest({ id: 'code', status: 'reviewing', dispatches: [round] });
+    const review = makeQuest({
+      id: 'REVIEW-code', kind: 'review', parents: ['code'], status: 'delivered',
+      lastDetail: 'VERDICT: PASS WITH FINDINGS', createdAt: '2026-09-13T02:00:00.000Z',
+    });
+    const items = inTrayItems(makeSnapshot({ quests: [code, review] }));
+    expect(items).toEqual([]);
+  });
+
+  it('lets an explicit question on a review reach the owner despite the review kind', () => {
+    const code = makeQuest({ id: 'code', status: 'delivered', dispatches: [round] });
+    const review = makeQuest({
+      id: 'REVIEW-code', kind: 'review', parents: ['code'], status: 'delivered',
+      lastDetail: 'VERDICT: PASS', needsOwner: '这个改动要不要上生产？', createdAt: '2026-09-13T02:00:00.000Z',
+    });
+    const items = inTrayItems(makeSnapshot({ quests: [code, review] }));
+    expect(items.map((i) => [i.quest.id, i.kind])).toEqual([['REVIEW-code', 'decide']]);
+  });
+
   it('detects each kind correctly', () => {
     const signOffQuest = makeQuest({
       id: 'q-signoff',
+      kind: 'art',
       status: 'delivered',
       dispatches: [round],
     });
@@ -83,9 +116,14 @@ describe('inTrayItems', () => {
       id: 'q-owner',
       kind: 'owner',
     });
+    const playtestQuest = makeQuest({
+      id: 'q-playtest',
+      kind: 'art',
+      status: 'owner_playtest',
+    });
 
     const snap = makeSnapshot({
-      quests: [signOffQuest, decideQuest1, decideQuest2, releaseQuest, ownerQuest],
+      quests: [signOffQuest, decideQuest1, decideQuest2, releaseQuest, ownerQuest, playtestQuest],
     });
 
     const items = inTrayItems(snap);
@@ -96,6 +134,7 @@ describe('inTrayItems', () => {
     expect(itemMap.get('q-decide2')?.kind).toBe('decide');
     expect(itemMap.get('q-release')?.kind).toBe('release');
     expect(itemMap.get('q-owner')?.kind).toBe('owner');
+    expect(itemMap.get('q-playtest')?.kind).toBe('owner');
   });
 
   it('maintains the specified ordering: kind order, priority, then oldest createdAt', () => {
@@ -120,6 +159,7 @@ describe('inTrayItems', () => {
     });
     const qSignOff = makeQuest({
       id: 'signoff-p2',
+      kind: 'art',
       status: 'delivered',
       dispatches: [round],
       priority: 2,
@@ -136,6 +176,7 @@ describe('inTrayItems', () => {
     // Priority ordering within same kind (priority 1 is highest)
     const qSignOffP1 = makeQuest({
       id: 'signoff-p1',
+      kind: 'art',
       status: 'delivered',
       dispatches: [round],
       priority: 1,
@@ -143,6 +184,7 @@ describe('inTrayItems', () => {
     });
     const qSignOffP2 = makeQuest({
       id: 'signoff-p2-b',
+      kind: 'art',
       status: 'delivered',
       dispatches: [round],
       priority: 2,
@@ -150,6 +192,7 @@ describe('inTrayItems', () => {
     });
     const qSignOffP3 = makeQuest({
       id: 'signoff-p3',
+      kind: 'art',
       status: 'delivered',
       dispatches: [round],
       priority: 3,

@@ -1,9 +1,45 @@
 import type { Card, Quest, Snapshot, Verdict } from '../api/types';
 import { CARD_STATUS, type Column } from './labels';
+import { nextStep } from './nextStep';
+
+/**
+ * Whether the quest itself carries an explicit open question for the owner. One trim() rule shared by the
+ * column routing, the tray and the next step, so a whitespace-only question is no question anywhere.
+ */
+export function hasOwnerQuestion(quest: Quest): boolean {
+  return Boolean(quest.needsOwner && quest.needsOwner.trim());
+}
+
+/**
+ * Which column a returned quest stands in — by responsibility, not only by status. Work that came back
+ * (delivered/reviewing) splits: the owner's calls (returned art, anything with an open question, playtest)
+ * belong in 等会长; technical verification of code and tool work belongs in 交差核验. nextStep is the one
+ * shared responsibility decision, so a quest cannot sit in one column and demand something else in the
+ * tray. A review quest's verdict is read on the work it reviews, never as a second ask here, so it stays in
+ * 交差核验 — unless it carries its own explicit question, which outranks the kind exactly as it does in
+ * nextStep and the tray.
+ */
+export function returnedToOwner(snap: Snapshot, quest: Quest): boolean {
+  if (quest.kind === 'review') return hasOwnerQuestion(quest);
+  return nextStep(quest, snap).who === 'you';
+}
+
+function standsIn(snap: Snapshot, quest: Quest, column: Column): boolean {
+  if (!column.statuses.includes(quest.status)) {
+    // The owner column also holds returned work whose next step is the owner's, moved out of check.
+    return column.key === 'owner'
+      && (quest.status === 'delivered' || quest.status === 'reviewing')
+      && returnedToOwner(snap, quest);
+  }
+  if (column.key === 'check' && (quest.status === 'delivered' || quest.status === 'reviewing')) {
+    return !returnedToOwner(snap, quest);
+  }
+  return true;
+}
 
 export function questsInColumn(snap: Snapshot, column: Column): Quest[] {
   return snap.quests
-    .filter((q) => column.statuses.includes(q.status))
+    .filter((q) => standsIn(snap, q, column))
     .sort((a, b) => (column.limit ? 0 : (a.priority || 2) - (b.priority || 2)) || b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, column.limit || Infinity);
 }

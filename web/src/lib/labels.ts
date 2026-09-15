@@ -10,6 +10,17 @@ export const STATUS: Record<QuestStatus, string> = {
 
 export const KIND: Record<QuestKind, string> = { code: '代码', review: '复核', art: '美术', tool: '工具', owner: '你来' };
 
+// Whose job it is to verify and accept returned work. Code and tools are judged on whether they run — that
+// is the coordinator's review loop, not the owner's acceptance. Art and 你来 quests stay with the owner.
+// An open owner question outranks this — it is asked by definition.
+export type Verifier = 'owner' | 'coordinator';
+
+export const VERIFIER_LABEL: Record<Verifier, string> = { owner: '你', coordinator: 'coordinator' };
+
+export function acceptanceBy(kind: QuestKind): Verifier {
+  return kind === 'art' || kind === 'owner' ? 'owner' : 'coordinator';
+}
+
 export const CARD_STATUS: Record<CardStatus, string> = { available: '空闲', limited: '限额', broke: '没钱', paused: '暂停', disabled: '停用' };
 
 export const BILLING: Record<string, string> = { subscription: '订阅', plan: '套餐', payg: '按量付费', free: '免费' };
@@ -26,7 +37,7 @@ export interface Column {
 export const COLUMNS: Column[] = [
   { key: 'open', num: '01', title: '委托板', sub: 'OPEN', statuses: ['posted', 'failed', 'bounced', 'stalled', 'lane_limited'] },
   { key: 'run', num: '02', title: '出任务中', sub: 'ON QUEST', statuses: ['dispatched'] },
-  { key: 'check', num: '03', title: '交差柜台', sub: 'RETURNED', statuses: ['delivered', 'reviewing'] },
+  { key: 'check', num: '03', title: '交差核验', sub: 'VERIFY', statuses: ['delivered', 'reviewing'] },
   { key: 'owner', num: '04', title: '等会长', sub: 'YOUR CALL', statuses: ['needs_owner', 'owner_playtest'] },
   { key: 'done', num: '05', title: '卷宗室', sub: 'ARCHIVED', statuses: ['done', 'superseded', 'cancelled'], limit: 12 },
 ];

@@ -1,8 +1,11 @@
 // Who has said a quest is done, at each level. Three different claims looked alike on the board: a worker
-// saying it finished, a reviewer's verdict, and the owner's acceptance — plus the project-wide test run,
-// which belongs to no single quest. Each rung names who said it.
+// saying it finished, a reviewer's verdict, and the acceptance — plus the project-wide test run, which
+// belongs to no single quest. Each rung names who said it, and who is expected to say it: returned code and
+// tools wait on the coordinator's technical review, art and 你来 work wait on the owner. Nothing here
+// guesses an actor from a status: an unrecorded acceptance says it is unrecorded.
 import type { Quest, Snapshot } from '../api/types';
 import { isAwaitingSignOff, reviewsOf } from './questState';
+import { acceptanceBy } from './labels';
 
 export type ReviewVerdict = 'pass' | 'findings' | 'fail' | 'unknown';
 
@@ -51,9 +54,11 @@ function claimedRung(quest: Quest, snap: Snapshot): Rung {
   const last = quest.dispatches[quest.dispatches.length - 1];
   const base = { key: 'claimed' as const, label: '冒险者交差' };
   if (!last) return { ...base, state: 'skipped', note: '还没派过冒险者' };
-  const who = snap.roster.find((card) => card.id === last.adventurerId)?.name ?? last.model;
-  if (CLAIMED.has(quest.status)) return { ...base, state: 'done', note: `${who} 说做完了——它自己说的，不算核实` };
-  if (quest.status === 'dispatched') return { ...base, state: 'pending', note: `${who} 还在做` };
+  // A dispatch row without a resolvable card is reported as unknown, never dressed up as a known worker.
+  const who = snap.roster.find((card) => card.id === last.adventurerId)?.name ?? (last.model.trim() || '没记录是谁交的差');
+  const named = snap.roster.some((card) => card.id === last.adventurerId) || last.model.trim() !== '';
+  if (CLAIMED.has(quest.status)) return { ...base, state: 'done', note: named ? `${who} 说做完了——它自己说的，不算核实` : '有交差记录但说不清是谁，不算核实' };
+  if (quest.status === 'dispatched') return { ...base, state: 'pending', note: named ? `${who} 还在做` : '冒险者还在做（名字没记录）' };
   return { ...base, state: 'pending', note: '还没交差' };
 }
 
@@ -70,18 +75,58 @@ function reviewedRung(quest: Quest, snap: Snapshot): Rung {
   return { ...base, state, note: `${latest.id}：复核${VERDICT_LABEL[verdict]}` };
 }
 
+/**
+ * Did this acceptance note come from the board? Anchored like recordedAcceptor: only a note that *begins*
+ * with an acceptance wording counts. A report or ruling that merely quotes one must not look like a board
+ * acceptance — the ladder and the 已验收 mark follow the record, never a substring search.
+ */
 export function acceptedOnBoard(detail: string): boolean {
-  return detail.includes('验收通过') || detail.includes('owner 验收');
+  return recordedAcceptor(detail) !== null;
+}
+
+/**
+ * Who the acceptance note actually records — 'unknown' when it says 验收 without naming anyone. Never
+ * inferred, and never found by a loose substring: a coordinator note that quotes "owner 验收" inside a
+ * sentence must not read as the owner having accepted. The acceptance wording has to head the note.
+ */
+export function recordedAcceptor(detail: string): 'owner' | 'coordinator' | 'unknown' | null {
+  const head = detail.trimStart();
+  if (head.startsWith('owner 验收')) return 'owner';
+  if (head.startsWith('coordinator 验收')) return 'coordinator';
+  if (head.startsWith('验收通过')) return 'unknown';
+  return null;
+}
+
+/**
+ * The honest note the board writes when someone clicks 验收. This board has no login: the server records
+ * every board click as by=owner (src/server/questRoutes.js), so the note says owner whatever the kind —
+ * even for code and tool work, where verifying is the coordinator's expected job. Expected responsibility
+ * is shown by the hints, not written into the evidence as an actor who never clicked.
+ */
+export function boardAcceptanceDetail(note: string): string {
+  const trimmed = note.trim();
+  return trimmed ? `owner 验收：${trimmed}` : 'owner 验收';
 }
 
 function acceptedRung(quest: Quest): Rung {
-  const base = { key: 'accepted' as const, label: '你验收' };
+  const by = acceptanceBy(quest.kind);
+  const base = { key: 'accepted' as const, label: by === 'coordinator' ? 'coordinator 验收' : '你验收' };
   if (quest.status === 'done') {
-    const onBoard = acceptedOnBoard(quest.lastDetail ?? '');
-    return { ...base, state: 'done', note: onBoard ? '你在看板上验收' : '已标成完成，不是在看板上验收的' };
+    const actor = recordedAcceptor(quest.lastDetail ?? '');
+    // A completed quest is labelled by who the record actually names. An owner clicking 验收 on technical
+    // work stays the owner's click — the rung must not quietly hand the coordinator credit for it.
+    if (actor === 'owner') {
+      return { ...base, label: 'owner 验收', state: 'done', note: by === 'coordinator' ? '你在看板上验收（技术活本该 coordinator 先核验）' : '你在看板上验收' };
+    }
+    if (actor === 'coordinator') {
+      return { ...base, label: 'coordinator 验收', state: 'done', note: by === 'coordinator' ? 'coordinator 在看板上验收' : 'coordinator 在看板上验收（这本该由你验收）' };
+    }
+    const note = actor === 'unknown' ? '看板上记了验收，没写是谁' : '已标成完成，不是在看板上验收的';
+    return { ...base, label: actor === 'unknown' ? '验收（记录没写是谁）' : base.label, state: 'done', note };
   }
   if (quest.status === 'superseded' || quest.status === 'cancelled') return { ...base, state: 'skipped', note: '委托已不再需要' };
-  return { ...base, state: 'pending', note: isAwaitingSignOff(quest) ? '等你验收' : '还没到这一步' };
+  const waiting = by === 'coordinator' ? '等 coordinator 核验' : '等你验收';
+  return { ...base, state: 'pending', note: isAwaitingSignOff(quest) ? waiting : '还没到这一步' };
 }
 
 /** The three rungs for dispatched work. A 你来 quest has no worker, and a review is judged on its parent. */

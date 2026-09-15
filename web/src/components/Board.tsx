@@ -3,6 +3,7 @@ import type { Quest, QuestStatus, Snapshot } from '../api/types';
 import { questsInColumn } from '../lib/board';
 import { COLUMNS, type Column } from '../lib/labels';
 import { QuestCard } from './QuestCard';
+import '../styles/responsibility.css';
 
 interface BoardProps {
   snap: Snapshot;

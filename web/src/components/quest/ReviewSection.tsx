@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { api } from '../../api/client';
 import type { Quest, Snapshot } from '../../api/types';
-import { parseVerdict, VERDICT_LABEL } from '../../lib/evidence';
-import { STATUS } from '../../lib/labels';
+import { boardAcceptanceDetail, parseVerdict, VERDICT_LABEL } from '../../lib/evidence';
+import { acceptanceBy, STATUS } from '../../lib/labels';
 import { isArchived, reviewsOf } from '../../lib/questState';
 import { DrawerSection } from './DrawerSection';
 
@@ -20,10 +20,15 @@ interface ReviewSectionProps {
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const REPORTED = new Set<Quest['status']>(['delivered', 'reviewing']);
 
-// The controls for signing off returned work: accept, send back with a reason, or send a model to review it
-// first (drag its card onto the quest, or pick one below — both open the same order).
+// The controls for closing out returned work: accept, send back with a reason, or send a model to review it
+// first (drag its card onto the quest, or pick one below — both open the same order). Code and tool work is
+// the coordinator's to verify — but a board click is recorded as by=owner (src/server/questRoutes.js), so
+// the accept note names the owner, never an assumed coordinator. Who *should* verify stays in the hints and
+// column labels: expectation is not evidence. This is labelling, not access control — a local board has no
+// login to fake.
 export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest, onAssignCard, refresh, pushToast }: ReviewSectionProps) {
   const [busy, setBusy] = useState(false);
+  const technical = acceptanceBy(quest.kind) === 'coordinator';
   const reviews = reviewsOf(snap, quest.id);
   const openReview = reviews.find((review) => !isArchived(review));
   const reviewers = openReview ? [] : snap.roster.filter((card) => snap.reviewEligibility?.[quest.id]?.[card.id]?.ok);
@@ -53,10 +58,14 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
     void run(async () => {
       const note = draft.trim();
       if (note) await api.rule(quest.id, `验收：${note}`);
-      await api.setQuestStatus(quest.id, 'done', note ? `owner 验收：${note}` : 'owner 验收');
+      await api.setQuestStatus(quest.id, 'done', boardAcceptanceDetail(note));
       await closeReviews();
       onDraftChange('');
-      pushToast(`${quest.id} 已验收`);
+      pushToast(
+        technical
+          ? `${quest.id} 已验收：点的是你，记录写 owner；这类活的核验责任仍在 coordinator。`
+          : `${quest.id} 已验收（owner）`,
+      );
       refresh();
     }, '验收没成功');
   };
@@ -79,9 +88,11 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
   };
 
   return (
-    <DrawerSection en="SIGN-OFF" zh="验收">
+    <DrawerSection en={technical ? 'TECHNICAL REVIEW' : 'SIGN-OFF'} zh={technical ? 'coordinator 核验' : '验收'}>
       <p className="hint owner-task-hint">
-        先看下面的「证据」和「交回的东西」：没问题就验收；要改就写明哪里不对再退回。想先让模型复核，把名册里的冒险者拖到这张委托上——能复核的亮绿，写过这份活的亮红。
+        {technical
+          ? '这是技术活的交回档案：核验交回的东西、跑没跑过，归 coordinator，不用你在处理堆里等。下面的验收与退回本是 coordinator 的动作，由在管看板的人代按——按下去记录写的是 owner（点按钮的你），不是 coordinator。想先看一遍，把名册里的冒险者拖到这张委托上，或在下面挑一个——那只是请模型复核，不等于验收；能复核的亮绿，写过这份活的亮红。'
+          : '先看下面的「证据」和「交回的东西」：没问题就验收；要改就写明哪里不对再退回。想先让模型复核，把名册里的冒险者拖到这张委托上——能复核的亮绿，写过这份活的亮红。'}
       </p>
       {reviews.length > 0 ? (
         <div className="review-links">

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { Reason } from '../api/types';
-import { nextStep } from './nextStep';
+import type { Quest, Reason } from '../api/types';
+import { nextStep, WHO_LABEL } from './nextStep';
 import { makeAssignee, makeCard, makeQuest, makeSnapshot } from './testFixtures';
 
 const conflict: Reason = { code: 'conflict_running', message: '排队：LOOK-3 正在改同一批文件，一次一个' };
 const round = makeAssignee('card-1', { at: '2026-09-13T01:00:00.000Z' });
+
+const codeWork = (overrides: Partial<Quest> = {}): Quest => makeQuest({ id: 'd', kind: 'code', ...overrides });
 
 describe('nextStep', () => {
   it('asks the owner to do a 你来 quest themselves', () => {
@@ -44,47 +46,127 @@ describe('nextStep', () => {
     expect([step.who, step.action]).toEqual(['you', 'release']);
   });
 
-  it('asks for sign-off on returned work nobody has reviewed', () => {
-    const step = nextStep(makeQuest({ id: 'd', status: 'delivered', dispatches: [round] }), makeSnapshot());
+  it('sends returned code to the coordinator, not to the owner', () => {
+    const step = nextStep(codeWork({ status: 'delivered', dispatches: [round] }), makeSnapshot());
+    expect([step.who, step.action, step.title]).toEqual(['coordinator', 'sign-off', '等 coordinator 核验']);
+    expect(step.detail).toContain('把名册里的冒险者拖到这张委托上');
+  });
+
+  it('sends returned tool work to the coordinator too', () => {
+    const step = nextStep(makeQuest({ id: 't', kind: 'tool', status: 'reviewing', dispatches: [round] }), makeSnapshot());
+    expect([step.who, step.action]).toEqual(['coordinator', 'sign-off']);
+  });
+
+  it('keeps returned art as the owner sign-off it was', () => {
+    const step = nextStep(makeQuest({ id: 'a', kind: 'art', status: 'delivered', dispatches: [round] }), makeSnapshot());
     expect([step.who, step.action, step.title]).toEqual(['you', 'sign-off', '等你验收']);
   });
 
-  it('waits on an open review, points to it, and still lets the owner decide', () => {
-    const work = makeQuest({ id: 'd', status: 'reviewing', dispatches: [round] });
+  it('waits on an open review without pretending the owner must act', () => {
+    const work = codeWork({ status: 'reviewing', dispatches: [round] });
     const review = makeQuest({
       id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'dispatched', assignee: makeAssignee('card-2'),
       createdAt: '2026-09-13T02:00:00.000Z',
     });
     const step = nextStep(work, makeSnapshot({ quests: [work, review] }));
     expect([step.who, step.action, step.targetId]).toEqual(['reviewer', 'sign-off', 'REVIEW-d']);
+    expect(step.detail).toContain('由 coordinator 核验');
+    expect(step.detail).toContain('不等于验收');
   });
 
-  it('carries a failing verdict into the sign-off step', () => {
-    const work = makeQuest({ id: 'd', status: 'reviewing', dispatches: [round] });
+  it('carries a failing verdict into the coordinator sign-off, not the owner inbox', () => {
+    const work = codeWork({ status: 'reviewing', dispatches: [round] });
     const review = makeQuest({
       id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'delivered', lastDetail: 'FINDINGS\n1. x\nVERDICT: FAIL',
       createdAt: '2026-09-13T02:00:00.000Z',
     });
-    expect(nextStep(work, makeSnapshot({ quests: [work, review] })).title).toBe('等你验收 · 复核不通过');
+    const step = nextStep(work, makeSnapshot({ quests: [work, review] }));
+    expect([step.who, step.action, step.title]).toEqual(['coordinator', 'sign-off', '等 coordinator 验收 · 复核不通过']);
+    expect(step.detail).toContain('不代表编译或测试跑过');
+  });
+
+  it('keeps a reported verdict on art as the owner request it is', () => {
+    const work = makeQuest({ id: 'a', kind: 'art', status: 'reviewing', dispatches: [round] });
+    const review = makeQuest({
+      id: 'REVIEW-a', kind: 'review', parents: ['a'], status: 'delivered', lastDetail: 'VERDICT: PASS',
+      createdAt: '2026-09-13T02:00:00.000Z',
+    });
+    const step = nextStep(work, makeSnapshot({ quests: [work, review] }));
+    expect([step.who, step.title]).toEqual(['you', '等你验收 · 复核通过']);
   });
 
   it('ignores a review from an earlier round', () => {
-    const work = makeQuest({ id: 'd', status: 'delivered', dispatches: [makeAssignee('card-1', { at: '2026-09-13T05:00:00.000Z' })] });
+    const work = codeWork({ status: 'delivered', dispatches: [makeAssignee('card-1', { at: '2026-09-13T05:00:00.000Z' })] });
     const old = makeQuest({
       id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'done', lastDetail: 'VERDICT: PASS', createdAt: '2026-09-13T02:00:00.000Z',
     });
-    expect(nextStep(work, makeSnapshot({ quests: [work, old] })).title).toBe('等你验收');
+    expect(nextStep(work, makeSnapshot({ quests: [work, old] })).title).toBe('等 coordinator 核验');
   });
 
-  it('sends a returned review to the work it reviews instead of offering sign-off on the review', () => {
+  it('sends a returned review on code to the coordinator instead of offering sign-off on the review', () => {
+    const parent = codeWork({ id: 'd' });
     const review = makeQuest({ id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'delivered', lastDetail: 'VERDICT: PASS' });
+    const step = nextStep(review, makeSnapshot({ quests: [parent, review] }));
+    expect([step.who, step.title, step.targetId, step.action]).toEqual(['coordinator', '复核结论：通过', 'd', 'none']);
+    expect(step.detail).toContain('不用你验收');
+  });
+
+  it('keeps a returned review on art pointing the owner at the work it reviews', () => {
+    const parent = makeQuest({ id: 'a', kind: 'art' });
+    const review = makeQuest({ id: 'REVIEW-a', kind: 'review', parents: ['a'], status: 'delivered', lastDetail: 'VERDICT: PASS WITH FINDINGS' });
+    const step = nextStep(review, makeSnapshot({ quests: [parent, review] }));
+    expect([step.who, step.title, step.targetId]).toEqual(['you', '复核结论：通过但有问题', 'a']);
+    expect(step.detail).toContain('决定验收还是退回');
+  });
+
+  it('says so plainly when a returned review has no parent to judge it against', () => {
+    const review = makeQuest({ id: 'REVIEW-x', kind: 'review', parents: ['gone'], status: 'delivered', lastDetail: 'VERDICT: PASS' });
     const step = nextStep(review, makeSnapshot());
-    expect([step.title, step.targetId, step.action]).toEqual(['复核结论：通过', 'd', 'none']);
+    expect(step.who).toBe('nobody');
+    expect(step.title).toBe('复核结论：通过');
+    expect(step.detail).toContain('不在看板上');
+    expect(step.detail).toContain('找 coordinator 核实');
+    expect(step.targetId).toBeUndefined();
+  });
+
+  it('lets an explicit question outrank the review kind', () => {
+    const review = makeQuest({ id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'delivered', lastDetail: 'VERDICT: PASS', needsOwner: '这份代码要不要直接上线？' });
+    const step = nextStep(review, makeSnapshot());
+    expect([step.who, step.title, step.action]).toEqual(['you', '等你拍板', 'owner-task']);
+  });
+
+  it('tells the owner what a 待派 technical quest will do when it returns', () => {
+    const snap = makeSnapshot({ eligibility: { d: { 'card-1': { ok: true, reasons: [] } } } });
+    const step = nextStep(codeWork({ id: 'd' }), snap);
+    expect(step.detail).toContain('由 coordinator 核验');
+    expect(step.detail).not.toContain('等你验收');
+  });
+
+  it('keeps the reviewer-selection path open on returned technical work: same drag, same controls, verdict first', () => {
+    const work = codeWork({ id: 'd', status: 'reviewing', dispatches: [round] });
+    const review = makeQuest({
+      id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'dispatched', assignee: makeAssignee('card-2'),
+      createdAt: '2026-09-13T02:00:00.000Z',
+    });
+    const snap = makeSnapshot({
+      quests: [work, review],
+      reviewEligibility: { d: { 'card-2': { ok: true, reasons: [] } } },
+    });
+    const step = nextStep(work, snap);
+    // action stays 'sign-off': the dossier keeps its controls (accept, send back, pick reviewers) for the
+    // coordinator to act on; selecting a reviewer is a request to look, never an acceptance.
+    expect([step.who, step.action, step.targetId]).toEqual(['reviewer', 'sign-off', 'REVIEW-d']);
+  });
+
+  it('labels who each step waits on, including the coordinator', () => {
+    expect(WHO_LABEL.coordinator).toBe('等 coordinator');
+    expect(WHO_LABEL.you).toBe('等你');
   });
 
   it('tells an accepted quest from one marked done elsewhere', () => {
-    expect(nextStep(makeQuest({ id: 'a', status: 'done', lastDetail: 'owner 验收通过' }), makeSnapshot()).detail).toContain('你在看板上验收了');
-    expect(nextStep(makeQuest({ id: 'a', status: 'done', lastDetail: 'owner 验收' }), makeSnapshot()).detail).toContain('你在看板上验收了');
-    expect(nextStep(makeQuest({ id: 'b', status: 'done', lastDetail: '' }), makeSnapshot()).detail).toContain('不是在看板上验收');
+    expect(nextStep(codeWork({ id: 'a', status: 'done', lastDetail: 'owner 验收通过' }), makeSnapshot()).detail).toContain('你在看板上验收了');
+    expect(nextStep(codeWork({ id: 'a', status: 'done', lastDetail: 'coordinator 验收：npm test 过了' }), makeSnapshot()).detail).toContain('coordinator 在看板上验收了');
+    expect(nextStep(codeWork({ id: 'a', status: 'done', lastDetail: '验收通过' }), makeSnapshot()).detail).toContain('没写是谁');
+    expect(nextStep(codeWork({ id: 'b', status: 'done', lastDetail: '' }), makeSnapshot()).detail).toContain('不是在看板上验收');
   });
 });

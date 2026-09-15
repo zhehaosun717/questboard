@@ -4,12 +4,15 @@ import {
   busyQuests,
   cardLabel,
   groupRefusals,
+  hasOwnerQuestion,
   isQueueOnly,
   isSafeReviewUrl,
   questsInColumn,
   relatedQuestIds,
 } from './board';
-import type { Column } from './labels';
+import { COLUMNS, type Column } from './labels';
+import { inTrayItems } from './inTray';
+import { nextStep } from './nextStep';
 
 function makeQuest(partial: Partial<Quest> & { id: string }): Quest {
   return {
@@ -36,7 +39,7 @@ function makeQuest(partial: Partial<Quest> & { id: string }): Quest {
 function makeSnapshot(quests: Quest[] = [], roster: Card[] = []): Snapshot {
   return {
     generatedAt: '2026-09-13T00:00:00.000Z',
-    project: { name: 'Test', lanes: ['default'] },
+    project: { name: 'Test', id: 'testprojectid0', lanes: ['default'] },
     quests,
     roster,
     eligibility: {},
@@ -50,6 +53,17 @@ function makeSnapshot(quests: Quest[] = [], roster: Card[] = []): Snapshot {
     laneLimits: {},
     openQuestions: 0,
   };
+}
+
+/** A board column that must exist: fail loudly naming it, never silently skip the checks. */
+function columnByKey(key: Column['key']): Column {
+  const col = COLUMNS.find((c) => c.key === key);
+  if (!col) throw new Error(`看板列不见了：${key}`);
+  return col;
+}
+
+function trayIds(snap: Snapshot): string[] {
+  return inTrayItems(snap).map((item) => item.quest.id);
 }
 
 describe('board pure helpers', () => {
@@ -228,6 +242,175 @@ describe('board pure helpers', () => {
       expect(isSafeReviewUrl('/review/%2e%2e/secret')).toBe(false);
       expect(isSafeReviewUrl('/review/test?page=..')).toBe(false);
       expect(isSafeReviewUrl('/review/test#..')).toBe(false);
+    });
+  });
+
+  describe('column semantics (QB-FB-G)', () => {
+    it('names the check column as verification, not an owner queue', () => {
+      const check = COLUMNS.find((col) => col.key === 'check');
+      expect([check?.title, check?.sub]).toEqual(['交差核验', 'VERIFY']);
+      expect(check?.statuses).toEqual(['delivered', 'reviewing']);
+    });
+
+    it('keeps the four active zones plus the archive unchanged in membership', () => {
+      const keys = COLUMNS.map((col) => col.key);
+      expect(keys).toEqual(['open', 'run', 'check', 'owner', 'done']);
+      expect(COLUMNS.find((col) => col.key === 'run')?.statuses).toEqual(['dispatched']);
+      expect(COLUMNS.find((col) => col.key === 'owner')?.statuses).toEqual(['needs_owner', 'owner_playtest']);
+      expect(COLUMNS.find((col) => col.key === 'done')?.statuses).toEqual(['done', 'superseded', 'cancelled']);
+    });
+
+    it('counts each quest in exactly one column, even a review next to the work it reviews', () => {
+      const work = makeQuest({ id: 'work', status: 'delivered' });
+      const review = makeQuest({
+        id: 'REVIEW-work', kind: 'review', parents: ['work'], status: 'delivered',
+        lastDetail: 'VERDICT: PASS', createdAt: '2026-09-13T02:00:00.000Z',
+      });
+      const snap = makeSnapshot([work, review]);
+      const placed = COLUMNS.map((col) => questsInColumn(snap, col).map((q) => q.id).sort());
+      expect(placed).toEqual([[], [], ['REVIEW-work', 'work'], [], []]);
+    });
+
+    it('hands returned ART to the owner column, not the verification column', () => {
+      const art = makeQuest({ id: 'art-1', kind: 'art', status: 'delivered' });
+      const code = makeQuest({ id: 'code-1', kind: 'code', status: 'delivered' });
+      const tool = makeQuest({ id: 'tool-1', kind: 'tool', status: 'reviewing' });
+      const snap = makeSnapshot([art, code, tool]);
+      const check = columnByKey('check');
+      const owner = columnByKey('owner');
+      expect(questsInColumn(snap, check).map((q) => q.id)).toEqual(['code-1', 'tool-1']);
+      expect(questsInColumn(snap, owner).map((q) => q.id)).toEqual(['art-1']);
+      const total = COLUMNS.reduce((n, col) => n + questsInColumn(snap, col).length, 0);
+      expect(total).toBe(3);
+    });
+
+    it('routes an explicit owner question out of 交差核验 into 等会长', () => {
+      const asked = makeQuest({ id: 'code-q', kind: 'code', status: 'delivered', needsOwner: '两个方案选哪个？' });
+      const silent = makeQuest({ id: 'code-s', kind: 'code', status: 'delivered' });
+      const snap = makeSnapshot([asked, silent]);
+      const check = columnByKey('check');
+      const owner = columnByKey('owner');
+      expect(questsInColumn(snap, check).map((q) => q.id)).toEqual(['code-s']);
+      expect(questsInColumn(snap, owner).map((q) => q.id)).toEqual(['code-q']);
+    });
+
+    it('keeps a technical review quest in 交差核验 even when the review itself waits on nobody', () => {
+      const work = makeQuest({ id: 'work', status: 'delivered' });
+      const review = makeQuest({
+        id: 'REVIEW-work', kind: 'review', parents: ['work'], status: 'delivered',
+        lastDetail: 'VERDICT: FAIL', createdAt: '2026-09-13T02:00:00.000Z',
+      });
+      const snap = makeSnapshot([work, review]);
+      const check = columnByKey('check');
+      const owner = columnByKey('owner');
+      expect(questsInColumn(snap, check).map((q) => q.id)).toEqual(['work', 'REVIEW-work']);
+      expect(questsInColumn(snap, owner)).toEqual([]);
+      expect(nextStep(review, snap).who).not.toBe('you');
+      expect(trayIds(snap)).not.toContain('REVIEW-work');
+    });
+
+    it('a review without a question stays verification, even one over art, and never asks twice', () => {
+      const codeWork = makeQuest({ id: 'code-work', kind: 'code', status: 'delivered' });
+      const artWork = makeQuest({ id: 'art-work', kind: 'art', status: 'delivered' });
+      const overCode = makeQuest({
+        id: 'R-code', kind: 'review', parents: ['code-work'], status: 'delivered',
+        lastDetail: 'VERDICT: PASS', createdAt: '2026-09-13T02:00:00.000Z',
+      });
+      const overArt = makeQuest({
+        id: 'R-art', kind: 'review', parents: ['art-work'], status: 'reviewing',
+        lastDetail: 'VERDICT: findings', createdAt: '2026-09-13T03:00:00.000Z',
+      });
+      const blank = makeQuest({
+        id: 'R-blank', kind: 'review', parents: ['code-work'], status: 'delivered', needsOwner: '   ',
+        lastDetail: 'VERDICT: PASS', createdAt: '2026-09-13T04:00:00.000Z',
+      });
+      const snap = makeSnapshot([codeWork, artWork, overCode, overArt, blank]);
+      const check = columnByKey('check');
+      const owner = columnByKey('owner');
+      expect(questsInColumn(snap, check).map((q) => q.id).sort()).toEqual(['R-art', 'R-blank', 'R-code', 'code-work']);
+      expect(questsInColumn(snap, owner).map((q) => q.id)).toEqual(['art-work']);
+      // The verdict of R-art reads on its parent: the owner gets one ask (art-work), not a second one.
+      expect(trayIds(snap)).toEqual(['art-work']);
+      const placed = COLUMNS.map((col) => questsInColumn(snap, col).map((q) => q.id));
+      expect(placed.flat().sort()).toEqual(['R-art', 'R-blank', 'R-code', 'art-work', 'code-work']);
+    });
+
+    it('routes a returned review with its own question to 等会长, counted once, as tray and next step do', () => {
+      const work = makeQuest({ id: 'work', kind: 'code', status: 'delivered' });
+      const review = makeQuest({
+        id: 'REVIEW-code', kind: 'review', parents: ['work'], status: 'delivered',
+        needsOwner: '要不要上线？', lastDetail: 'VERDICT: findings', createdAt: '2026-09-13T02:00:00.000Z',
+      });
+      const snap = makeSnapshot([work, review]);
+      const check = columnByKey('check');
+      const owner = columnByKey('owner');
+      expect(questsInColumn(snap, check).map((q) => q.id)).toEqual(['work']);
+      expect(questsInColumn(snap, owner).map((q) => q.id)).toEqual(['REVIEW-code']);
+      expect(nextStep(review, snap).who).toBe('you');
+      expect(trayIds(snap)).toEqual(['REVIEW-code']);
+      const decide = inTrayItems(snap).find((item) => item.quest.id === 'REVIEW-code');
+      expect(decide?.kind).toBe('decide');
+      const placed = COLUMNS.map((col) => questsInColumn(snap, col).map((q) => q.id));
+      expect(placed.flat().sort()).toEqual(['REVIEW-code', 'work']);
+    });
+
+    it('moves a reviewing review with a question too, and a needs_owner review is placed by status once', () => {
+      const late = makeQuest({ id: 'R-late', kind: 'review', parents: [], status: 'reviewing', needsOwner: '这个结论你接受吗？' });
+      const atOwner = makeQuest({ id: 'R-owner', kind: 'review', parents: [], status: 'needs_owner', needsOwner: '按哪个方案？' });
+      const snap = makeSnapshot([late, atOwner]);
+      const check = columnByKey('check');
+      const owner = columnByKey('owner');
+      expect(questsInColumn(snap, check)).toEqual([]);
+      expect(questsInColumn(snap, owner).map((q) => q.id).sort()).toEqual(['R-late', 'R-owner']);
+      const placed = COLUMNS.map((col) => questsInColumn(snap, col).map((q) => q.id));
+      expect(placed.flat().sort()).toEqual(['R-late', 'R-owner']);
+    });
+
+    it('leaves statuses outside delivered/reviewing exactly where they were', () => {
+      const quests = [
+        makeQuest({ id: 'p', status: 'posted' }),
+        makeQuest({ id: 'd', status: 'dispatched' }),
+        makeQuest({ id: 'no', kind: 'art', status: 'needs_owner' }),
+        makeQuest({ id: 'op', kind: 'art', status: 'owner_playtest' }),
+        makeQuest({ id: 'f', status: 'done' }),
+        makeQuest({ id: 'art-d', kind: 'art', status: 'delivered' }),
+      ];
+      const snap = makeSnapshot(quests);
+      const placed = COLUMNS.map((col) => questsInColumn(snap, col).map((q) => q.id));
+      // 01 open · 02 run · 03 check · 04 owner · 05 archive — the delivered art left check for the owner zone.
+      expect(placed).toEqual([['p'], ['d'], [], ['no', 'op', 'art-d'], ['f']]);
+      expect(placed.flat().length).toBe(quests.length);
+    });
+
+    it('the column agrees with the card: who the next step waits on decides the zone', () => {
+      const art = makeQuest({ id: 'art-1', kind: 'art', status: 'delivered' });
+      const code = makeQuest({ id: 'code-1', kind: 'code', status: 'delivered' });
+      const askedReview = makeQuest({
+        id: 'R-ask', kind: 'review', parents: ['code-1'], status: 'delivered', needsOwner: '要不要上线？',
+        createdAt: '2026-09-13T02:00:00.000Z',
+      });
+      const silentReview = makeQuest({
+        id: 'R-silent', kind: 'review', parents: ['art-1'], status: 'delivered', lastDetail: 'VERDICT: PASS',
+        createdAt: '2026-09-13T03:00:00.000Z',
+      });
+      const snap = makeSnapshot([art, code, askedReview, silentReview]);
+      const owner = columnByKey('owner');
+      const check = columnByKey('check');
+      const tray = trayIds(snap);
+      for (const q of [art, code, askedReview, silentReview]) {
+        const inOwner = questsInColumn(snap, owner).some((x) => x.id === q.id);
+        const inCheck = questsInColumn(snap, check).some((x) => x.id === q.id);
+        expect(inOwner !== inCheck).toBe(true);
+        // Whatever a returned quest's column, the owner's tray must demand exactly the same set.
+        expect(inOwner).toBe(tray.includes(q.id));
+        if (q.kind === 'review') {
+          expect(inOwner).toBe(hasOwnerQuestion(q));
+        } else {
+          expect(inOwner).toBe(nextStep(q, snap).who === 'you');
+        }
+      }
+      const placed = COLUMNS.map((col) => questsInColumn(snap, col).map((x) => x.id));
+      expect(placed.flat().sort()).toEqual(['R-ask', 'R-silent', 'art-1', 'code-1']);
     });
   });
 });

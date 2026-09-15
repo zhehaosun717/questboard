@@ -2,7 +2,8 @@ import type { Rung, RungState } from '../../lib/evidence';
 
 const MARK: Record<RungState, string> = { done: '✓', pending: '…', skipped: '–', bad: '✗' };
 
-// Who has said the work is done, at each level: the worker, a reviewer, the owner. Only the last one closes it.
+// Who has said the work is done, at each level: the worker, a reviewer, whoever accepts it (the owner for
+// art, the coordinator for code and tool work). Only the last rung closes it.
 export function EvidenceLadder({ rungs }: { rungs: Rung[] }) {
   if (rungs.length === 0) return null;
   return (
