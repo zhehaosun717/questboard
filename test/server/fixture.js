@@ -28,7 +28,7 @@ export async function listenOnSafePort(server, { maxAttempts = MAX_PORT_ATTEMPTS
   throw error;
 }
 
-export async function startFixture({ runResult = () => ({ code: 0 }), writeDelivery, checkLaneServers } = {}) {
+export async function startFixture({ runResult = () => ({ code: 0 }), writeDelivery, checkLaneServers, runners } = {}) {
   const project = makeProject({ reviewPages: { dir: 'docs/art' } });
   project.write('docs/briefs/RUN-4-the-way-back.md', 'RUN-4 — the way back');
   project.write('docs/briefs/REVIEW-26-review-run-4.md', 'review');
@@ -43,7 +43,9 @@ export async function startFixture({ runResult = () => ({ code: 0 }), writeDeliv
     config: project.config, home, evidenceWaitMs: 0, getLanes: () => holder.lanes,
     writeDelivery: writeDelivery || (async (config, lane, name) => path.join(config.root, '.work', 'oc', `${name}.md`)),
     checkLaneServers,
-    runners: {
+    // A caller that needs to inject a native fault mid-step (a broken quests.jsonl during the session step,
+    // for a diagnostics-endpoint test) passes its own `runners`; every other test keeps the default fakes.
+    runners: runners || {
       run: async (step) => { calls.push(step); return runResult(step); },
       session: async (step) => { calls.push(step); return { code: 0, session: 'ses_x' }; },
     },

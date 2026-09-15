@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { canDispatch, eligibility } from '../../src/core/rules.js';
+import { canDispatch, eligibility, isOwnActiveAttempt } from '../../src/core/rules.js';
 import { card, quest } from '../helpers.js';
 
 const policy = { bannedModelPatterns: ['gpt-5\\.5', '-fast(\\b|-)'], bannedAgents: ['Sisyphus'] };
@@ -143,6 +143,67 @@ describe('canDispatch', () => {
     const result = check(q, card('codex-luna', { status: 'broke', model: 'gpt-5.5' }), [q], { ...env, treeLocked: true, briefExists: false });
     assert.ok(result.reasons.length >= 6);
     for (const r of result.reasons) assert.match(r.message, /[一-鿿]/u);
+  });
+});
+
+// The predicate a queued recheck uses to tell "my own attempt, still legitimately holding this quest" apart
+// from "a new assignment competing for it" — used inside canDispatch via selfAttemptId, but tested here on
+// its own since it is the one piece of new logic these scenarios all turn on.
+describe('isOwnActiveAttempt', () => {
+  it('is true only for the matching attemptId on a dispatched or stalled quest', () => {
+    const mine = quest({ status: 'dispatched', assignee: { name: 'run4', attemptId: 'att-1' } });
+    assert.equal(isOwnActiveAttempt(mine, 'att-1'), true);
+    assert.equal(isOwnActiveAttempt(mine, 'att-2'), false, 'a different attempt is not "own"');
+    assert.equal(isOwnActiveAttempt(mine, undefined), false, 'no selfAttemptId at all means a fresh assignment, never "own"');
+    assert.equal(isOwnActiveAttempt(quest({ status: 'posted', assignee: null }), 'att-1'), false, 'no assignee at all is never "own"');
+    assert.equal(isOwnActiveAttempt(quest({ status: 'done', assignee: { name: 'run4', attemptId: 'att-1' } }), 'att-1'), false, 'a terminal status is never "own", whatever the assignee says');
+  });
+});
+
+// A queued job rechecks canDispatch again right before it spawns (dispatcher.js's recheckOpen); these prove
+// canDispatch's own selfAttemptId narrows only the two reasons that exist purely to protect a slot from a
+// second, competing assignment (quest_not_open, worker_unconfirmed) and nothing else — a newly posted
+// needs_owner, a card paused or banned meanwhile, a changed allowedLanes, or a blocked parent/reviewer
+// ancestor all still refuse the very attempt that already holds the quest, exactly as they would a stranger.
+describe('canDispatch selfAttemptId (queued recheck)', () => {
+  it('does not refuse its own dispatched attempt for being dispatched, or its own stalled attempt as an unconfirmed foreign worker', () => {
+    const mine = quest({ status: 'dispatched', assignee: { adventurerId: 'codex-luna', name: 'run4', attemptId: 'att-1' } });
+    assert.ok(codes(check(mine)).includes('quest_not_open'), 'a fresh assignment attempt (no selfAttemptId) is still refused as usual');
+    assert.equal(canDispatch({ quest: mine, adventurer: luna, quests: [mine], policy, env, selfAttemptId: 'att-1' }).ok, true);
+
+    const silentMine = quest({ status: 'stalled', assignee: { adventurerId: 'codex-luna', name: 'run4', attemptId: 'att-2' } });
+    assert.ok(codes(check(silentMine)).includes('worker_unconfirmed'));
+    assert.equal(canDispatch({ quest: silentMine, adventurer: luna, quests: [silentMine], policy, env, selfAttemptId: 'att-2' }).ok, true);
+  });
+
+  it('still refuses a needs_owner question newly posted while queued, even for the current attempt', () => {
+    const mine = quest({ status: 'dispatched', needsOwner: '要不要换个模型', assignee: { adventurerId: 'codex-luna', name: 'run4', attemptId: 'att-3' } });
+    const verdict = canDispatch({ quest: mine, adventurer: luna, quests: [mine], policy, env, selfAttemptId: 'att-3' });
+    assert.ok(codes(verdict).includes('needs_owner'));
+  });
+
+  it('still refuses a card paused meanwhile or a lane no longer allowed, even for the current attempt', () => {
+    const paused = quest({ status: 'dispatched', assignee: { adventurerId: 'codex-luna', name: 'run4', attemptId: 'att-4' } });
+    assert.ok(codes(canDispatch({ quest: paused, adventurer: card('codex-luna', { status: 'paused' }), quests: [paused], policy, env, selfAttemptId: 'att-4' })).includes('adventurer_paused'));
+
+    const relaned = quest({ status: 'dispatched', allowedLanes: ['agy'], assignee: { adventurerId: 'codex-luna', name: 'run4', attemptId: 'att-5' } });
+    assert.ok(codes(canDispatch({ quest: relaned, adventurer: luna, quests: [relaned], policy, env, selfAttemptId: 'att-5' })).includes('lane_not_allowed'));
+  });
+
+  it('still refuses a blocked parent or a reviewer-authored-parent constraint, even for the current attempt', () => {
+    const missingParent = quest({ status: 'dispatched', parents: ['RUN-9'], assignee: { adventurerId: 'codex-luna', name: 'run4', attemptId: 'att-6' } });
+    assert.ok(codes(canDispatch({ quest: missingParent, adventurer: luna, quests: [missingParent], policy, env, selfAttemptId: 'att-6' })).includes('parent_missing'));
+
+    const code = quest({ id: 'RUN-3', status: 'done', dispatches: [{ adventurerId: 'oc-deepseek', family: 'deepseek-v4-pro' }] });
+    const review = quest({ id: 'REVIEW-24', kind: 'review', status: 'dispatched', parents: ['RUN-3'], assignee: { adventurerId: 'oc-nv-deepseek', name: 'r24', attemptId: 'att-7' } });
+    const verdict = canDispatch({ quest: review, adventurer: card('oc-nv-deepseek'), quests: [code, review], policy, env, selfAttemptId: 'att-7' });
+    assert.ok(codes(verdict).includes('reviewer_coded_parent'));
+  });
+
+  it('does not refuse the current attempt against its own reservation as if it were a competing occupier', () => {
+    const mine = quest({ id: 'RUN-14', status: 'dispatched', assignee: { adventurerId: 'codex-luna', name: 'run14', attemptId: 'att-8' } });
+    const verdict = canDispatch({ quest: mine, adventurer: luna, quests: [mine], policy, env, selfAttemptId: 'att-8' });
+    assert.ok(!codes(verdict).includes('adventurer_busy'), 'the candidate quest is excluded from its own limit regardless of selfAttemptId');
   });
 });
 

@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workerName, planDispatch, preflight, workerEvidence, executePlan, bashPath } from '../../src/core/dispatch.js';
+import { workerName, planDispatch, preflight, workerEvidence, executePlan, bashPath, recordedNames } from '../../src/core/dispatch.js';
 import { writeApiDelivery, TRANSIENT_DELIVERY_CODES } from '../../src/core/deliveries.js';
 import { appendJsonLine } from '../../src/core/jsonl.js';
 import { resolveConfig } from '../../src/core/config.js';
@@ -14,6 +14,35 @@ describe('planDispatch', () => {
   it('numbers re-dispatches so outputs are never overwritten', () => {
     assert.equal(workerName(q), 'artwire2h');
     assert.equal(workerName({ ...q, dispatches: [{}] }), 'artwire2h_2');
+  });
+
+  it('never hands out a worker name already held by another active quest, even when ids normalize the same', () => {
+    // Package id normalization keeps only [a-z0-9], which is lossy: 'RUN-4' and 'RUN.4' collide on 'run4'.
+    const a = { id: 'RUN-4', dispatches: [] };
+    const b = { id: 'RUN.4', dispatches: [] };
+    assert.equal(workerName(a), 'run4', 'no active names yet, so the plain base name is used');
+    const nameB = workerName(b, new Set(['run4']));
+    assert.equal(nameB, 'run4_2', 'a different quest with a colliding base name steps to the next free slot');
+    const nameC = workerName({ id: 'RUN_4', dispatches: [] }, new Set(['run4', 'run4_2']));
+    assert.equal(nameC, 'run4_3', 'each further collision keeps stepping forward');
+    // A quest's own re-dispatch numbering (from its dispatch count) combines with collision avoidance.
+    assert.equal(workerName({ ...a, dispatches: [{}] }, new Set(['run4', 'run4_2'])), 'run4_3');
+  });
+
+  it('records every name a quest has ever dispatched or currently holds, not just currently active ones', () => {
+    const finished = { id: 'RUN-4', status: 'delivered', assignee: null, dispatches: [{ name: 'run4' }, { name: 'run4_2' }] };
+    const running = { id: 'RUN-5', status: 'dispatched', assignee: { name: 'run5' }, dispatches: [{ name: 'run5' }] };
+    const untouched = { id: 'RUN-6', status: 'posted', assignee: null, dispatches: [] };
+    assert.deepEqual(recordedNames([finished, running, untouched]), new Set(['run4', 'run4_2', 'run5']));
+  });
+
+  it('never hands a finished quest\'s worker name to a different, later package that normalizes the same', () => {
+    // 'AB-CD-4' finished (no longer holds a slot) before 'ABCD-4' — a different, valid package id that
+    // normalizes to the same base name — is ever dispatched. Using only currently-held names (the old
+    // behaviour) would let ABCD-4 reuse 'abcd4', silently landing on AB-CD-4's own report/session files.
+    const finished = { id: 'AB-CD-4', status: 'delivered', assignee: null, dispatches: [{ name: 'abcd4' }] };
+    const later = { id: 'ABCD-4', dispatches: [] };
+    assert.equal(workerName(later, recordedNames([finished, later])), 'abcd4_2');
   });
 
   it('fills a file lane template', () => {
@@ -81,6 +110,186 @@ describe('executePlan', () => {
     assert.deepEqual(calls, ['session']);
   });
 
+  it('never runs a step recheck refuses, and stops the plan there instead of continuing', async () => {
+    const { config } = makeProject();
+    const calls = [];
+    let checks = 0;
+    const plan = planDispatch(config, q, card('oc-mimo'), 'n2b');
+    const result = await executePlan(config, plan, {
+      name: 'n2b',
+      runners: { session: async () => { calls.push('session'); return { code: 0 }; }, run: async () => { calls.push('run'); return { code: 0 }; } },
+      // Approves the session step (the first recheck), then refuses the run step (the second) — the queued
+      // world changed in the gap between the two, exactly what a serialized lane's wait creates in practice.
+      recheck: async () => { checks += 1; return checks === 1 ? { ok: true } : { ok: false, detail: '排队时条件变了' }; },
+    });
+    assert.deepEqual(calls, ['session'], 'the run step must never fire once its own recheck refused it');
+    // The session step already ran (its runner returned success with no id to capture) before the run
+    // step's own recheck blocked it — phase 'session_creating', not 'queued' or 'launching' (that phase is
+    // reserved for "before the run effect"), and an explicit-unknown binding.
+    assert.deepEqual(result, { ok: false, blocked: true, logFile: result.logFile, detail: '排队时条件变了', phase: 'session_creating', session: { id: null, saveTo: plan[0].saveTo, unknown: true } });
+  });
+
+  it('a recheck approving every step changes nothing about a normal run', async () => {
+    const { config } = makeProject();
+    const result = await executePlan(config, planDispatch(config, q, card('oc-mimo'), 'n2c'), {
+      name: 'n2c',
+      runners: { session: async () => ({ code: 0 }), run: async () => ({ code: 0 }) },
+      recheck: async () => ({ ok: true }),
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.blocked, undefined);
+  });
+
+  it('reports phase "queued" when recheck blocks before any step ran, and "session_creating" once the session step already has', async () => {
+    const { config } = makeProject();
+    const plan = planDispatch(config, q, card('oc-mimo'), 'n2d');
+    const queuedResult = await executePlan(config, plan, {
+      name: 'n2d',
+      runners: { session: async () => ({ code: 0, session: 'ses_x' }), run: async () => ({ code: 0 }) },
+      recheck: async () => ({ ok: false, detail: '排队时条件变了' }),
+    });
+    assert.equal(queuedResult.phase, 'queued', 'blocked on the very first step, before anything ran');
+    assert.equal(queuedResult.session, null, 'no session step ever ran, so nothing to bind');
+
+    // The run step's own recheck (the second call) is what blocks here — the session step already ran and
+    // resolved. Its write-ahead phase is 'session_creating', persisted before the session effect; 'launching'
+    // is only ever persisted immediately before the run effect itself, with no recheck in between it and that
+    // effect, so a blocked result can never report 'launching' — reaching 'launching' means the run effect is
+    // about to run, not that it was stopped first.
+    let checks = 0;
+    const launchingResult = await executePlan(config, plan, {
+      name: 'n2e',
+      runners: { session: async () => ({ code: 0, session: 'ses_y' }), run: async () => ({ code: 0 }) },
+      recheck: async () => { checks += 1; return checks === 1 ? { ok: true } : { ok: false, detail: '排队时条件变了' }; },
+    });
+    assert.equal(launchingResult.phase, 'session_creating', 'the session step already ran before the run step was blocked, but the run effect itself never got a write-ahead phase');
+    assert.deepEqual(launchingResult.session, { id: 'ses_y', saveTo: plan[0].saveTo, unknown: false });
+  });
+
+  it('a step that fails outright (not a recheck block) still reports the phase it reached', async () => {
+    const { config } = makeProject();
+    const result = await executePlan(config, planDispatch(config, q, card('oc-mimo'), 'n2h'), {
+      name: 'n2h',
+      runners: { session: async () => ({ code: 0, session: 'ses_z' }), run: async () => ({ code: 1, error: 'boom' }) },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.blocked, undefined, 'a real step failure is not a recheck block');
+    assert.equal(result.phase, 'launching', 'the session step already ran before the run step failed');
+    assert.deepEqual(result.session, { id: 'ses_z', saveTo: planDispatch(config, q, card('oc-mimo'), 'n2h')[0].saveTo, unknown: false });
+  });
+
+  it('a session step\'s nonzero exit (a bad code, an execFile timeout) never claims a known absence of session — unknown stays true, not just "no id yet"', async () => {
+    const { config } = makeProject();
+    const plan = planDispatch(config, q, card('oc-mimo'), 'n2j');
+    const result = await executePlan(config, plan, {
+      name: 'n2j',
+      runners: { session: async () => ({ code: 1, error: 'timeout' }), run: async () => ({ code: 0 }) },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.blocked, undefined);
+    assert.equal(result.phase, 'session_creating');
+    assert.deepEqual(result.session, { id: null, saveTo: plan[0].saveTo, unknown: true }, 'a nonzero exit is not proof the session was never created upstream');
+  });
+
+  it('a session step that throws is caught, not left to reject the whole plan — treated the same as a nonzero exit', async () => {
+    const { config } = makeProject();
+    const plan = planDispatch(config, q, card('oc-mimo'), 'n2k');
+    const result = await executePlan(config, plan, {
+      name: 'n2k',
+      runners: { session: async () => { throw new Error('spawn crashed mid-create'); }, run: async () => ({ code: 0 }) },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.blocked, undefined);
+    assert.match(result.detail, /抛出异常/);
+    assert.match(result.detail, /spawn crashed mid-create/);
+    assert.equal(result.phase, 'session_creating');
+    assert.deepEqual(result.session, { id: null, saveTo: plan[0].saveTo, unknown: true });
+  });
+
+  it('a run step that throws is caught the same way, at the "launching" phase with no session binding involved', async () => {
+    const { config } = makeProject();
+    const plan = planDispatch(config, q, card('codex-luna'), 'n2l');
+    const result = await executePlan(config, plan, {
+      name: 'n2l',
+      runners: { run: async () => { throw new Error('run crashed'); } },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.blocked, undefined);
+    assert.match(result.detail, /抛出异常/);
+    assert.match(result.detail, /run crashed/);
+    assert.equal(result.phase, 'launching');
+    assert.equal(result.session, null, 'no session step in this plan at all');
+  });
+
+  it('persists an explicit "unknown" session binding when the runner reports success without a session id to capture', async () => {
+    const { config } = makeProject();
+    const plan = planDispatch(config, q, card('oc-mimo'), 'n2f');
+    const result = await executePlan(config, plan, {
+      name: 'n2f',
+      runners: { session: async () => ({ code: 0 }), run: async () => ({ code: 0 }) },
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.session, { id: null, saveTo: plan[0].saveTo, unknown: true }, 'success with no id is captured as explicitly unknown, never silently "no session"');
+  });
+
+  it('calls onPhase as a write-ahead signal before each effect — session_creating before the session runs, launching before the run does', async () => {
+    const { config } = makeProject();
+    const plan = planDispatch(config, q, card('oc-mimo'), 'n2g');
+    const calls = [];
+    await executePlan(config, plan, {
+      name: 'n2g',
+      runners: {
+        session: async () => { calls.push('session-ran'); return { code: 0, session: 'ses_w' }; },
+        run: async () => { calls.push('run-ran'); return { code: 0 }; },
+      },
+      onPhase: (phase) => calls.push(`onPhase:${phase}`),
+    });
+    assert.deepEqual(calls, ['onPhase:session_creating', 'session-ran', 'onPhase:session', 'onPhase:launching', 'run-ran'], 'each write-ahead phase call precedes the effect it announces');
+  });
+
+  it('never runs a step whose write-ahead onPhase persistence itself fails', async () => {
+    const { config } = makeProject();
+    const plan = planDispatch(config, q, card('oc-mimo'), 'n2i');
+    const calls = [];
+    const result = await executePlan(config, plan, {
+      name: 'n2i',
+      runners: {
+        session: async () => { calls.push('session-ran'); return { code: 0, session: 'ses_v' }; },
+        run: async () => { calls.push('run-ran'); return { code: 0 }; },
+      },
+      // The session effect persists fine; the run step's own write-ahead phase cannot be recorded (a stale
+      // attempt, a disk error) — the run effect must never fire, exactly as if a recheck had refused it.
+      onPhase: (phase) => { if (phase === 'launching') throw new Error('disk full'); },
+    });
+    assert.deepEqual(calls, ['session-ran'], 'the run effect never runs once its own write-ahead phase could not be persisted');
+    assert.equal(result.ok, false);
+    assert.equal(result.blocked, true, 'a persistence failure is treated exactly like a recheck refusal: nothing after it runs');
+    assert.equal(result.persistFailed, true);
+    assert.equal(result.phase, 'session_creating', 'the last phase that was actually persisted');
+    assert.deepEqual(result.session, { id: 'ses_v', saveTo: plan[0].saveTo, unknown: false }, 'the session binding persisted fine before the failure');
+  });
+
+  it('flags a run step whose own spawn never created a process as neverStarted, not just a plain failure', async () => {
+    // A bare, unresolvable executable name (no .sh, not 'node') goes straight to spawn() as the command
+    // itself — never through Git Bash, which would spawn fine and only fail internally, an entirely
+    // different, ambiguous shape this test is not exercising.
+    const { config } = makeProject({ lanes: { ghost: { run: ['this-binary-does-not-exist-xyz123'], outputDir: '.work/ghost' } } });
+    const plan = planDispatch(config, q, card('codex-luna', { lane: 'ghost' }), 'n2m');
+    const result = await executePlan(config, plan, { name: 'n2m' }); // no runner override — exercises the real runScript spawn path
+    assert.equal(result.ok, false);
+    assert.equal(result.neverStarted, true, 'a spawn that never created a process is a distinct, verified signal');
+  });
+
+  it('never flags a run step that merely throws through a third-party runner override as neverStarted', async () => {
+    const { config } = makeProject();
+    const result = await executePlan(config, planDispatch(config, q, card('codex-luna'), 'n2n'), {
+      name: 'n2n',
+      runners: { run: async () => { throw new Error('third-party runner crashed'); } },
+    });
+    assert.equal(result.ok, false);
+    assert.notEqual(result.neverStarted, true, 'an arbitrary throw from a runner override is ambiguous, not a verified never-started signal');
+  });
+
   let bash = null;
   try { bash = bashPath(resolveConfig(tmpDir(), { name: 'x', lanes: { a: { run: ['a'], outputDir: 'o' } } })); } catch { bash = null; }
 
@@ -90,6 +299,25 @@ describe('executePlan', () => {
     const result = await executePlan(config, planDispatch(config, q, card('codex-luna', { lane: 'fake' }), 'w1'), { name: 'w1' });
     assert.equal(result.ok, true, result.detail);
     assert.match(fs.readFileSync(result.logFile, 'utf8'), /fake worker started/);
+  });
+
+  // F1 (native): a real session step (execFile, no runner override) whose saveTo happens to already be a
+  // directory used to crash the whole process (an unguarded writeFileSync throw inside execFile's own
+  // callback, uncatchable from here) and silently drop the id it had already captured. Exercised through the
+  // real runSession, not an injected runner double, since the bug lived in code an injected double bypasses.
+  it('a real session step whose saveTo is an existing directory never crashes and never loses the captured id (F1)', async () => {
+    const natsess = { session: { run: ['node', 'tools/sess.mjs', '{name}'], saveTo: '.work/sess_{name}.txt' }, run: ['node', 'tools/ok.mjs', '{name}'], outputDir: '.work/natsess' };
+    const { config, write, root } = makeProject({ lanes: { natsess } });
+    write('tools/sess.mjs', "console.log('ses_fixture_' + process.argv[2]);\n");
+    write('tools/ok.mjs', 'process.exit(0);\n');
+    const name = 'n3f';
+    fs.mkdirSync(path.join(root, '.work', `sess_${name}.txt`), { recursive: true }); // saveTo is a directory, not a writable file
+    const plan = planDispatch(config, q, card('codex-luna', { lane: 'natsess' }), name);
+    const result = await executePlan(config, plan, { name }); // no runner overrides: the real runScript + runSession run
+    assert.equal(result.ok, false, 'a write failure is a normal step failure, never an uncaught exception that reaches here');
+    assert.equal(result.phase, 'session_creating', 'the run step must never fire once its required session file failed to save');
+    assert.deepEqual(result.session, { id: `ses_fixture_${name}`, saveTo: plan[0].saveTo, unknown: false, saveFailed: true }, 'the id the process actually reported is never discarded just because the file write failed; R4: distinct from an unknown session');
+    assert.match(result.detail, new RegExp(`ses_fixture_${name}`), 'the captured id is visible in the failure detail too');
   });
 });
 

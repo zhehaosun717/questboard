@@ -59,14 +59,17 @@ describe('quest API', () => {
     assert.deepEqual(fx.events().slice(-2).map((e) => e.event), ['assigned', 'dispatched']);
   });
 
-  it('fails a refused script, and a review by the author family is refused', async () => {
+  it('holds a refused script unresolved instead of freeing it, and a review by the author family is refused', async () => {
     await fx.api('/api/quests', 'POST', { package: 'REVIEW-26', kind: 'review', brief: 'docs/briefs/REVIEW-26-review-run-4.md', parents: 'RUN-4' });
-    assert.equal((await fx.api('/api/quests/REVIEW-26/assign', 'POST', { adventurer: 'codex-luna' })).status, 409);
+    assert.equal((await fx.api('/api/quests/REVIEW-26/assign', 'POST', { adventurer: 'codex-luna' })).status, 409, 'the author family is refused');
     assert.equal((await fx.api('/api/quests/REVIEW-26/assign', 'POST', { adventurer: 'agy-gemini' })).status, 200);
     await tick();
     const review = (await fx.api('/api/quests')).body.quests.find((q) => q.id === 'REVIEW-26');
-    assert.equal(review.status, 'failed');
-    assert.match(review.lastDetail, /退出码 3/);
+    assert.equal(review.status, 'dispatched', 'no evidence the script never started, so the slot is held, not freed');
+    assert.equal(review.assignee.name, 'review26', 'the same attempt still holds the quest');
+    assert.equal(review.assignee.phase, 'launching');
+    assert.equal(review.assignee.unresolved, true);
+    assert.match(fx.events().at(-1).detail, /退出码 3/);
   });
 
   it('adopts once, rules, and only lets dispatch happen through assign', async () => {
@@ -109,24 +112,34 @@ describe('quest API', () => {
   });
 
   it('answers a repeated request key without a second worker, and refuses a stale revision', async () => {
-    fx.project.write('docs/briefs/HAZ-2-x.md', 'x');
-    const posted = await fx.api('/api/quests', 'POST', { package: 'HAZ-2', brief: 'docs/briefs/HAZ-2-x.md' });
-    const revision = posted.body.quest.revision;
-    assert.equal(typeof revision, 'number');
-    const stale = await fx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', ifRevision: revision - 1 });
-    assert.equal(stale.status, 409);
-    assert.equal(stale.body.reasons[0].code, 'stale_revision');
-    assert.equal((await fx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'bad key!' })).status, 400);
-    const runsBefore = fx.calls.length;
-    const first = await fx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'haz2-try1', ifRevision: revision });
-    assert.equal(first.status, 200, first.text);
-    await tick();
-    const again = await fx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'haz2-try1' });
-    assert.equal(again.status, 200);
-    assert.equal(again.body.repeated, true);
-    assert.equal(again.body.quest.assignee.requestKey, 'haz2-try1');
-    assert.equal(fx.calls.length, runsBefore + 1, 'one worker started');
-    assert.equal((await fx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'haz2-try2' })).status, 409, 'a new key on a running quest is a normal refusal');
+    // A fresh fixture, not the describe-level `fx`: by this point agy-gemini's 2 slots in `fx` are
+    // legitimately held (REVIEW-26's now-unresolved-not-freed attempt above, LOOK-2F's adopt below) — that
+    // occupancy is the correct behavior under test elsewhere, not a leak to route around here. Isolating this
+    // test's own card/adventurer pair keeps its capacity assertions meaningful without touching fixture.js,
+    // production capacity, or maxParallel.
+    const isoFx = await startFixture();
+    try {
+      isoFx.project.write('docs/briefs/HAZ-2-x.md', 'x');
+      const posted = await isoFx.api('/api/quests', 'POST', { package: 'HAZ-2', brief: 'docs/briefs/HAZ-2-x.md' });
+      const revision = posted.body.quest.revision;
+      assert.equal(typeof revision, 'number');
+      const stale = await isoFx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', ifRevision: revision - 1 });
+      assert.equal(stale.status, 409);
+      assert.equal(stale.body.reasons[0].code, 'stale_revision');
+      assert.equal((await isoFx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'bad key!' })).status, 400);
+      const runsBefore = isoFx.calls.length;
+      const first = await isoFx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'haz2-try1', ifRevision: revision });
+      assert.equal(first.status, 200, first.text);
+      await tick();
+      const again = await isoFx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'haz2-try1' });
+      assert.equal(again.status, 200);
+      assert.equal(again.body.repeated, true);
+      assert.equal(again.body.quest.assignee.requestKey, 'haz2-try1');
+      assert.equal(isoFx.calls.length, runsBefore + 1, 'one worker started');
+      assert.equal((await isoFx.api('/api/quests/HAZ-2/assign', 'POST', { adventurer: 'agy-gemini', requestKey: 'haz2-try2' })).status, 409, 'a new key on a running quest is a normal refusal');
+    } finally {
+      await isoFx.close();
+    }
   });
 
   it('pages events forward by seq', async () => {

@@ -75,6 +75,59 @@ describe('sync', () => {
     assert.deepEqual(liveByName(old, [running]), {});
   });
 
+  it('keeps a long-running adopted worker trackable no matter how long it ran before adoption (no retroactive limit)', () => {
+    // Adopted only ever bounds the window forward (CLOCK_SKEW_MS past the adoption time); there is no
+    // matching backward bound, so a worker that had already been running for days before someone adopted it
+    // on the board must not "disappear" the way a non-adopted row would past NO_ROW_MS. Only a row
+    // registered well after the adoption reads as unrelated (see the test below).
+    const adopted = { ...running, assignee: { ...running.assignee, adopted: true } };
+    const daysEarlier = [{ name: 'run4', state: 'delivered', dispatchedAt: '2026-09-01T00:00:00.000Z', lastText: 'finally done' }];
+    assert.equal(deriveTransitions([adopted], daysEarlier, later(1))[0].status, 'delivered', 'a row from days before adoption is still trusted');
+    assert.deepEqual(Object.keys(liveByName(daysEarlier, [adopted])), ['run4']);
+  });
+
+  it('does not let an adopted assignee trust a same-named row registered well after the adoption', () => {
+    const adopted = { ...running, assignee: { ...running.assignee, adopted: true } };
+    // Registered 5 minutes after the adoption — outside CLOCK_SKEW_MS, so it reads as a later, unrelated
+    // dispatch that happens to reuse the name, not evidence of the adopted worker itself. "adopted" only
+    // widens the trust window backwards (the registry row predates the adoption), never forwards without
+    // bound.
+    const futureRow = [{ name: 'run4', state: 'delivered', dispatchedAt: new Date(later(5)).toISOString(), lastText: 'unrelated later dispatch' }];
+    assert.deepEqual(deriveTransitions([adopted], futureRow, later(6)), [], 'not trusted just because this assignee was adopted');
+    assert.deepEqual(liveByName(futureRow, [adopted]), {}, 'and not shown as this adopted worker\'s live output either');
+  });
+
+  it('never lets a legacy bare-name row with no time end a brand-new, non-adopted attempt just because the name matches (P4L)', () => {
+    // A registry row with no dispatchedAt at all (predates the field, or a foreign process) has nothing to
+    // compare against a fresh, timestamped attempt's own `at` — trusting it here would let an unrelated
+    // legacy row silently end an attempt it never touched, exactly the shape a project whose registry
+    // predates the board could produce for a genuinely new dispatch.
+    const bareRow = [{ name: 'run4', state: 'failed', lastText: 'legacy row with no time' }];
+    assert.deepEqual(deriveTransitions([running], bareRow, later(1)), [], 'not trusted as this brand-new attempt\'s own evidence');
+  });
+
+  it('still trusts a bare-name row with no time for an adopted worker, whose registry predates the board recording it at all', () => {
+    const adopted = { ...running, assignee: { ...running.assignee, adopted: true } };
+    const bareRow = [{ name: 'run4', state: 'delivered', lastText: 'legacy adopt, dispatchedAt never recorded' }];
+    assert.equal(deriveTransitions([adopted], bareRow, later(1))[0].status, 'delivered', 'adopted compatibility is unaffected by the fix');
+  });
+
+  it('never reinterprets a distinct earlier attempt\'s registry row as evidence for a new attempt that re-adopted the same name', () => {
+    const T0 = '2026-09-10T00:00:00.000Z';
+    const T2 = '2026-09-12T00:00:00.000Z';
+    const oldAttempt = { name: 'run4', lane: 'codex', at: T0, attemptId: 'a-old' };
+    const newAttempt = { name: 'run4', lane: 'codex', at: T2, adopted: true, attemptId: 'a-new' };
+    const readopted = { id: 'RUN-4', status: 'dispatched', dispatches: [oldAttempt, newAttempt], assignee: newAttempt };
+    const oldRow = [{ name: 'run4', lane: 'codex', state: 'failed', dispatchedAt: T0, lastText: 'old attempt crashed' }];
+    // The row is the old attempt's own registration (dispatchedAt matches its `at` exactly) — it must not
+    // be read as this new adoption's evidence just because "adopted" widens the trust window backwards; that
+    // widening is bounded by the new attempt's own most recent distinct predecessor, not unbounded.
+    assert.deepEqual(deriveTransitions([readopted], oldRow, Date.parse(T2) + 60 * 1000), [], 'no transition — the old row is not trusted, and it is not yet stale enough to report stalled either');
+    // A row genuinely registered by the new attempt itself (after it re-adopted) is trusted normally.
+    const newRow = [{ name: 'run4', lane: 'codex', state: 'delivered', dispatchedAt: T2, lastText: 'done' }];
+    assert.equal(deriveTransitions([readopted], newRow, Date.parse(T2) + 60 * 1000)[0].status, 'delivered');
+  });
+
   it('watches a stalled quest: back to work when output resumes, finished on exit, held otherwise', () => {
     const silent = { ...running, status: 'stalled' };
     const resumed = deriveTransitions([silent], [{ name: 'run4', state: 'running', dispatchedAt: at }], later(30));

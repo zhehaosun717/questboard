@@ -32,7 +32,10 @@ function eligibilitySummary(verdicts) {
 
 export function createQuestRoutes({ config, store, boardStore, statusLog, rosterFile, getLanes = () => null, runners, evidenceWaitMs, writeDelivery, checkLaneServers = () => laneServers(config) }) {
   let downLanes = null;
-  const dispatcher = createDispatcher({ config, store, runners, evidenceWaitMs, writeDelivery, getDownLanes: () => downLanes });
+  // findCard is defined below; this closure is only ever called later, from a queued recheck, by which
+  // point it's assigned — passing it lets the recheck re-resolve the adventurer's roster status, lane and
+  // policy fresh at spawn time instead of trusting the object captured at drop time.
+  const dispatcher = createDispatcher({ config, store, runners, evidenceWaitMs, writeDelivery, getDownLanes: () => downLanes, getAdventurer: (id) => findCard(id) });
   const clients = new Set();
   const timers = [];
   let lastLanes = null;
@@ -198,6 +201,11 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
           live: quest.assignee ? snap.live[quest.assignee.name] || null : null,
           threads: snap.threads[quest.id] || [],
           eligibility: eligibilitySummary(snap.eligibility[quest.id]),
+          // Requirement 5/R3: a sanitized, process-local, explicitly not restart-durable diagnostic — this
+          // process still remembers a session id for the quest's current attempt that its own durable
+          // record does not (yet, or ever) confirm. null once there is nothing to report, or once a later
+          // durable write makes it current again. Never secrets/commands/env/raw error text.
+          unpersistedSession: quest.assignee ? dispatcher.getUnpersistedSession(quest.id, quest.assignee.attemptId) : null,
         } });
       } else if (url.pathname === '/api/roster' && request.method === 'GET') {
         sendJson(response, 200, { adventurers: effectiveRoster(adventurers(), getLanes()) });

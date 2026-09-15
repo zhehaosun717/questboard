@@ -47,6 +47,17 @@ export function holdsSlot(quest) {
   return Boolean(quest.assignee) && (quest.status === RUNNING_STATUS || quest.status === 'stalled');
 }
 
+// The one thing that tells a queued recheck ("is my own attempt still allowed to actually spawn?") apart
+// from a brand-new assignment request: a quest already dispatched or stalled as the very attempt asking is
+// not a second assignment competing for the slot, it is the same one continuing. This narrows exactly the
+// two reasons below that exist only to protect a slot from a competing assignment (quest_not_open,
+// worker_unconfirmed) — every other safety condition canDispatch checks still runs in full for it, computed
+// fresh from whatever quest/adventurer/env the caller passes in. Not a licence to skip anything else.
+export function isOwnActiveAttempt(quest, selfAttemptId) {
+  return Boolean(selfAttemptId) && Boolean(quest.assignee) && quest.assignee.attemptId === selfAttemptId
+    && (quest.status === RUNNING_STATUS || quest.status === 'stalled');
+}
+
 // Quests actually reserving one of this card's parallel slots: dispatched or stalled work other than
 // the candidate itself, whose own status is judged by the rules above, not counted against its limit.
 function busyQuests(adventurerId, quests, candidateId) {
@@ -107,13 +118,14 @@ function adventurerReasons(quest, adventurer, policy, env) {
   return reasons;
 }
 
-export function canDispatch({ quest, adventurer, quests, policy, env }) {
+export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemptId }) {
   const byId = new Map(quests.map((q) => [q.id, q]));
   const reasons = [];
+  const ownAttempt = isOwnActiveAttempt(quest, selfAttemptId);
   if (quest.kind === 'owner') reasons.push(reason('owner_quest', quest, adventurer));
   if (quest.kind === 'art' && !(adventurer.strengths || []).includes('art')) reasons.push(reason('needs_artist', quest, adventurer));
-  if (!OPEN_STATUSES.has(quest.status)) reasons.push(reason('quest_not_open', quest, adventurer));
-  if (quest.status === 'stalled' && quest.assignee) reasons.push(reason('worker_unconfirmed', quest, adventurer));
+  if (!OPEN_STATUSES.has(quest.status) && !ownAttempt) reasons.push(reason('quest_not_open', quest, adventurer));
+  if (quest.status === 'stalled' && quest.assignee && !ownAttempt) reasons.push(reason('worker_unconfirmed', quest, adventurer));
   if (quest.needsOwner) reasons.push(reason('needs_owner', quest, adventurer));
   const missing = (quest.parents || []).find((id) => !byId.has(id));
   if (missing) reasons.push(reason('parent_missing', quest, adventurer, missing));

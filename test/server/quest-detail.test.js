@@ -1,6 +1,8 @@
 // QB-FB-F: GET /api/quests/:id — one enriched quest, read-only, missing and odd ids answered with 404.
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { startFixture, tick } from './fixture.js';
 
 let fx;
@@ -53,5 +55,50 @@ describe('GET /api/quests/:id', () => {
     assert.equal(released.status, 200, released.text);
     assert.equal(released.body.quest.assignee, null);
     assert.equal(fx.events().at(-1).event, 'released');
+  });
+});
+
+// R3: the non-durable session diagnostic (requirement 5) must actually reach an HTTP consumer through this
+// same GET, sanitized — not just be queryable from inside the process via an internal import.
+describe('GET /api/quests/:id — unpersistedSession diagnostic (R3)', () => {
+  it('shows persisted:false and the known session id after both the quest store and the events file fail to record it', async () => {
+    let qp;
+    let ef;
+    const diagFx = await startFixture({
+      runners: {
+        // The session step captures a real id, then its own write-ahead persistence (quests.jsonl) *and*
+        // the confirming events file both fail — the exact "both sinks down" shape F4/requirement 5 guard
+        // against, so the diagnostic must not depend on either sink's own health to be readable.
+        session: async () => {
+          qp && fs.rmSync(qp, { recursive: true, force: true });
+          qp && fs.mkdirSync(qp);
+          ef && fs.rmSync(ef, { recursive: true, force: true });
+          ef && fs.mkdirSync(ef);
+          return { code: 0, session: 'ses_http_diag' };
+        },
+        run: async () => ({ code: 0 }),
+      },
+    });
+    try {
+      qp = path.join(diagFx.project.config.paths.data, 'quests.jsonl');
+      ef = diagFx.project.config.paths.events;
+      diagFx.project.write('docs/briefs/RUN-DIAG-1-x.md', 'brief');
+      await diagFx.api('/api/quests', 'POST', { package: 'RUN-DIAG-1', brief: 'docs/briefs/RUN-DIAG-1-x.md' });
+      const assigned = await diagFx.api('/api/quests/RUN-DIAG-1/assign', 'POST', { adventurer: 'oc-mimo' });
+      assert.equal(assigned.status, 200);
+      await tick(300);
+      const detail = await diagFx.api('/api/quests/RUN-DIAG-1');
+      assert.equal(detail.status, 200);
+      const diag = detail.body.quest.unpersistedSession;
+      assert.ok(diag, 'an HTTP consumer must be able to see the stopgap, not just code with a direct import');
+      assert.equal(diag.persisted, false, 'never presented as a confirmed, restart-safe fact');
+      assert.equal(diag.sessionId, 'ses_http_diag');
+      assert.equal(diag.error, undefined, 'never raw error text (paths, stderr) over the wire');
+      assert.deepEqual(Object.keys(diag).sort(), ['attemptId', 'notedAt', 'persisted', 'questId', 'sessionId']);
+    } finally {
+      try { fs.existsSync(qp) && fs.statSync(qp).isDirectory() && fs.rmdirSync(qp); } catch { /* ignore */ }
+      try { fs.existsSync(ef) && fs.statSync(ef).isDirectory() && fs.rmdirSync(ef); } catch { /* ignore */ }
+      await diagFx.close();
+    }
   });
 });
