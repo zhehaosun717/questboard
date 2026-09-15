@@ -1,0 +1,459 @@
+/* Dispatch history tab (QB-FB-HISTORY). Scoped to the history view: the event timeline, its filter
+   bar, the project-test panel and small additions to the worker table. Only theme tokens from
+   board.css — colours and fonts come from the theme, never hardcoded here. */
+
+.hist-events-section,
+.hist-project-tests,
+.hist-workers-section {
+  padding: 14px 18px;
+  border: 1px solid var(--hall-edge);
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--soil2), var(--soil));
+}
+
+/* ── events header: coverage text and load buttons ─────────────────────────── */
+
+.hist-events-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.hist-events-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hist-coverage {
+  font: 11px var(--mono);
+  color: var(--dim);
+}
+
+/* Visually hidden but reachable by assistive tech: accessible descriptions that would otherwise
+   clutter the visible toolbar (the full-reread explanation, currently the only user). */
+.hist-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.hist-load-more,
+.hist-refresh,
+.hist-retry {
+  font: 12px var(--body);
+  color: var(--cream);
+  background: var(--steel);
+  border: 1px solid var(--rivet);
+  border-radius: 3px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.hist-load-more:hover,
+.hist-refresh:hover,
+.hist-retry:hover {
+  background: var(--steel2);
+}
+
+.hist-load-more:focus-visible,
+.hist-refresh:focus-visible,
+.hist-retry:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+/* Deliberately quieter than the cheap actions above: this one re-requests everything already loaded. */
+.hist-reset-secondary {
+  font: 11px var(--body);
+  color: var(--dim);
+  background: transparent;
+  border: 1px dashed var(--steel2);
+  border-radius: 3px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+.hist-reset-secondary:hover {
+  color: var(--cable);
+  border-color: var(--rivet);
+}
+
+.hist-reset-secondary:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+/* ── filter bar ────────────────────────────────────────────────────────────── */
+
+.hist-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 14px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px dashed var(--steel2);
+  border-radius: 3px;
+  background: var(--tag-fiber);
+}
+
+.hist-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hist-filter-field label {
+  font: 11px var(--body);
+  color: var(--dim);
+}
+
+.hist-filter-field input,
+.hist-filter-field select {
+  min-width: 0;
+  font: 12px var(--mono);
+  color: var(--ink);
+  background: var(--tag);
+  border: 1px solid var(--rivet);
+  border-radius: 3px;
+  padding: 5px 7px;
+}
+
+.hist-filter-field input:focus-visible,
+.hist-filter-field select:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.hist-filter-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hist-filter-count {
+  font: 11px var(--mono);
+  color: var(--cable);
+}
+
+.hist-filter-error {
+  font: 11px var(--body);
+  color: var(--wax-lt);
+}
+
+.hist-filter-note {
+  font: 11px var(--body);
+  color: var(--dim);
+}
+
+.hist-filter-note-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hist-filter-inspect {
+  font: 11px var(--body);
+  color: var(--cream);
+  background: transparent;
+  border: 1px solid var(--rivet);
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.hist-filter-inspect:hover {
+  background: var(--steel);
+}
+
+.hist-filter-inspect[aria-pressed='true'] {
+  background: var(--steel2);
+  border-color: var(--amber);
+}
+
+.hist-filter-inspect:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.hist-filter-clear {
+  font: 11px var(--body);
+  color: var(--cream);
+  background: transparent;
+  border: 1px solid var(--rivet);
+  border-radius: 3px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+.hist-filter-clear:hover {
+  background: var(--steel);
+}
+
+/* ── loading / error / empty states ────────────────────────────────────────── */
+
+.hist-loading,
+.hist-empty,
+.hist-no-match {
+  padding: 22px 10px;
+  text-align: center;
+  font: 13px var(--body);
+  color: var(--dim);
+}
+
+.hist-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px;
+  margin-bottom: 10px;
+  font: 12px var(--body);
+  color: var(--wax-lt);
+  border: 1px solid var(--blood);
+  border-radius: 3px;
+}
+
+/* ── timeline ──────────────────────────────────────────────────────────────── */
+
+.hist-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hist-group {
+  border: 1px solid var(--hall-edge);
+  border-radius: 3px;
+  background: var(--soil2);
+}
+
+.hist-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--steel);
+  background: color-mix(in srgb, var(--hall-edge) 25%, transparent);
+}
+
+.hist-group-pkg {
+  font: 700 12px var(--mono);
+  color: var(--amber);
+  overflow-wrap: anywhere;
+}
+
+.hist-group-count,
+.hist-group-span {
+  font: 11px var(--mono);
+  color: var(--dim);
+}
+
+.hist-event-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 5px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--steel) 45%, transparent);
+  font: 12px var(--body);
+}
+
+.hist-event-line:last-child {
+  border-bottom: none;
+}
+
+.hist-ev-time {
+  flex: 0 0 92px;
+  font: 11px var(--mono);
+  color: var(--dim);
+}
+
+.hist-ev-badtime {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font: 11px var(--body);
+  color: var(--ink);
+  background: var(--wax-lt);
+}
+
+.hist-ev-kind {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 1px 7px;
+  border-radius: 2px;
+  font: 11px var(--body);
+  color: var(--ink);
+  background: var(--grey);
+}
+
+.hist-ev-kind.ok { background: var(--ready-lt); }
+.hist-ev-kind.bad { background: var(--wax-lt); }
+.hist-ev-kind.run { background: var(--travel-lt); }
+.hist-ev-kind.info { background: var(--brass-lt); }
+
+.hist-ev-who {
+  flex: 0 1 auto;
+  min-width: 0;
+  font: 11px var(--mono);
+  color: var(--cable);
+  overflow-wrap: anywhere;
+}
+
+.hist-ev-by {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hist-ev-detail-wrap {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hist-ev-detail {
+  flex: 1 1 220px;
+  min-width: 0;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.hist-ev-detail.expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.hist-ev-detail-toggle {
+  flex: 0 0 auto;
+  font: 11px var(--body);
+  color: var(--cable);
+  background: transparent;
+  border: 1px solid var(--rivet);
+  border-radius: 3px;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+
+.hist-ev-detail-toggle:hover {
+  background: var(--steel);
+}
+
+.hist-ev-detail-toggle:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+/* ── project tests ─────────────────────────────────────────────────────────── */
+
+.hist-project-tests {
+  border-left: 4px solid var(--teal);
+}
+
+.hist-project-tests h3 {
+  margin: 4px 0 0;
+  font: 400 20px/1.2 var(--han);
+  color: var(--tag);
+}
+
+.hist-pt-lines {
+  list-style: none;
+  margin: 8px 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hist-pt-lines li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 12px var(--body);
+  color: var(--cream);
+}
+
+.hist-pt-lines code {
+  font: 12px var(--mono);
+  color: var(--amber);
+  overflow-wrap: anywhere;
+}
+
+.hist-pt-verdict {
+  font: 11px var(--mono);
+}
+
+.hist-pt-lines li .hist-pt-verdict,
+.hist-pt-overall {
+  color: var(--dim);
+}
+
+.hist-pt-led {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--grey);
+  flex: 0 0 auto;
+}
+
+.hist-pt-led.pass,
+.hist-pt-overall.pass { color: var(--ready-lt); }
+.hist-pt-led.pass { background: var(--pcb); }
+.hist-pt-led.fail,
+.hist-pt-overall.fail { color: var(--wax-lt); }
+.hist-pt-led.fail { background: var(--blood); }
+.hist-pt-led.done { background: var(--cobalt); }
+
+.hist-pt-note {
+  margin: 6px 0 0;
+  font: 11px var(--body);
+  color: var(--dim);
+}
+
+/* ── responsive: 1024 (narrow desktop) and 1440 (full board) ───────────────── */
+
+@media (max-width: 1024px) {
+  .hist-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hist-event-line {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .hist-ev-detail-wrap {
+    flex-basis: 100%;
+  }
+
+  .hist-ev-time {
+    flex-basis: 84px;
+  }
+
+  .hist-events-tools {
+    width: 100%;
+  }
+}

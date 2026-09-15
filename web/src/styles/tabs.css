@@ -132,11 +132,6 @@
 .hist-event-item { display: flex; gap: 10px; font-size: 11px; padding: 3px 0; border-bottom: 1px dashed var(--oak-deep); }
 .hist-ev-time { font: 11px var(--mono); color: var(--dim); flex-shrink: 0; }
 
-.history-events-box { padding: 14px 18px; border: 1px solid var(--hall-edge); border-radius: 3px; background: linear-gradient(180deg, var(--soil2), var(--soil)); }
-.hist-events-scroll { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-.hist-event-line { display: flex; gap: 10px; font-size: 11px; padding: 4px 0; border-bottom: 1px solid var(--oak-deep); align-items: baseline; }
-.hist-ev-pkg { color: var(--amber); min-width: 80px; flex-shrink: 0; }
-.hist-ev-desc { color: var(--cream); }
 .muted { color: var(--dim); }
 
 @media (max-width: 900px) {
