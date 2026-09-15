@@ -71,6 +71,18 @@ describe('questboard init', () => {
     assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'questboard.config.json'), 'utf8')).name, 'Renamed');
   });
 
+  it('refuses a browser-unsafe --port before writing anything, but still starts with an ordinary one', () => {
+    const home = freshHome();
+    for (const blocked of [6000, 6666, 10080]) {
+      const dir = path.join(tmpDir('qb-init-badport-'), 'game');
+      assert.throws(() => runInit({ dir, port: blocked, home, exists: installed('codex') }), /浏览器/, `port ${blocked}`);
+      assert.ok(!fs.existsSync(dir), `nothing — not even the project folder — should be written for a refused port ${blocked}`);
+    }
+    const dir = tmpDir('qb-init-goodport-');
+    const result = runInit({ dir, port: 45231, home, exists: installed('codex') });
+    assert.equal(resolveConfig(dir, JSON.parse(fs.readFileSync(result.configFile, 'utf8'))).port, 45231);
+  });
+
   it('writes a lane for whatever tool the owner names, without needing it to be known or installed', () => {
     const dir = tmpDir('qb-init-own-');
     const result = runInit({

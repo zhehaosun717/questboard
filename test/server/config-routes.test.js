@@ -149,6 +149,17 @@ describe('OMO and settings routes', () => {
 
         assert.equal((await call('/api/settings', { method: 'POST', headers: { origin: 'http://evil.example' }, body: '{}' })).status, 403);
         assert.equal((await call('/api/settings', { method: 'POST', body: JSON.stringify({ raw: 'not an object' }) })).status, 400);
+
+        // A board port a browser would refuse to connect to: refused before any write, in Chinese, naming
+        // the port and a usable example — and it leaves no new backup behind.
+        const backupsBefore = fs.readdirSync(fx.project.root).filter((name) => name.startsWith('questboard.config.json.bak-'));
+        const badPort = await call('/api/settings', { method: 'POST', body: JSON.stringify({ raw: { ...original, port: 6666 } }) });
+        assert.equal(badPort.status, 400);
+        assert.match(badPort.body.error, /6666/);
+        assert.match(badPort.body.error, /浏览器/);
+        const backupsAfter = fs.readdirSync(fx.project.root).filter((name) => name.startsWith('questboard.config.json.bak-'));
+        assert.deepEqual(backupsAfter, backupsBefore, 'a refused save writes no new backup');
+        assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).policy.bannedAgents, ['Sisyphus', 'Momus'], 'a refused save changes nothing on disk');
       });
     } finally {
       fs.writeFileSync(file, `${JSON.stringify(original, null, 2)}\n`);

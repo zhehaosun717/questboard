@@ -3,6 +3,7 @@
 // refuse. Missing or malformed config fails loudly and names the field.
 import fs from 'node:fs';
 import path from 'node:path';
+import { isBrowserUnsafePort } from './browserUnsafePorts.js';
 
 export const CONFIG_FILE = 'questboard.config.json';
 const PLACEHOLDER = /\{([a-z]+)\}/g;
@@ -17,6 +18,16 @@ function fail(message) {
 function requireString(value, field) {
   if (typeof value !== 'string' || !value.trim()) fail(`${field} must be a non-empty string`);
   return value;
+}
+
+// The one board-port validator: range, finiteness and the browser-unsafe list, all in Chinese. Used by
+// resolveConfig for the config file's own `port` field, and by the CLI's `--port` override (src/cli/commands.js)
+// and startServer's `options.port` (src/server/server.js) so an invalid override is refused the same way
+// before anything starts or binds, never silently replaced with a fallback.
+export function validateBoardPort(port, field = 'port') {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) fail(`${field} 必须是 1 到 65535 之间的整数`);
+  if (isBrowserUnsafePort(port)) fail(`${field} ${port} 浏览器会直接拒绝连接（这是 Fetch 规范里的禁用端口），换一个端口，比如默认的 6097`);
+  return port;
 }
 
 function stringList(value, field, fallback) {
@@ -113,7 +124,9 @@ export function resolveConfig(root, raw) {
   if (!raw.lanes || typeof raw.lanes !== 'object' || !Object.keys(raw.lanes).length) fail('lanes must define at least one lane');
   const briefs = raw.briefs || {};
   const port = raw.port === undefined ? 6097 : raw.port;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) fail('port must be an integer from 1 to 65535');
+  // A browser refuses to open the board at all on a blocked port (see src/core/browserUnsafePorts.js) — the
+  // port would "work" (the server listens fine) but every tab would just show a connection-refused page.
+  validateBoardPort(port);
   const dataDir = raw.dataDir === undefined ? '.questboard-data' : raw.dataDir;
   return {
     root: base,

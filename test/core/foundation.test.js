@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveConfig, loadProjectConfig, findProjectRoot, fillTemplate, CONFIG_FILE } from '../../src/core/config.js';
+import { BROWSER_UNSAFE_PORTS } from '../../src/core/browserUnsafePorts.js';
 import { StatusLog, foldStatuses, applyStatuses } from '../../src/core/status.js';
 import { validateRoster, upsertAdventurer, saveRoster, loadRoster } from '../../src/core/roster.js';
 import { splitLegacyRoster } from '../../src/core/legacy.js';
@@ -31,6 +32,36 @@ describe('config', () => {
     assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes: { codex: { run: ['x', '{nmae}'], outputDir: 'o' } } }), /unknown placeholder \{nmae\}/);
     assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes: { codex: { run: ['x'] } } }), /needs outputDir .* or api/);
     assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, briefs: { packagePattern: '(' } }), /not a valid regular expression/);
+  });
+
+  it('refuses a board port a browser would refuse to connect to, in Chinese, naming the port and an example', () => {
+    for (const blocked of [6000, 6666, 10080]) {
+      assert.throws(
+        () => resolveConfig('E:/g', { name: 'G', lanes, port: blocked }),
+        (error) => error.message.includes(String(blocked)) && error.message.includes('浏览器') && error.message.includes('6097'),
+        `port ${blocked} should be refused with a Chinese explanation naming it and 6097`,
+      );
+    }
+    // Every canonical blocked port fails, and it is the same 82-port dataset the fixtures and the desktop
+    // shell's Rust settings parser read (src/core/browserUnsafePorts.js).
+    for (const blocked of BROWSER_UNSAFE_PORTS) {
+      assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, port: blocked }), /浏览器会直接拒绝连接/, `port ${blocked}`);
+    }
+    // Existing valid default and ordinary ephemeral ports stay unaffected.
+    assert.equal(resolveConfig('E:/g', { name: 'G', lanes, port: 6097 }).port, 6097);
+    assert.equal(resolveConfig('E:/g', { name: 'G', lanes, port: 45231 }).port, 45231);
+  });
+
+  it('refuses a non-integer or out-of-range board port in Chinese, not a string, fraction, overflow or non-finite value', () => {
+    // Same JSON numeric integer representation Rust's parse_project requires (desktop/src-tauri/src/settings.rs):
+    // a plain in-range integer. Strings, fractions, overflow and non-finite values are refused on both sides.
+    for (const bad of [0, -1, -6097, 65536, 70000, 6097.5, NaN, Infinity, -Infinity, '6097', null, true, [6097], {}]) {
+      assert.throws(
+        () => resolveConfig('E:/g', { name: 'G', lanes, port: bad }),
+        (error) => error.message.includes('必须是 1 到 65535 之间的整数') && !/must be an integer/.test(error.message),
+        `port ${JSON.stringify(bad)} should be refused in Chinese, naming the 1..65535 range`,
+      );
+    }
   });
 
   it('finds and loads the config file walking up from a subfolder', () => {

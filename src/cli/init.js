@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadRosterOrEmpty, saveRoster } from '../core/roster.js';
+import { resolveConfig } from '../core/config.js';
 
 export const INSTALL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WRAPPER_SOURCE = path.join(INSTALL_ROOT, 'examples', 'basic', 'scripts', 'run-worker.mjs');
@@ -96,9 +97,15 @@ export function runInit({ dir, name, port = 6097, force = false, home, exists = 
   const lanes = combined.length ? combined : KNOWN_LANES;
   const manual = MANUAL_LANE_CLIS.filter((binary) => exists(binary) && !named.has(binary));
 
+  const built = buildConfig({ name: name || path.basename(root), port, lanes });
+  // buildConfig writes straight to disk rather than through saveProjectConfig, so it needs its own call to
+  // the same validation — otherwise a bad --port (e.g. a browser-unsafe one) would write a config file that
+  // then refuses to load.
+  resolveConfig(root, built);
+
   const created = [];
   fs.mkdirSync(root, { recursive: true });
-  fs.writeFileSync(configFile, `${JSON.stringify(buildConfig({ name: name || path.basename(root), port, lanes }), null, 2)}\n`, 'utf8');
+  fs.writeFileSync(configFile, `${JSON.stringify(built, null, 2)}\n`, 'utf8');
   created.push('questboard.config.json');
   copyIfMissing(WRAPPER_SOURCE, path.join(root, 'scripts', 'run-worker.mjs'), created, root);
   copyIfMissing(SAMPLE_BRIEF, path.join(root, 'docs', 'briefs', 'RUN-1-first-task.md'), created, root);

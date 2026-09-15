@@ -14,6 +14,7 @@ import { createUsageRoutes } from './usageRoutes.js';
 import { createOmoRoutes } from './omoRoutes.js';
 import { createSettingsRoutes } from './settingsRoutes.js';
 import { createUsageService } from '../usage/service.js';
+import { validateBoardPort } from '../core/config.js';
 
 export const HOST = '127.0.0.1';
 const POLL_MS = 15000;
@@ -57,10 +58,16 @@ export function createServer({ config, home = homePaths(), runners, getLanes, ev
   return server;
 }
 
+// `options.port` is an override on top of the project's own configured port (already validated when the
+// config loaded); this is the one place that override reaches a real bind, so it gets the same board-port
+// validation before anything starts. `options.port || options.config.port` used to fall back on a falsy
+// override (0, NaN) instead of refusing it — every caller now either omits `port` (the default) or passes
+// an already-valid one (src/cli/commands.js does), but this checks it again so no caller of this exported
+// function can bind an unvalidated override just by skipping the CLI.
 export function startServer(options) {
+  const port = options.port === undefined ? options.config.port : validateBoardPort(options.port, '--port');
   const server = createServer(options);
   server.startBackground();
-  const port = options.port || options.config.port;
   server.listen(port, HOST, () => {
     process.stdout.write(`questboard: ${options.config.name} at http://${HOST}:${server.address().port}\n`);
   });

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { option, optionAll, projectConfig, serverUrl, request } from './client.js';
 import { startServer } from '../server/server.js';
+import { validateBoardPort } from '../core/config.js';
 import { homePaths } from '../core/home.js';
 import { splitLegacyRoster } from '../core/legacy.js';
 import { loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.js';
@@ -22,6 +23,17 @@ function positional(args, flagsWithValues = []) {
     if (flagsWithValues.includes(arg)) index += 1;
   }
   return undefined;
+}
+
+// A `--port` override, validated the same way the config file's own port is (range, finiteness, browser-
+// unsafe list — see validateBoardPort in core/config.js), before the server starts. An omitted flag keeps
+// the project's configured port as the default; an *invalid* one (0, NaN, out of range, a blocked port,
+// a fraction) is refused here rather than silently replaced the way `options.port || options.config.port`
+// would replace a falsy 0 or NaN.
+export function parsePortOption(raw) {
+  if (raw === undefined) return undefined;
+  if (!/^-?\d+$/.test(raw.trim())) throw new Error(`questboard: --port 必须是 1 到 65535 之间的整数，收到 "${raw}"`);
+  return validateBoardPort(Number(raw), '--port');
 }
 
 function questLine(quest) {
@@ -120,7 +132,7 @@ export const commands = {
 
   async serve(args) {
     const config = projectConfig(args);
-    const port = option(args, '--port') ? Number(option(args, '--port')) : undefined;
+    const port = parsePortOption(option(args, '--port'));
     startServer({ config, port });
   },
 
