@@ -37,39 +37,56 @@ export function sessionState(messages, now = Date.now()) {
   const lastText = parts.filter((p) => p.type === 'text').map((p) => p.text).join(' ').trim().slice(-300);
   const edits = (toolCounts.edit || 0) + (toolCounts.write || 0);
   const errorDetail = info.error ? (info.error.data ? info.error.data.message : info.error.name || '') : '';
+  // Actual last activity, never the nonexistent `info.time.updated` — the SDK's AssistantMessage only ever
+  // carries `{created, completed?}` (N9). `completed` is the newest fact once a turn ends; `created` is all
+  // there is while it is still running. Without this a stale completed tool-calls turn stayed "running"
+  // forever instead of ever going "stalled".
+  const lastActivityMs = info.time ? info.time.completed || info.time.created || 0 : 0;
   // A structured error on the message itself (info.error) is the only bounce evidence. Text inside a
   // tool's own state — its input, a shell error it is still handling, a file it read — is not: the words
   // could be quoting something unrelated, and the session could still produce more messages after it. Same
   // rule workers.js already enforces for file lanes: only a terminal fact, never live output, calls a
   // bounce.
   if (USAGE_RE.test(errorDetail)) return { state: 'bounced', reason: 'usage limit', toolCounts, lastText, edits };
+  // An explicit structured error is terminal whenever it appears (N13): OpenCode leaves `time.completed`
+  // unset on some aborts and keeps an earlier `finish` value on others, so checking completion or
+  // tool-calls first hid the failure and kept the slot for a worker that will never speak again. Only the
+  // message's own error field counts — wording inside a tool's state is not evidence, checked above or
+  // not at all, never here.
+  if (info.error) return { state: 'failed', reason: errorDetail || info.error.name || 'assistant error', toolCounts, lastText, edits, lastActivityMs };
   const completed = Boolean(info.time && info.time.completed);
   // `finish` is the AssistantMessage field the installed OpenCode SDK actually exposes (see
   // @opencode-ai/sdk's types.gen.d.ts), not a guessed name. "tool-calls" means this turn only ended to run
   // tools — another assistant turn follows once the tool result lands, so a completed-but-tool-only turn
   // is still mid-session, not a delivery. Same finality rule as the writeApiDelivery fix.
-  const midStep = completed && info.finish === 'tool-calls';
+  const midStep = info.finish === 'tool-calls';
   // A completed turn with no text and no `finish` field at all is exactly what a tool-only step looks like
   // on an SDK build that does not always set `finish` (P1/N2-a) — indistinguishable here from a genuine
   // final turn with nothing to say. Same call as writeApiDelivery: uncertain, not a delivery, so a live
   // worker never loses its slot on a guess made from an absent field.
-  const ambiguousToolOnly = completed && !lastText && info.finish === undefined && !info.error;
+  const ambiguousToolOnly = !lastText && info.finish === undefined;
   const running = !completed || midStep || ambiguousToolOnly;
-  // Actual last activity, never the nonexistent `info.time.updated` — the SDK's AssistantMessage only ever
-  // carries `{created, completed?}` (N9). `completed` is the newest fact once a turn ends; `created` is all
-  // there is while it is still running. Without this a stale completed tool-calls turn stayed "running"
-  // forever instead of ever going "stalled".
-  const lastActivityMs = info.time ? info.time.completed || info.time.created || 0 : 0;
   if (running) {
-    if (toolParts.length && lastActivityMs && now - lastActivityMs > STALE_MS) return { state: 'stalled', reason: 'running, no activity >20m', toolCounts, lastText, edits, lastActivityMs };
+    // A real timestamp is all staleness needs (N14): a turn with no tool parts — text-only and never
+    // completed, or reasoning-only with no finish — went as quiet as a wedged tool call once STALE_MS
+    // passes, and it must surface as stalled instead of holding its slot invisibly forever.
+    if (lastActivityMs && now - lastActivityMs > STALE_MS) return { state: 'stalled', reason: 'running, no activity >20m', toolCounts, lastText, edits, lastActivityMs };
+    // With no usable timestamp at all, "just started" and "lost track of" are indistinguishable: stay
+    // running (uncertain, slot held) but name the missing fact, so the board reads a diagnosis instead of
+    // an unexplained silence — and a turn is never called successful on a guess.
+    if (!lastActivityMs) return { state: 'running', reason: 'turn carries no created or completed timestamp', toolCounts, lastText, edits };
     return { state: 'running', toolCounts, lastText, edits, lastActivityMs };
   }
-  // A structured error or a length cutoff is a real terminal fact from the adapter, never a guess made from
-  // its text — and it is not a successful delivery either: an aborted or truncated turn must not masquerade
-  // as a finished report (N10). `lastText` still carries whatever partial text existed, so nothing is lost
-  // from the quest's detail even though no delivery file is written for it.
-  if (info.error) return { state: 'failed', reason: errorDetail || info.error.name || 'assistant error', toolCounts, lastText, edits, lastActivityMs };
+  // A length cutoff is a real terminal fact from the adapter, never a guess made from text — and it is not
+  // a successful delivery either: a truncated turn must not masquerade as a finished report (N10).
+  // `lastText` still carries whatever partial text existed, so nothing is lost from the quest's detail
+  // even though no delivery file is written for it.
   if (info.finish === 'length') return { state: 'failed', reason: 'assistant reply truncated by a length limit', toolCounts, lastText, edits, lastActivityMs };
+  // Only "stop" is an explicit successful finish, and a missing value with real text is the one tolerated
+  // compatibility case. Every other value the adapter reports — content-filter, error, unknown, anything
+  // a future SDK adds — is a terminal non-delivery with the value itself as the reason (N12), whatever
+  // text rides along: a filtered or errored turn is not a report no matter what it managed to say.
+  if (info.finish !== undefined && info.finish !== 'stop') return { state: 'failed', reason: `assistant turn ended with finish "${info.finish}", not "stop"`, toolCounts, lastText, edits, lastActivityMs };
   if (!lastText) return { state: 'failed', reason: 'no final assistant text', toolCounts, lastText, edits, lastActivityMs };
   return { state: 'delivered', toolCounts, lastText, edits, lastActivityMs };
 }

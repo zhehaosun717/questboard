@@ -80,6 +80,17 @@ export async function writeApiDelivery(config, laneId, name, { fetchImpl = fetch
   const last = assistants.at(-1);
   if (!last) throw transientError(`session ${session} has no assistant messages`, 'STILL_RUNNING');
   const info = last.info;
+  const text = (last.parts || []).filter((p) => p.type === 'text').map((p) => p.text).join('\n\n').trim();
+  // A structured error on the message itself — never wording found inside its text — is a real terminal
+  // fact from the adapter (N10), read before `time.completed` and before `finish` (N13): the two are not
+  // written together on every abort, so an error must decide the turn no matter which field is missing
+  // or stale. Whatever partial text exists is folded into the failure message so nothing is silently
+  // thrown away, and this is thrown as an ordinary (non-transient) error, since retrying changes nothing
+  // the adapter already settled.
+  if (info.error) {
+    const detail = info.error.data ? info.error.data.message : info.error.name || 'no detail';
+    throw new Error(`session ${session} ended with an error (${detail}), not a final report${text ? `: ${text}` : ''}`);
+  }
   if (!info.time || !info.time.completed) throw transientError(`session ${session} is still running, no completed final turn yet`, 'STILL_RUNNING');
   // `finish` is the AssistantMessage field the installed OpenCode SDK actually exposes (see
   // @opencode-ai/sdk's types.gen.d.ts), not a guessed name. "tool-calls" means this turn ended only to run
@@ -87,16 +98,12 @@ export async function writeApiDelivery(config, laneId, name, { fetchImpl = fetch
   // tool-only turn looks like mid-session. Only the last message is ever read: no walking back to an
   // earlier turn's text, which could be stale progress chatter rather than the real report.
   if (info.finish === 'tool-calls') throw transientError(`session ${session} ended on a tool call, not a final report yet`, 'STILL_RUNNING');
-  const text = (last.parts || []).filter((p) => p.type === 'text').map((p) => p.text).join('\n\n').trim();
-  // A structured error or a length cutoff on the message itself — never wording found inside its text — is
-  // a real terminal fact from the adapter (N10). Either way this was not a clean final report: whatever
-  // partial text exists is folded into the failure message so nothing is silently thrown away, and this is
-  // thrown as an ordinary (non-transient) error, since retrying changes nothing the adapter already settled.
-  if (info.error) {
-    const detail = info.error.data ? info.error.data.message : info.error.name || 'no detail';
-    throw new Error(`session ${session} ended with an error (${detail}), not a final report${text ? `: ${text}` : ''}`);
-  }
   if (info.finish === 'length') throw new Error(`session ${session} was truncated by a length limit, not a final report${text ? `: ${text}` : ''}`);
+  // Only "stop" is an explicit successful finish; a missing value with real text stays the compatibility
+  // case. Every other value (content-filter, error, unknown, anything a future SDK adds) names an ending
+  // that is not success (N12): a turn cut off by a filter is not a report, however much text it managed
+  // to say first — so it fails with the value itself, and that partial text, as the evidence.
+  if (info.finish !== undefined && info.finish !== 'stop') throw new Error(`session ${session} ended with finish "${info.finish}", not "stop", not a final report${text ? `: ${text}` : ''}`);
   if (!text) {
     // `finish` absent on an otherwise-completed, text-empty turn is exactly what a tool-only step looks
     // like on an SDK build that does not always set the field (P1/N2-a) — indistinguishable here from a
