@@ -37,11 +37,45 @@ function standsIn(snap: Snapshot, quest: Quest, column: Column): boolean {
   return true;
 }
 
+// Every quest that belongs in the column, in display order, with no cap: a column's true size is its
+// length. `column.limit` is a page-size hint for a folding column (see paginate below), never a ceiling
+// on how many quests exist — capping here would make "已完成" or "等会长" undercount their own work.
 export function questsInColumn(snap: Snapshot, column: Column): Quest[] {
   return snap.quests
     .filter((q) => standsIn(snap, q, column))
-    .sort((a, b) => (column.limit ? 0 : (a.priority || 2) - (b.priority || 2)) || b.updatedAt.localeCompare(a.updatedAt))
-    .slice(0, column.limit || Infinity);
+    .sort((a, b) => (column.limit ? 0 : (a.priority || 2) - (b.priority || 2)) || b.updatedAt.localeCompare(a.updatedAt));
+}
+
+// A browser-storage key namespaced to the current project, so two projects sharing a browser (same-name
+// projects, or one port reused) never leak or overwrite each other's fold/page choices. Falls back to the
+// bare key when an older server sends no project id, matching how other readers treat a missing id.
+export function projectScopedKey(base: string, snap: Snapshot): string {
+  return snap.project.id ? `${base}.${snap.project.id}` : base;
+}
+
+// Client-side search for a folded column's contents: matches the quest id or title, case-insensitively.
+// An empty query returns every item unfiltered.
+export function filterQuests(items: Quest[], query: string): Quest[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return items;
+  return items.filter((quest) => quest.id.toLowerCase().includes(q) || quest.title.toLowerCase().includes(q));
+}
+
+export interface Page<T> {
+  pageItems: T[];
+  page: number;
+  totalPages: number;
+  total: number;
+}
+
+// Slices an already-sorted/filtered list into one page. `page` is clamped into range so a stale page
+// number (search narrowed the list, or the list shrank) never renders empty by mistake.
+export function paginate<T>(items: T[], page: number, pageSize: number): Page<T> {
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const clamped = Math.min(Math.max(1, page), totalPages);
+  const start = (clamped - 1) * pageSize;
+  return { pageItems: items.slice(start, start + pageSize), page: clamped, totalPages, total };
 }
 
 export function busyQuests(snap: Snapshot, cardId: string): Quest[] {

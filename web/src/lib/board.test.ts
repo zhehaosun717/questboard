@@ -3,10 +3,13 @@ import type { Card, Quest, Snapshot, Verdict } from '../api/types';
 import {
   busyQuests,
   cardLabel,
+  filterQuests,
   groupRefusals,
   hasOwnerQuestion,
   isQueueOnly,
   isSafeReviewUrl,
+  paginate,
+  projectScopedKey,
   questsInColumn,
   relatedQuestIds,
 } from './board';
@@ -67,7 +70,7 @@ function trayIds(snap: Snapshot): string[] {
 }
 
 describe('board pure helpers', () => {
-  it('columns sort and limit', () => {
+  it('columns sort', () => {
     const q1 = makeQuest({ id: 'q1', priority: 2, updatedAt: '2026-09-10T10:00:00.000Z', status: 'posted' });
     const q2 = makeQuest({ id: 'q2', priority: 1, updatedAt: '2026-09-10T08:00:00.000Z', status: 'posted' });
     const q3 = makeQuest({ id: 'q3', priority: 2, updatedAt: '2026-09-10T12:00:00.000Z', status: 'posted' });
@@ -86,7 +89,9 @@ describe('board pure helpers', () => {
 
     const openItems = questsInColumn(snap, openCol);
     expect(openItems.map((q) => q.id)).toEqual(['q2', 'q3', 'q1', 'q4']);
+  });
 
+  it('never caps a column: the archive column returns every quest, newest first, even past its page-size hint', () => {
     const d1 = makeQuest({ id: 'd1', status: 'done', updatedAt: '2026-09-10T01:00:00.000Z' });
     const d2 = makeQuest({ id: 'd2', status: 'done', updatedAt: '2026-09-10T03:00:00.000Z' });
     const d3 = makeQuest({ id: 'd3', status: 'done', updatedAt: '2026-09-10T02:00:00.000Z' });
@@ -102,7 +107,36 @@ describe('board pure helpers', () => {
     };
 
     const doneItems = questsInColumn(snapDone, doneCol);
-    expect(doneItems.map((q) => q.id)).toEqual(['d2', 'd3']);
+    expect(doneItems.map((q) => q.id)).toEqual(['d2', 'd3', 'd1']);
+  });
+
+  it('projectScopedKey namespaces by the snapshot project id, falling back for an older server', () => {
+    const withId = makeSnapshot([]);
+    expect(projectScopedKey('questboard.doneColumnOpen', withId)).toBe('questboard.doneColumnOpen.testprojectid0');
+    const noId = { ...withId, project: { ...withId.project, id: undefined } };
+    expect(projectScopedKey('questboard.doneColumnOpen', noId)).toBe('questboard.doneColumnOpen');
+  });
+
+  it('filterQuests matches id or title, case-insensitively, and an empty query keeps everything', () => {
+    const a = makeQuest({ id: 'RUN-4', title: 'Fix the loop controller' });
+    const b = makeQuest({ id: 'ART-2', title: 'Redo the banner' });
+    expect(filterQuests([a, b], 'run')).toEqual([a]);
+    expect(filterQuests([a, b], 'banner')).toEqual([b]);
+    expect(filterQuests([a, b], '')).toEqual([a, b]);
+    expect(filterQuests([a, b], 'nope')).toEqual([]);
+  });
+
+  it('paginate slices into pages and clamps a stale page number back into range', () => {
+    const items = Array.from({ length: 5 }, (_, i) => `item-${i}`);
+    const first = paginate(items, 1, 2);
+    expect(first).toEqual({ pageItems: ['item-0', 'item-1'], page: 1, totalPages: 3, total: 5 });
+    const last = paginate(items, 3, 2);
+    expect(last.pageItems).toEqual(['item-4']);
+    const tooFar = paginate(items, 99, 2);
+    expect(tooFar.page).toBe(3);
+    expect(tooFar.pageItems).toEqual(['item-4']);
+    const empty = paginate<string>([], 1, 2);
+    expect(empty).toEqual({ pageItems: [], page: 1, totalPages: 1, total: 0 });
   });
 
   it('groupRefusals groups one message across cards', () => {

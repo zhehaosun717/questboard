@@ -1,0 +1,74 @@
+/* 卷宗室 (archive) search and paging, and the 等会长 fold — scoped to Board.tsx so folding a column never
+   touches the shared board.css rules other work is editing in parallel. */
+
+/* board.css sizes .columns as 5 fixed grid tracks, one per COLUMNS entry, and only ever narrowed the 5th
+   (卷宗室/done). These two rules add the missing narrow track for the 4th (等会长/owner) when it folds too,
+   at higher specificity than board.css's own two `.columns` rules so they win regardless of import order. */
+.columns.owner-collapsed {
+  grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) minmax(200px, 1fr) 58px 58px;
+}
+.columns.owner-collapsed.done-open {
+  grid-template-columns: minmax(176px, 1fr) minmax(176px, 1fr) minmax(176px, 1fr) 58px 210px;
+}
+
+.archive-search {
+  padding: 0 8px 8px;
+}
+
+.archive-match {
+  display: block;
+  margin-top: 4px;
+  font: 400 11px var(--mono);
+  color: var(--dim);
+}
+
+.archive-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 9px;
+  font: 400 12px var(--body);
+  color: var(--cream);
+  background: var(--hall-edge);
+  border: 1px solid var(--rivet);
+  border-radius: 2px;
+}
+
+.archive-search input::placeholder {
+  color: var(--dim);
+}
+
+.archive-search input:focus {
+  outline: none;
+  border-color: var(--cable);
+}
+
+.archive-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px;
+  font: 400 11px var(--mono);
+  color: var(--dim);
+  border-top: 1px solid var(--hall-edge);
+}
+
+.archive-pager button {
+  padding: 3px 8px;
+  font: 700 11px var(--body);
+  color: var(--cream);
+  background: transparent;
+  border: 1px solid var(--rivet);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.archive-pager button:hover:not(:disabled) {
+  border-color: var(--cable);
+  color: var(--tag);
+}
+
+.archive-pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

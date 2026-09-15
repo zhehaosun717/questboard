@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Quest, QuestStatus, Snapshot } from '../api/types';
-import { questsInColumn } from '../lib/board';
+import { filterQuests, paginate, projectScopedKey, questsInColumn } from '../lib/board';
 import { COLUMNS, type Column } from '../lib/labels';
 import { QuestCard } from './QuestCard';
 import '../styles/responsibility.css';
+import '../styles/archive.css';
 
 interface BoardProps {
   snap: Snapshot;
@@ -12,42 +13,145 @@ interface BoardProps {
   onDropCard: (questId: string, cardId: string) => void;
 }
 
-// 已完成 is history, not work: it starts folded to a narrow strip so the four working columns fit beside the
-// guild without a horizontal scroll. The owner's choice is remembered in this browser only.
+// 已完成 is history, not work, and 等会长 can grow long once a few reviews land at once: both fold to a
+// narrow strip so the board fits beside the guild without a horizontal scroll. Each choice is remembered
+// per project in this browser only (projectScopedKey keeps two projects on one machine from sharing it).
 const DONE_OPEN_KEY = 'questboard.doneColumnOpen';
+const OWNER_OPEN_KEY = 'questboard.ownerColumnOpen';
+const ARCHIVE_PAGE_SIZE = 12;
 
-function readDoneOpen(): boolean {
+function readFoldOpen(key: string, fallback: boolean): boolean {
   try {
-    return window.localStorage.getItem(DONE_OPEN_KEY) === '1';
+    const raw = window.localStorage.getItem(key);
+    return raw === null ? fallback : raw === '1';
   } catch {
-    return false; // storage blocked (private window): start folded
+    return fallback; // storage blocked (private window): use the default
   }
 }
 
-function DoneColumn({
+function writeFoldOpen(key: string, open: boolean): void {
+  try {
+    window.localStorage.setItem(key, open ? '1' : '0');
+  } catch {
+    // storage blocked: the choice still holds for this visit
+  }
+}
+
+// The folded strip for either column: it always shows the column's true, uncapped count — folding is a
+// view choice, never a way to make pending or archived work look smaller than it is.
+function FoldedStrip({ col, count, onOpen }: { col: Column; count: number; onOpen: () => void }) {
+  return (
+    <section className={`col c-${col.key} collapsed`}>
+      <button className="col-toggle" type="button" title={`展开${col.title}`} onClick={onOpen}>
+        <span className="col-num">{col.num}</span>
+        <span className="count">{count}</span>
+        <span className="v-title">{col.title}</span>
+        <span className="v-hint">展开</span>
+      </button>
+    </section>
+  );
+}
+
+function ArchiveColumn({
   col,
   items,
   open,
   onToggle,
   onSelectQuest,
+  projectId,
 }: {
   col: Column;
   items: Quest[];
   open: boolean;
   onToggle: (open: boolean) => void;
   onSelectQuest: (questId: string) => void;
+  projectId: string | undefined;
+}) {
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+
+  // A query or page number left over from a previous project would otherwise silently filter the next
+  // one's archive, since this component stays mounted across a project switch on a live board.
+  useEffect(() => {
+    setQuery('');
+    setPage(1);
+  }, [projectId]);
+
+  const filtered = useMemo(() => filterQuests(items, query), [items, query]);
+  const { pageItems, page: shownPage, totalPages, total } = paginate(filtered, page, ARCHIVE_PAGE_SIZE);
+  const searching = query.trim().length > 0;
+
+  if (!open) {
+    return <FoldedStrip col={col} count={items.length} onOpen={() => onToggle(true)} />;
+  }
+  return (
+    <section className={`col c-${col.key}`}>
+      <header className="col-head">
+        <span className="col-num">{col.num}</span>
+        <div className="col-title">
+          <h2>{col.title}</h2>
+          <span>{col.sub}</span>
+        </div>
+        <span className="count" title="全部完成、取代和取消的委托，不受当前搜索影响">{items.length}</span>
+        <button className="col-fold" type="button" title={`收起${col.title}`} onClick={() => onToggle(false)}>
+          收起
+        </button>
+      </header>
+      <div className="archive-search">
+        <input
+          type="search"
+          placeholder="搜索编号或标题"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setPage(1);
+          }}
+        />
+        {searching && (
+          <span className="archive-match">
+            匹配 {total} / 共 {items.length}
+          </span>
+        )}
+      </div>
+      <div className="done-list">
+        {pageItems.length > 0 ? (
+          pageItems.map((q) => (
+            <button key={q.id} className="done-row" type="button" onClick={() => onSelectQuest(q.id)}>
+              <b>{q.id}</b>
+              <span title={q.title}>{q.title}</span>
+            </button>
+          ))
+        ) : (
+          <div className="empty">{query ? '没有匹配的委托' : '— 空 —'}</div>
+        )}
+        <a className="done-more" href="#/history">全部历史在「派出记录」</a>
+      </div>
+      {total > ARCHIVE_PAGE_SIZE && (
+        <div className="archive-pager">
+          <button type="button" disabled={shownPage <= 1} onClick={() => setPage(shownPage - 1)}>‹ 上一页</button>
+          <span>第 {shownPage}/{totalPages} 页，共 {total} 条</span>
+          <button type="button" disabled={shownPage >= totalPages} onClick={() => setPage(shownPage + 1)}>下一页 ›</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function OwnerColumn({
+  col,
+  items,
+  open,
+  onToggle,
+  renderQuestList,
+}: {
+  col: Column;
+  items: Quest[];
+  open: boolean;
+  onToggle: (open: boolean) => void;
+  renderQuestList: (items: Quest[]) => React.ReactNode;
 }) {
   if (!open) {
-    return (
-      <section className={`col c-${col.key} collapsed`}>
-        <button className="col-toggle" type="button" title={`展开${col.title}`} onClick={() => onToggle(true)}>
-          <span className="col-num">{col.num}</span>
-          <span className="count">{items.length}</span>
-          <span className="v-title">{col.title}</span>
-          <span className="v-hint">展开</span>
-        </button>
-      </section>
-    );
+    return <FoldedStrip col={col} count={items.length} onOpen={() => onToggle(true)} />;
   }
   return (
     <section className={`col c-${col.key}`}>
@@ -62,19 +166,7 @@ function DoneColumn({
           收起
         </button>
       </header>
-      <div className="done-list">
-        {items.length > 0 ? (
-          items.map((q) => (
-            <button key={q.id} className="done-row" type="button" onClick={() => onSelectQuest(q.id)}>
-              <b>{q.id}</b>
-              <span title={q.title}>{q.title}</span>
-            </button>
-          ))
-        ) : (
-          <div className="empty">— 空 —</div>
-        )}
-        <a className="done-more" href="#/history">全部历史在「派出记录」</a>
-      </div>
+      <div className="list">{renderQuestList(items)}</div>
     </section>
   );
 }
@@ -82,15 +174,23 @@ function DoneColumn({
 export function Board({ snap, pickingCardId, onSelectQuest, onDropCard }: BoardProps) {
   const seenRef = useRef<Set<string>>(new Set());
   const lastStatusRef = useRef<Map<string, QuestStatus>>(new Map());
-  const [doneOpen, setDoneOpen] = useState(readDoneOpen);
+  const doneKey = projectScopedKey(DONE_OPEN_KEY, snap);
+  const ownerKey = projectScopedKey(OWNER_OPEN_KEY, snap);
+  const [doneOpen, setDoneOpen] = useState(() => readFoldOpen(doneKey, false));
+  const [ownerOpen, setOwnerOpen] = useState(() => readFoldOpen(ownerKey, true));
+
+  // The project (and so the storage key) can change under a live board without a full remount; re-read
+  // each fold's own stored choice rather than keeping the previous project's.
+  useEffect(() => setDoneOpen(readFoldOpen(doneKey, false)), [doneKey]);
+  useEffect(() => setOwnerOpen(readFoldOpen(ownerKey, true)), [ownerKey]);
 
   const toggleDone = (open: boolean) => {
     setDoneOpen(open);
-    try {
-      window.localStorage.setItem(DONE_OPEN_KEY, open ? '1' : '0');
-    } catch {
-      // storage blocked: the choice still holds for this visit
-    }
+    writeFoldOpen(doneKey, open);
+  };
+  const toggleOwner = (open: boolean) => {
+    setOwnerOpen(open);
+    writeFoldOpen(ownerKey, open);
   };
 
   const isNewMap = useMemo(() => {
@@ -117,21 +217,67 @@ export function Board({ snap, pickingCardId, onSelectQuest, onDropCard }: BoardP
     }
   }, [snap.quests]);
 
-  let globalIndex = 0;
+  const globalIndex = useRef(0);
+  globalIndex.current = 0;
+
+  const renderQuestList = (items: Quest[]) => {
+    if (items.length === 0) {
+      return (
+        <div className="empty">
+          {snap.quests.length > 0 ? (
+            '— 空 —'
+          ) : (
+            <>
+              暂无委托<code>questboard post</code>
+            </>
+          )}
+        </div>
+      );
+    }
+    return items.map((q) => {
+      const cardIndex = globalIndex.current++;
+      return (
+        <QuestCard
+          key={q.id}
+          quest={q}
+          index={cardIndex}
+          snap={snap}
+          pickingCardId={pickingCardId}
+          isNew={isNewMap.get(q.id) ?? false}
+          statusChanged={changedMap.get(q.id) ?? false}
+          onSelect={onSelectQuest}
+          onDropCard={onDropCard}
+        />
+      );
+    });
+  };
 
   return (
-    <div id="boardView" className={`columns${doneOpen ? ' done-open' : ''}`}>
+    <div id="boardView" className={`columns${doneOpen ? ' done-open' : ''}${ownerOpen ? '' : ' owner-collapsed'}`}>
       {COLUMNS.map((col) => {
         const items = questsInColumn(snap, col);
         if (col.key === 'done') {
           return (
-            <DoneColumn
+            <ArchiveColumn
               key={col.key}
               col={col}
               items={items}
               open={doneOpen}
               onToggle={toggleDone}
               onSelectQuest={onSelectQuest}
+              projectId={snap.project.id}
+            />
+          );
+        }
+        if (col.key === 'owner') {
+          return (
+            <OwnerColumn
+              key={col.key}
+              col={col}
+              items={items}
+              open={ownerOpen}
+              onToggle={toggleOwner}
+              renderQuestList={renderQuestList}
             />
           );
         }
@@ -145,36 +291,7 @@ export function Board({ snap, pickingCardId, onSelectQuest, onDropCard }: BoardP
               </div>
               <span className="count">{items.length}</span>
             </header>
-            <div className="list">
-              {items.length > 0 ? (
-                items.map((q) => {
-                  const cardIndex = globalIndex++;
-                  return (
-                    <QuestCard
-                      key={q.id}
-                      quest={q}
-                      index={cardIndex}
-                      snap={snap}
-                      pickingCardId={pickingCardId}
-                      isNew={isNewMap.get(q.id) ?? false}
-                      statusChanged={changedMap.get(q.id) ?? false}
-                      onSelect={onSelectQuest}
-                      onDropCard={onDropCard}
-                    />
-                  );
-                })
-              ) : (
-                <div className="empty">
-                  {snap.quests.length > 0 ? (
-                    '— 空 —'
-                  ) : (
-                    <>
-                      暂无委托<code>questboard post</code>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+            <div className="list">{renderQuestList(items)}</div>
           </section>
         );
       })}
