@@ -1,10 +1,18 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Card, Snapshot } from '../api/types';
+import {
+  EMPTY_ROSTER_FILTER,
+  buildRosterFilterOptions,
+  filterRosterCards,
+  rosterFilterActive,
+  type RosterFilterState,
+} from '../lib/rosterFilter';
 import { CardModal } from './CardModal';
 import { OmoSection } from './roster/OmoSection';
 import { RosterCardFormModal } from './roster/RosterCardFormModal';
 import { RosterCardTable } from './roster/RosterCardTable';
 import { RosterDeleteModal } from './roster/RosterDeleteModal';
+import { RosterFilters } from './roster/RosterFilters';
 
 interface RosterViewProps {
   snap: Snapshot;
@@ -20,15 +28,20 @@ export function RosterView({ snap, refresh, pushToast }: RosterViewProps) {
     duplicate?: boolean;
   }>({ isOpen: false });
   const [deleteCard, setDeleteCard] = useState<Card | null>(null);
+  const [filter, setFilter] = useState<RosterFilterState>(EMPTY_ROSTER_FILTER);
 
   const lanes = snap.project?.lanes ?? [];
+  const roster = snap.roster ?? [];
+  const options = useMemo(() => buildRosterFilterOptions(roster), [roster]);
+  const visible = useMemo(() => filterRosterCards(roster, filter), [roster, filter]);
+  const filterActive = rosterFilterActive(filter);
 
   return (
     <div className="roster-view-container">
       <header className="roster-view-header">
         <div>
-          <span className="eyebrow">ROSTER &amp; MODELS</span>
-          <h2>冒险者与模型</h2>
+          <span className="eyebrow">ROSTER (MODELS)</span>
+          <h2>冒险者（模型）</h2>
         </div>
         <div>
           <button
@@ -43,14 +56,31 @@ export function RosterView({ snap, refresh, pushToast }: RosterViewProps) {
 
       <section className="roster-section-cards">
         <div className="roster-sec-title-row">
-          <h3>公会名册 ({snap.roster?.length ?? 0})</h3>
+          <h3>公会名册 ({filterActive ? `筛出 ${visible.length} / 共 ${roster.length}` : roster.length})</h3>
           <p className="hint">
-            管理当前项目可派工的冒险者。接入方式推断出的冒险者不能直接编辑。
+            管理当前项目可派工的冒险者。每位冒险者就是一个配置好的模型运行档（模型 + 变体 + 接入方式）。接入方式推断出的冒险者不能直接编辑。
           </p>
         </div>
 
+        <RosterFilters
+          idPrefix="roster"
+          value={filter}
+          options={options}
+          total={roster.length}
+          visible={visible.length}
+          onChange={setFilter}
+        />
+
+        {!snap.project?.id ? (
+          <p className="hint" role="status">
+            服务器没有提供项目标识：折叠只影响本页，不会被记住，也不会和其他项目串用。
+          </p>
+        ) : null}
+
         <RosterCardTable
-          cards={snap.roster ?? []}
+          cards={roster}
+          filter={filter}
+          projectId={snap.project?.id ?? ''}
           onOpenStatus={setStatusCard}
           onEdit={(card) => setFormModal({ isOpen: true, card })}
           onDuplicate={(card) => setFormModal({ isOpen: true, card, duplicate: true })}

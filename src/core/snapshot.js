@@ -3,6 +3,7 @@
 // the verification strip, lane limits, and recent briefs nobody posted yet.
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { eligibility } from './rules.js';
 import { liveByName } from './sync.js';
 import { effectiveRoster } from './overlay.js';
@@ -60,6 +61,18 @@ export function reviewPages(config) {
   });
 }
 
+// Two projects may share a name and a port; the browser storage they reach is one. The board therefore
+// also gets a stable, non-secret id: a digest of the canonical project root (separator and case folded on
+// Windows, trailing slashes dropped). The root itself never leaves the server — the id is what names a
+// project's storage namespace.
+export function projectId(root) {
+  if (typeof root !== 'string' || !root.trim()) throw new Error('projectId 需要项目根目录（config.root 缺失）。');
+  let canonical = path.resolve(root).split(path.sep).join('/');
+  if (path.sep === '\\') canonical = canonical.toLowerCase();
+  canonical = canonical.replace(/\/+$/, '');
+  return createHash('sha256').update(canonical).digest('hex').slice(0, 12);
+}
+
 export function threadsByPackage(boardStore, packageIds) {
   const result = {};
   if (!boardStore) return result;
@@ -88,7 +101,7 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
   const laneRows = (lanes && lanes.packages) || [];
   return {
     generatedAt: new Date().toISOString(),
-    project: { name: config.name, lanes: Object.keys(config.lanes) },
+    project: { name: config.name, id: projectId(config.root), lanes: Object.keys(config.lanes) },
     quests,
     roster,
     eligibility: byQuest,

@@ -1,0 +1,224 @@
+/* Roster discovery (QB-FB-B): shared filter bar, collapsible provider groups,
+   provider markers. Everything is scoped to roster containers and uses the
+   board.css theme variables, so it follows whichever palette is active. */
+
+.roster-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 10px;
+  padding: 10px;
+  margin: 8px 0 10px;
+  border: 1px solid var(--steel);
+  border-radius: 6px;
+  background: var(--soil2);
+}
+
+.roster-filters--compact {
+  padding: 7px 8px;
+  gap: 6px 8px;
+}
+
+.roster-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 110px;
+  min-width: 0;
+}
+
+.roster-filter-search {
+  flex: 2 1 160px;
+}
+
+.roster-filter-field label {
+  font: 10px/1.4 var(--display);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roster-filter-field input,
+.roster-filter-field select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.roster-filters--compact .roster-filter-field input,
+.roster-filters--compact .roster-filter-field select {
+  font-size: 11px;
+  padding: 3px 5px;
+}
+
+.roster-filter-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.roster-filter-count {
+  font: 11px/1 var(--mono);
+  color: var(--cable);
+  white-space: nowrap;
+}
+
+.roster-filter-clear {
+  background: transparent;
+  border: 1px solid var(--steel2);
+  border-radius: 4px;
+  color: var(--dim);
+  font: 11px/1 var(--body);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.roster-filter-clear:hover {
+  color: var(--amber);
+  border-color: var(--amber-dk);
+}
+
+.roster-filters :focus-visible,
+.guild-group button:focus-visible,
+.provider-toggle:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+/* Guild sidebar: group headers are now fold buttons. */
+.guild-group button {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.guild-fold-caret {
+  font: 10px/1 var(--mono);
+  color: var(--dim);
+  flex: none;
+}
+
+.provider-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font: 9px/1 var(--mono);
+  color: var(--amber);
+  vertical-align: middle;
+}
+
+.guild-group .provider-mark {
+  align-self: center;
+}
+
+.guild-empty {
+  font: 12px/1.6 var(--body);
+  color: var(--dim);
+  padding: 6px 2px;
+}
+
+/* Long identifiers must never break layout. */
+.a-model,
+.a-name,
+.a-meta,
+.adv-cell-name strong,
+.adv-cell-model,
+.adv-cell-id,
+.provider-name,
+.guild-group-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.provider-toggle .provider-mark {
+  color: var(--amber);
+}
+
+.roster-filter-search input[type='search'] {
+  width: 100%;
+}
+
+/* Sidebar fold buttons: the h4's lane span keeps its look; classed spans get their own. */
+.guild-group .guild-group-toggle {
+  flex: 1;
+  min-width: 0;
+  border-left: 3px solid var(--amber); /* inline accent style overrides this color */
+}
+.guild-group .guild-fold-caret {
+  font: 10px/1 var(--mono);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--dim);
+}
+.guild-group .provider-mark {
+  border: 1px solid currentColor;
+  font: 9px/1 var(--mono);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.guild-group .guild-group-name {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  text-transform: none;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.guild-group .guild-group-count {
+  margin-left: auto;
+  flex: none;
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.guild-empty {
+  padding: 10px 2px;
+  font: 400 13px var(--body);
+  color: var(--dim);
+}
+
+@media (max-width: 1024px) {
+  .roster-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .roster-filter-search {
+    grid-column: 1 / -1;
+  }
+
+  .roster-filter-foot {
+    grid-column: 1 / -1;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+}
+
+@media (min-width: 1025px) and (max-width: 1440px) {
+  .roster-filter-field {
+    flex: 1 1 140px;
+  }
+
+  .roster-filter-search {
+    flex: 2 1 220px;
+  }
+}

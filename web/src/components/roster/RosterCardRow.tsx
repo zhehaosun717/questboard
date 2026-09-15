@@ -16,21 +16,22 @@ export function RosterCardRow({ card, onOpenStatus, onEdit, onDuplicate, onDelet
   const isDerived = Boolean(card.derived);
   const billingLabel = card.billing ? BILLING[card.billing] ?? card.billing : '-';
   const led = card.status === 'available' ? 'ok' : card.status === 'limited' ? 'warn' : 'bad';
+  const fullModel = `${card.model}${card.variant ? ` · ${card.variant}` : ''}`;
 
   return (
     <tr className={isDerived ? 'row-derived' : ''}>
       <td>
         <div className="adv-cell-name">
-          <strong>{card.name}</strong>
-          <code className="adv-cell-id">{card.id}</code>
+          <strong title={`冒险者：${card.name}（${card.provider || '未填服务商'} · ${card.lane}）`}>{card.name}</strong>
+          <code className="adv-cell-id" title={`编号：${card.id}`}>{card.id}</code>
         </div>
       </td>
       <td>
         <span className="lane-chip">{card.lane}</span>
       </td>
       <td>
-        <div className="adv-cell-model">
-          <span>
+        <div className="adv-cell-model" title={`模型标识：${fullModel}`}>
+          <span title={`完整模型标识：${card.model}${card.variant ? `（变体 ${card.variant}）` : ''}`}>
             {card.model}
             {card.variant ? ` · ${card.variant}` : ''}
           </span>

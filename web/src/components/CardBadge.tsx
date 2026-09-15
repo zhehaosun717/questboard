@@ -1,6 +1,7 @@
 import type { Card, CardStatus, Quest } from '../api/types';
 import { cardLabel, formatMonthDay } from '../lib/board';
 import { BILLING, CARD_STATUS } from '../lib/labels';
+import { cardProvider } from '../lib/rosterFilter';
 
 interface CardBadgeProps {
   card: Card;
@@ -69,6 +70,8 @@ export function CardBadge({
   };
 
   const initial = (card.name.trim()[0] || '?').toUpperCase();
+  const provider = cardProvider(card);
+  const busyIds = busyQuests.map((q) => q.id).join('、');
 
   const classNames = [
     'adv',
@@ -84,6 +87,8 @@ export function CardBadge({
     <article
       className={classNames}
       data-adv={card.id}
+      title={`${card.name} · ${card.id} · ${card.model}${card.variant ? `（变体 ${card.variant}）` : ''} · ${provider} / ${card.lane} · ${label}${busyIds ? ` · 正在做 ${busyIds}` : ''}`}
+      aria-label={`冒险者工牌 ${card.id}：${card.name}，模型 ${card.model}${card.variant ? `，变体 ${card.variant}` : ''}，服务商 ${provider}，接入方式 ${card.lane}，状态 ${label}${busyIds ? `，正在做 ${busyIds}` : ''}`}
       draggable={canDrag}
       tabIndex={0}
       onClick={handleClick}
@@ -107,7 +112,7 @@ export function CardBadge({
             {card.variant ? ` · ${card.variant}` : ''}
           </div>
           <div className="a-meta">
-            <span className="a-key">接入方式</span> {card.lane} · {card.provider} ·{' '}
+            <span className="a-key">接入方式</span> {card.lane} · {provider} ·{' '}
             <span className={card.billing === 'payg' ? 'pay' : ''}>
               {BILLING[card.billing || ''] || card.billing || ''}
             </span>

@@ -133,7 +133,10 @@ export interface Verification {
 
 export interface Snapshot {
   generatedAt: string;
-  project: { name: string; lanes: string[] };
+  // id is the stable, opaque project digest (src/core/snapshot.js projectId). Optional: an older server
+  // sends no id, and readers must not fall back to `name` as a storage namespace — same-name projects
+  // on the same port share one browser storage.
+  project: { name: string; id?: string; lanes: string[] };
   quests: Quest[];
   roster: Card[];
   eligibility: Record<string, Record<string, Verdict>>;

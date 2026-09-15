@@ -1,7 +1,24 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Card, CardStatus, Snapshot } from '../api/types';
 import { busyQuests } from '../lib/board';
+import {
+  EMPTY_ROSTER_FILTER,
+  buildRosterFilterOptions,
+  cardProvider,
+  filterRosterCards,
+  foldStorage,
+  loadFoldedProviders,
+  openRevealedGroups,
+  providerAccent,
+  providerMark,
+  revealGroups,
+  rosterFilterActive,
+  saveFoldedProviders,
+  toggleGroupFold,
+  type RosterFilterState,
+} from '../lib/rosterFilter';
 import { CardBadge } from './CardBadge';
+import { RosterFilters } from './roster/RosterFilters';
 
 interface GuildProps {
   roster: Card[];
@@ -30,15 +47,38 @@ export function Guild({
   onDragStart,
   onDragEnd,
 }: GuildProps) {
-  const groups = useMemo(() => {
-    const map = new Map<string, Card[]>();
-    for (const a of roster) {
-      const list = map.get(a.provider) || [];
-      list.push(a);
-      map.set(a.provider, list);
-    }
+  // The opaque project id from the server namespaces saved folds; a name is never a safe key. No id (an
+  // old server) means folds are not remembered — the owner sees that below instead of a false promise.
+  const projectId = snap.project?.id ?? '';
+  const [filter, setFilter] = useState<RosterFilterState>(EMPTY_ROSTER_FILTER);
+  const [folded, setFolded] = useState<string[]>(() => loadFoldedProviders(foldStorage(), projectId));
+  const [tempFolded, setTempFolded] = useState<string[]>([]);
 
-    return Array.from(map.entries())
+  useEffect(() => {
+    setFolded(loadFoldedProviders(foldStorage(), projectId));
+    setTempFolded([]);
+  }, [projectId]);
+
+  const options = useMemo(() => buildRosterFilterOptions(roster), [roster]);
+  const visible = useMemo(() => filterRosterCards(roster, filter), [roster, filter]);
+  const active = rosterFilterActive(filter);
+  const revealed = useMemo(() => revealGroups(roster, folded, filter), [roster, folded, filter]);
+  // Temporary folds only exist while the filter is up: clearing it drops them and the saved list shows
+  // through untouched, exactly as the owner left it before searching.
+  if (!active && tempFolded.length > 0) setTempFolded([]);
+  const shownOpen = useMemo(() => openRevealedGroups(revealed, tempFolded), [revealed, tempFolded]);
+
+  // Same grouping and ordering as before (members by status, groups by their best member), only over the
+  // cards the filter leaves visible. groupByProvider keeps the roster's own order inside each provider.
+  const groups = useMemo(() => {
+    const grouped = new Map<string, Card[]>();
+    for (const card of visible) {
+      const provider = cardProvider(card);
+      const list = grouped.get(provider);
+      if (list) list.push(card);
+      else grouped.set(provider, [card]);
+    }
+    return Array.from(grouped.entries())
       .map(([provider, members]) => {
         const sorted = [...members].sort(
           (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status],
@@ -55,7 +95,23 @@ export function Guild({
         const rankB = firstB ? STATUS_ORDER[firstB.status] : 0;
         return rankA - rankB;
       });
+  }, [visible]);
+
+  const totalByProvider = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const card of roster) {
+      const provider = cardProvider(card);
+      counts.set(provider, (counts.get(provider) ?? 0) + 1);
+    }
+    return counts;
   }, [roster]);
+
+  const toggleFold = (provider: string) => {
+    const next = toggleGroupFold(provider, { filterActive: active, rememberedFolded: folded, tempFolded });
+    setFolded(next.rememberedFolded);
+    setTempFolded(next.tempFolded);
+    if (next.persist) saveFoldedProviders(foldStorage(), projectId, next.rememberedFolded);
+  };
 
   return (
     <aside
@@ -68,29 +124,78 @@ export function Guild({
         <h2 id="guildTitle">冒险者公会</h2>
       </header>
       <p className="hint">
-        拖动或悬停一位冒险者：能接的委托会亮起，不能接的会写明原因。点冒险者改状态。
+        一位冒险者 = 一个已配置好的模型运行档。拖动或悬停：能接的委托会亮起，不能接的会写明原因。点名字改状态，用搜索和筛选找人。
       </p>
+      <RosterFilters
+        idPrefix="guild"
+        compact
+        value={filter}
+        options={options}
+        total={roster.length}
+        visible={visible.length}
+        onChange={setFilter}
+      />
+      {!projectId ? (
+        <p className="hint" role="status">
+          服务器没有提供项目标识：折叠只影响本页，不会被记住，也不会和其他项目串用。
+        </p>
+      ) : null}
       <div id="guild">
-        {groups.map((group) => (
-          <div key={group.provider}>
-            <h4 className="guild-group">
-              {group.provider}
-              {group.lane ? <span>{group.lane}</span> : null}
-            </h4>
-            {group.members.map((card) => (
-              <CardBadge
-                key={card.id}
-                card={card}
-                busyQuests={busyQuests(snap, card.id)}
-                isDragging={draggingCardId === card.id}
-                onEdit={onEditCard}
-                onHover={onHoverCard}
-                onDragStart={onDragStart}
-                onDragEnd={onDragEnd}
-              />
-            ))}
-          </div>
-        ))}
+        {visible.length === 0 && active ? (
+          <p className="guild-empty">
+            没找到符合条件的冒险者（公会共 {roster.length} 位），换个词或清除筛选试试。
+          </p>
+        ) : null}
+        {groups.map((group) => {
+          const open = shownOpen.has(group.provider);
+          const total = totalByProvider.get(group.provider) ?? group.members.length;
+          return (
+            <div key={group.provider}>
+              <h4 className="guild-group">
+                <button
+                  type="button"
+                  className="guild-group-toggle"
+                  aria-expanded={open}
+                  style={{ borderLeftColor: providerAccent(group.provider) }}
+                  title={active
+                    ? `临时${open ? '收起' : '展开'}：只在这次筛选里，不改动保存的折叠`
+                    : open ? `收起 ${group.provider}` : `展开 ${group.provider}`}
+                  onClick={() => toggleFold(group.provider)}
+                >
+                  <span className="guild-fold-caret" aria-hidden="true">
+                    {open ? '▾' : '▸'}
+                  </span>
+                  <span
+                    className="provider-mark"
+                    style={{ color: providerAccent(group.provider) }}
+                    aria-hidden="true"
+                  >
+                    {providerMark(group.provider)}
+                  </span>
+                  <span className="guild-group-name">{group.provider}</span>
+                  {group.lane ? <span>{group.lane}</span> : null}
+                  <span className="guild-group-count">
+                    {active ? `显示 ${group.members.length} / 共 ${total} 位` : `共 ${total} 位`}
+                  </span>
+                </button>
+              </h4>
+              {open
+                ? group.members.map((card) => (
+                    <CardBadge
+                      key={card.id}
+                      card={card}
+                      busyQuests={busyQuests(snap, card.id)}
+                      isDragging={draggingCardId === card.id}
+                      onEdit={onEditCard}
+                      onHover={onHoverCard}
+                      onDragStart={onDragStart}
+                      onDragEnd={onDragEnd}
+                    />
+                  ))
+                : null}
+            </div>
+          );
+        })}
       </div>
     </aside>
   );
