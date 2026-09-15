@@ -34,6 +34,21 @@ function context(args) {
   return { config, base: serverUrl(args, config) };
 }
 
+// One quest in readable lines. Labels follow the board's everyday wording; --json is the agent-facing form.
+function questDetailText(quest) {
+  const lines = [questLine(quest)];
+  lines.push(`  第 ${quest.revision || 0} 版 · priority ${quest.priority} · brief ${quest.brief || '无'}`);
+  if (quest.lastDetail) lines.push(`  最近: ${quest.lastDetail}`);
+  lines.push(`  可改文件: ${(quest.files || []).join(', ') || '无'}`);
+  for (const d of quest.dispatches || []) lines.push(`  派单: ${d.at} ${d.model} (${d.name}) 由 ${d.by}${d.adopted ? '（接管已在跑的 worker）' : ''}${d.requestKey ? ` key=${d.requestKey}` : ''}`);
+  for (const r of quest.rulings || []) lines.push(`  裁决: ${r.at} ${r.by}: ${r.text}`);
+  if ((quest.threads || []).length) lines.push(`  相关消息: ${quest.threads.map((t) => `${t.id} ${t.title}${t.closed ? '（已关）' : ''}`).join('；')}`);
+  const eligibility = quest.eligibility || {};
+  lines.push(`  可接手: ${(eligibility.canTake || []).join(', ') || '没有'}`);
+  for (const [message, cards] of Object.entries(eligibility.refused || {})) lines.push(`  不可（${(cards || []).join('、')}）: ${message}`);
+  return lines.join('\n');
+}
+
 export const commands = {
   // Makes a folder ready to use, so a new machine needs one command instead of six.
   async init(args) {
@@ -112,6 +127,29 @@ export const commands = {
     out(questLine(quest));
   },
 
+  async get(args) {
+    const { base } = context(args);
+    const id = positional(args, ['--project', '--url']);
+    if (!id) throw new Error('usage: questboard get <id> [--json]　读取一个任务的详情：第几版、当前 worker、派单历史、最近动态、可改文件');
+    const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}`, 'GET');
+    out(args.includes('--json') ? JSON.stringify(quest, null, 2) : questDetailText(quest));
+  },
+
+  // Frees a stalled quest whose worker someone confirmed is gone. Says how, or the board keeps the slot:
+  // it never forces a status, kills a process, or releases a quest that is not stalled (the server checks).
+  async release(args) {
+    const { base } = context(args);
+    const id = positional(args, ['--project', '--url', '--detail', '--by']);
+    const detail = String(option(args, '--detail') || '').trim();
+    if (!id) throw new Error('usage: questboard release <id> --detail "怎么确认 worker 已经停了"　只释放 stalled 的任务');
+    if (!detail) throw new Error('release 必须用 --detail 写清你怎么确认了 worker 已停止；沉默不等于离开');
+    // A "--detail" whose value is the next flag (release X --detail --by x) carried no evidence;
+    // prose in the middle of a sentence is untouched, only a leading flag token is refused.
+    if (detail.startsWith('--')) throw new Error(`release 的 --detail 后面跟的是选项 "${detail}"，不是证据；请用 --detail "怎么确认 worker 已经停了" 写清理由`);
+    const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/release`, 'POST', { detail, by: option(args, '--by') || 'coordinator' });
+    out(questLine(quest));
+  },
+
   async card(args) {
     const [sub, id, status] = args;
     const home = homePaths();
@@ -177,10 +215,10 @@ export const commands = {
     const { config, base } = context(args);
     const [sub] = args;
     if (sub === 'post') {
-      const body = await request(base, '/api/threads', 'POST', { title: option(args, '--title'), body: option(args, '--body'), author: option(args, '--author'), tags: String(option(args, '--tag') || '').split(',').map((t) => t.trim()).filter(Boolean) });
+      const body = await request(base, '/api/threads', 'POST', { title: option(args, '--title'), body: option(args, '--body'), author: option(args, '--author') || 'coordinator', tags: String(option(args, '--tag') || '').split(',').map((t) => t.trim()).filter(Boolean) });
       out(`# ${body.thread.title}\nid: ${body.thread.id}`);
     } else if (sub === 'reply') {
-      const body = await request(base, `/api/threads/${encodeURIComponent(option(args, '--thread'))}/messages`, 'POST', { body: option(args, '--body'), author: option(args, '--author') });
+      const body = await request(base, `/api/threads/${encodeURIComponent(option(args, '--thread'))}/messages`, 'POST', { body: option(args, '--body'), author: option(args, '--author') || 'coordinator' });
       out(`replied on ${body.thread.id}`);
     } else if (sub === 'list') {
       const params = new URLSearchParams(Object.fromEntries(['q', 'tag', 'status'].map((k) => [k, option(args, `--${k}`)]).filter(([, v]) => v)));
@@ -226,3 +264,6 @@ export const commands = {
     if (!result.ok) process.exitCode = 1;
   },
 };
+
+// `show` is an alias of `get`; both read one quest through GET /api/quests/:id.
+commands.show = commands.get;

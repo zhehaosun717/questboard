@@ -7,6 +7,8 @@
 //   questboard post --package RUN-4 --brief docs/briefs/RUN-4-x.md [--kind code|review|art|tool|owner]
 //        [--parents A-1,B-2] [--conflicts C-3] [--lanes codex,agy] [--priority 1|2|3] [--needs-owner "question"] [--title "..."]
 //   questboard list [--status posted]
+//   questboard get <id> | show <id> [--json]                        (one quest: revision, worker, dispatch history, detail, files; --json for agents)
+//   questboard release <id> --detail "how you confirmed the worker stopped"   (frees a stalled quest only; never kills or forces anything)
 //   questboard status RUN-4 done|delivered|reviewing|needs_owner|owner_playtest|lane_limited|superseded|cancelled|failed [--detail "..."]
 //   questboard ruling RUN-4 --text "..."
 //   questboard assign RUN-4 --adventurer codex-luna [--request-key run4-a] [--if-revision 3]
@@ -15,7 +17,8 @@
 //   questboard card list | card add --id x --name X --provider P --lane codex --model m [--family m] [--variant high]
 //   questboard card status <id> <status> [--reason "..."] [--by who]
 //   questboard roster path | roster import <old roster.json> [--force]
-//   questboard board post|reply|list|read|close|inbox [options]
+//   questboard board post --title "..." --body "..." [--tag t] [--author coordinator]   (--author defaults to coordinator)
+//   questboard board reply --thread <id> --body "..." [--author coordinator] | list | read | close | inbox [options]
 //   questboard watch [--from-start]                                 (one JSON event per line; for Monitor)
 //   questboard mcp [--author coordinator] [--url http://127.0.0.1:6097]   (MCP server over stdio)
 //

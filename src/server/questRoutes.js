@@ -19,6 +19,17 @@ const MANUAL_STATUSES = new Set([...QUEST_STATUSES].filter((status) => status !=
 const REQUEST_KEY_PATTERN = /^[\w.:-]{1,80}$/;
 const EVENTS_MAX = 500;
 
+// Same grouping the MCP get_quest answers with, so one read serves CLI, board and agents alike.
+function eligibilitySummary(verdicts) {
+  const canTake = [];
+  const refused = {};
+  for (const [card, verdict] of Object.entries(verdicts || {})) {
+    if (verdict.ok) { canTake.push(card); continue; }
+    for (const reason of verdict.reasons) (refused[reason.message] = refused[reason.message] || []).push(card);
+  }
+  return { canTake, refused };
+}
+
 export function createQuestRoutes({ config, store, boardStore, statusLog, rosterFile, getLanes = () => null, runners, evidenceWaitMs, writeDelivery, checkLaneServers = () => laneServers(config) }) {
   let downLanes = null;
   const dispatcher = createDispatcher({ config, store, runners, evidenceWaitMs, writeDelivery, getDownLanes: () => downLanes });
@@ -176,6 +187,18 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
         request.on('close', () => clients.delete(response));
       } else if (url.pathname === '/api/quests' && request.method === 'GET') {
         sendJson(response, 200, snapshot());
+      } else if (parts[1] === 'quests' && parts.length === 3 && request.method === 'GET') {
+        // One quest, enriched exactly as the MCP questboard_get_quest contract: the snapshot's quest (with
+        // its file set), the worker's live output, linked threads, and grouped eligibility. Reads mutate nothing.
+        const snap = snapshot();
+        const quest = snap.quests.find((q) => q.id === parts[2]);
+        if (!quest) { sendJson(response, 404, { error: 'quest not found' }); return true; }
+        sendJson(response, 200, { quest: {
+          ...quest,
+          live: quest.assignee ? snap.live[quest.assignee.name] || null : null,
+          threads: snap.threads[quest.id] || [],
+          eligibility: eligibilitySummary(snap.eligibility[quest.id]),
+        } });
       } else if (url.pathname === '/api/roster' && request.method === 'GET') {
         sendJson(response, 200, { adventurers: effectiveRoster(adventurers(), getLanes()) });
       } else if (url.pathname === '/api/lanes' && request.method === 'GET') {
