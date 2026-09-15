@@ -41,7 +41,8 @@ describe('cli', () => {
     }));
     const output = run(['roster', 'import', legacy], { QUESTBOARD_HOME: home });
     assert.match(output, /imported 2 cards/);
-    assert.match(output, /codex-astra: "像素画暂停，太费用量（owner 2026-09-12）" -> status record \(paused\)/);
+    assert.match(output, /1 条旧备注未原样保留.*codex-astra \(status record \(paused\)\)/);
+    assert.ok(!output.includes('像素画暂停') && !output.includes('Sisyphus'), 'note text and policy values stay out of the output');
     assert.match(output, /policy for the project config/);
     assert.equal(loadRoster(path.join(home, 'roster.json')).adventurers[1].notes, '和 Codex 同一个订阅');
     assert.equal(new StatusLog(path.join(home, 'status.jsonl')).current().get('codex-astra').status, 'paused');

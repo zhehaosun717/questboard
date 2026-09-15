@@ -6,9 +6,10 @@ import { option, optionAll, projectConfig, serverUrl, request } from './client.j
 import { startServer } from '../server/server.js';
 import { homePaths } from '../core/home.js';
 import { splitLegacyRoster } from '../core/legacy.js';
-import { loadRosterOrEmpty, saveRoster, upsertAdventurer, validateRoster } from '../core/roster.js';
-import { StatusLog, validateStatusRecord } from '../core/status.js';
-import { appendJsonLine } from '../core/jsonl.js';
+import { loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.js';
+import { planRosterImport, importPlanText, importDetailLines } from '../core/rosterImport.js';
+import { StatusLog, foldStatuses } from '../core/status.js';
+import { appendJsonLine, readJsonLines } from '../core/jsonl.js';
 import { watchEvents } from './watch.js';
 
 const out = (text) => process.stdout.write(`${text}\n`);
@@ -47,6 +48,49 @@ function questDetailText(quest) {
   lines.push(`  可接手: ${(eligibility.canTake || []).join(', ') || '没有'}`);
   for (const [message, cards] of Object.entries(eligibility.refused || {})) lines.push(`  不可（${(cards || []).join('、')}）: ${message}`);
   return lines.join('\n');
+}
+
+// A card's own status history existing at all disqualifies an import from touching it (see rosterImport.js);
+// this only decides what date an accepted *first* record carries. `statusChangedAt` on the legacy card
+// itself is a genuine, owner-authored date and is preserved as-is. Its absence means the fallback the
+// caller passed (the import file's own mtime) is standing in for a real date it does not have — that is
+// documented on the record's reason, never presented as though the file's timestamp were an owner decision.
+const UNDATED_PROVENANCE_NOTE = '（导入：以上时间是估算值——按导入文件的修改时间记录，不代表 owner 在那一刻做了决定）';
+
+function markProvenance(statusRecords, genuineDates) {
+  return statusRecords.map((record) => {
+    if (genuineDates.get(record.adventurerId)) return record;
+    const reason = record.reason ? `${record.reason} ${UNDATED_PROVENANCE_NOTE}` : UNDATED_PROVENANCE_NOTE;
+    return { ...record, reason };
+  });
+}
+
+// roster.js's own JSON-parse failure path can, on some Node versions, fold a slice of the offending file
+// into `error.message`. That file might be the shared machine roster, so its message is never surfaced
+// verbatim here — only the fact that it could not be read.
+function readExistingRoster(rosterFile) {
+  try {
+    return loadRosterOrEmpty(rosterFile);
+  } catch (error) {
+    if (/^roster: cannot read /.test(error.message)) throw new Error(`roster: ${rosterFile} contains malformed JSON and could not be read`);
+    throw error; // a shape-validation failure (bad field, duplicate id, ...) never echoes file content
+  }
+}
+
+// Exclusive creation with a deterministic, collision-proof suffix: two changing imports in the same second
+// each keep their own backup instead of the second silently overwriting the first.
+function backupRosterFile(rosterFile, replace) {
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+  const suffix = replace ? '-replace' : '-merge';
+  for (let attempt = 1; ; attempt += 1) {
+    const backup = `${rosterFile}.bak-${timestamp}-${attempt}${suffix}`;
+    try {
+      fs.copyFileSync(rosterFile, backup, fs.constants.COPYFILE_EXCL);
+      return backup;
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+  }
 }
 
 export const commands = {
@@ -199,16 +243,56 @@ export const commands = {
       return;
     }
     if (sub === 'import' && file) {
-      if (fs.existsSync(home.roster) && !args.includes('--force')) throw new Error(`${home.roster} exists; pass --force to replace it`);
-      const { roster, statusRecords, policy, report } = splitLegacyRoster(JSON.parse(fs.readFileSync(file, 'utf8')), { setBy: 'import' });
-      saveRoster(home.roster, validateRoster(roster));
-      for (const record of statusRecords) appendJsonLine(home.status, validateStatusRecord(record));
-      out(`imported ${roster.adventurers.length} cards into ${home.roster}; ${statusRecords.length} status records into ${home.status}`);
-      for (const line of report) out(`  ${line.id}: "${line.note}" -> ${line.movedTo}`);
-      if (policy.bannedModelPatterns.length || policy.bannedAgents.length) out(`policy for the project config: ${JSON.stringify(policy)}`);
+      const replace = args.includes('--replace');
+      const dryRun = args.includes('--dry-run');
+      const homeExists = fs.existsSync(home.roster);
+      // --force only says "yes, go ahead"; the default is a merge, which cannot lose a card.
+      // Only --replace erases cards the file lacks, and it demands --force to be honored.
+      if (homeExists && !dryRun && !args.includes('--force')) {
+        throw new Error(`${home.roster} exists; pass --force to merge the file into it by card id (local env, variants and extra cards survive, a backup is written first), --dry-run to preview the plan, or --replace --force to make this file the entire roster (erasing cards it does not list)`);
+      }
+      if (!fs.existsSync(file)) throw new Error(`no import file at ${file}`);
+      let parsed;
+      try {
+        parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch {
+        // Never echo the parser's own message: it can fold a slice of the file into it, and this file is
+        // arbitrary input the caller pointed us at, not something we already trust.
+        throw new Error(`import file ${file} is not valid JSON`);
+      }
+      // A per-card statusChangedAt on the legacy file is a genuine, owner-authored date; a card without one
+      // only gets the file's own mtime as a fallback, which markProvenance below documents, not disguises.
+      const genuineDates = new Map((Array.isArray(parsed.adventurers) ? parsed.adventurers : []).map((a) => [a && a.id, Boolean(a && a.statusChangedAt)]));
+      const { roster: incoming, statusRecords: rawStatusRecords, policy, report } = splitLegacyRoster(parsed, { setBy: 'import', at: fs.statSync(file).mtime.toISOString() });
+      const statusRecords = markProvenance(rawStatusRecords, genuineDates);
+      // A malformed roster on disk fails here, loudly — never treated as empty so the import "can proceed".
+      const existing = readExistingRoster(home.roster);
+      const plan = planRosterImport({ existing, incoming, statusRecords, currentStatus: foldStatuses(readJsonLines(home.status)), replace });
+      if (dryRun) {
+        out(importPlanText(plan));
+        out('dry run: nothing was written');
+        return;
+      }
+      const rosterChanges = replace || plan.added.length > 0 || plan.updated.length > 0;
+      if (rosterChanges && homeExists) {
+        const backup = backupRosterFile(home.roster, replace);
+        out(`${replace ? 'replacing (cards the file does not list will be erased)' : 'merging by card id'}; backup of the current roster: ${backup}`);
+      }
+      // Everything was validated inside planRosterImport before any byte was written. Not transactional past
+      // this point: a crash or disk error between the roster save and the last status append can leave some
+      // of this import's status records unwritten even though the roster itself saved — recoverable from the
+      // backup written above, but not atomic as a whole.
+      if (rosterChanges) saveRoster(home.roster, plan.roster);
+      for (const record of plan.toAppend) appendJsonLine(home.status, record);
+      for (const line of importDetailLines(plan)) out(line);
+      out(`imported ${plan.roster.adventurers.length} cards into ${home.roster}; ${plan.toAppend.length} status records into ${home.status}${rosterChanges ? '' : ' (roster unchanged)'}`);
+      // Ids and counts only: legacy note text and env values never reach the terminal, only what happened.
+      if (report.length) out(`  ${report.length} 条旧备注未原样保留（已转成状态记录或被略过）：${report.map((line) => `${line.id} (${line.movedTo})`).join('; ')}`);
+      if (plan.statusSkipped.length) out(`  status kept as-is (card already has a status; an import never overrides one): ${plan.statusSkipped.join(', ')} — change it with "questboard card status <id> ..."`);
+      if (policy.bannedModelPatterns.length || policy.bannedAgents.length) out(`policy for the project config: ${policy.bannedModelPatterns.length} banned model pattern(s), ${policy.bannedAgents.length} banned agent(s) — add them to questboard.config.json by hand if still wanted`);
       return;
     }
-    throw new Error('usage: questboard roster init [--force] | roster path | roster import <old roster.json> [--force]');
+    throw new Error('usage: questboard roster init [--force] | roster path | roster import <old roster.json> [--dry-run | --force | --replace --force]');
   },
 
   async board(args) {

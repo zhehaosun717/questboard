@@ -134,11 +134,21 @@ questboard list | status <id> <状态> | ruling <id> --text ... | assign <id> --
 questboard adopt <id> --adventurer <卡> --name <worker 名>
 questboard card list | card add --id x --name X --provider P --lane codex --model m
 questboard card status <卡> <available|limited|broke|paused|disabled> --reason "..."
-questboard roster init | roster path | roster import <旧 roster.json>
+questboard roster init | roster path | roster import <旧 roster.json> [--dry-run | --force | --replace --force]
 questboard board post|reply|list|read|close|inbox
 questboard watch [--from-start]
 questboard doctor
 ```
+
+`roster import` 按卡 id 合并：本机改过的每卡 `env`、variant 和文件里没有的卡都会保留（只覆盖文件里明确
+给出的值，`env` 按 key 合并），全部内容先校验通过才落盘，旧 roster 会先备份，备份名带一个防撞的计数后缀
+`roster.json.bak-<时间>-<n>-merge`（同一秒内两次导入也各留一份，不会互相覆盖）。`--dry-run` 只打印计划
+（计数和改动的字段名，绝不打印值，也绝不打印 env 的 key 名或备注原文）。状态记录只单向新增：**导入只会给
+一张从没有过状态记录的卡写第一条记录。** 只要卡已经有任何状态历史——哪怕是显式的 `available`——导入就不会
+碰它，不管导入的记录看起来多新、文件的修改时间多新；这里没有「强制覆盖」的开关，就是设计成这样。旧文件里
+没写单卡日期时，第一次导入仍然会把这张卡的初始状态记下来（不然它就无缘无故一直显示「可用」），但记录会
+老实写明这个时间是导入自己猜的，不是 owner 真的在那一刻做了决定。`--replace --force` 才是明确的整体替换
+（同样先备份）；单独的 `--force` 只是确认合并，不会删卡。解析不了的文件只按位置报错，不会把文件内容念回来。
 
 ## MCP
 

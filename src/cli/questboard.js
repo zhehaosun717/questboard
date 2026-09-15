@@ -16,7 +16,7 @@
 //   questboard doctor                                               (read-only setup check)
 //   questboard card list | card add --id x --name X --provider P --lane codex --model m [--family m] [--variant high]
 //   questboard card status <id> <status> [--reason "..."] [--by who]
-//   questboard roster path | roster import <old roster.json> [--force]
+//   questboard roster path | roster import <old roster.json> [--dry-run | --force (merge) | --replace --force (full swap)]
 //   questboard board post --title "..." --body "..." [--tag t] [--author coordinator]   (--author defaults to coordinator)
 //   questboard board reply --thread <id> --body "..." [--author coordinator] | list | read | close | inbox [options]
 //   questboard watch [--from-start]                                 (one JSON event per line; for Monitor)

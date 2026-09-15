@@ -128,11 +128,25 @@ questboard post --package RUN-4 --brief docs/briefs/RUN-4-x.md [--kind code|revi
 questboard list | status <id> <status> | ruling <id> --text ... | assign <id> --adventurer <card>
 questboard adopt <id> --adventurer <card> --name <worker>
 questboard card list | card status <card> <available|limited|broke|paused|disabled> --reason "..."
-questboard roster init [--force] | roster path | roster import <old roster.json>
+questboard roster init [--force] | roster path | roster import <old roster.json> [--dry-run | --force | --replace --force]
 questboard board post|reply|list|read|close|inbox
 questboard watch [--from-start]
 questboard doctor                            # read-only setup check: paths, scripts, Git Bash, roster, key sources, the server
 ```
+
+`roster import` merges by card id: locally customized per-card `env`, variants and cards the file does not
+mention survive (only explicitly supplied values are overlaid, `env` key by key), everything is validated
+before a byte is written, and the previous roster is backed up first, to a collision-proof
+`roster.json.bak-<time>-<n>-merge` (a counter breaks a tie if two imports land in the same second, so both
+snapshots survive). `--dry-run` prints the plan (counts and changed field names only, never values, never
+env keys or note text). Status is one-way: **an import only ever adds a card's first-ever status record.**
+Once a card has any status history at all — including an explicit `available` — the import leaves it alone,
+however new the imported record or the file's own modification time; there is no flag to force an override,
+by design. A first-time status coming from a legacy file with no per-card dated field is still imported (so
+the card is not silently left "available" for no reason), but its record says plainly that the date is the
+import's own guess, not a real owner decision. `--replace --force` is the separate, explicit full
+replacement (it backs up too); plain `--force` only confirms the merge and never erases. Anything the import
+can't parse is refused by shape and position, never by quoting file content back at you.
 
 `examples/basic/` is a complete starting point: copy it, and its `scripts/run-worker.mjs` wraps any agent
 CLI so the board can see the worker (registry row, `.out` / `.exit` / `.md` files). See its README.
