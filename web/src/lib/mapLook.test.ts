@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Quest } from '../api/types';
-import { pinColor, questStatusLine } from './mapLook';
+import type { Quest, QuestKind } from '../api/types';
+import { kindShape, pinColor, questStatusLine } from './mapLook';
 
 function makeQuest(partial: Partial<Quest> = {}): Quest {
   return {
@@ -54,6 +54,19 @@ describe('mapLook', () => {
       expect(pinColor('cancelled')).toBe('#9a8b72');
       expect(pinColor('superseded')).toBe('#9a8b72');
       expect(pinColor(undefined)).toBe('#9a8b72');
+    });
+  });
+
+  describe('kindShape', () => {
+    it('gives every kind its own shape, distinct from every other kind', () => {
+      const kinds: QuestKind[] = ['code', 'review', 'art', 'tool', 'owner'];
+      const shapes = kinds.map((k) => kindShape(k));
+      expect(new Set(shapes).size).toBe(kinds.length);
+    });
+
+    it('falls back to a shape for a missing kind, instead of throwing', () => {
+      expect(kindShape(undefined)).toBeTruthy();
+      expect(kindShape(null)).toBeTruthy();
     });
   });
 

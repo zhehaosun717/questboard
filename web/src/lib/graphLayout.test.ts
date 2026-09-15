@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Card, Quest, Snapshot } from '../api/types';
 import { buildGraph } from './graphLayout';
+import { pinColor } from './mapLook';
 
 function makeQuest(partial: Partial<Quest> & { id: string }): Quest {
   return {
@@ -160,9 +161,51 @@ describe('graphLayout buildGraph', () => {
 
     expect(runningEdge).toBeDefined();
     expect(runningEdge?.style?.stroke).toBe('#3f6f9e');
+    expect(runningEdge?.animated).toBe(true);
 
     expect(pastEdge).toBeDefined();
     expect(pastEdge?.style?.stroke).toBe('#9cc2e8');
+    expect(pastEdge?.animated).toBeFalsy();
+  });
+
+  it('a stalled held assignment is a distinct style, neither running nor past: silence does not free a quest', () => {
+    const qHeld = makeQuest({
+      id: 'Q_held',
+      status: 'stalled',
+      assignee: {
+        adventurerId: 'card-held',
+        family: null,
+        lane: 'default',
+        model: 'm1',
+        variant: '',
+        name: 'w1',
+        at: '',
+        by: '',
+      },
+      dispatches: [
+        {
+          adventurerId: 'card-held',
+          family: null,
+          lane: 'default',
+          model: 'm1',
+          variant: '',
+          name: 'w1',
+          at: '',
+          by: '',
+        },
+      ],
+    });
+
+    const snap = makeSnapshot([qHeld]);
+    const { edges } = buildGraph(snap, ['Q_held']);
+    const heldEdge = edges.find((e) => e.source === 'card-held' && e.target === 'Q_held');
+
+    expect(heldEdge).toBeDefined();
+    expect(heldEdge?.animated).toBeFalsy();
+    expect(heldEdge?.style?.stroke).toBe(pinColor('stalled'));
+    expect(heldEdge?.style?.stroke).not.toBe('#3f6f9e');
+    expect(heldEdge?.style?.stroke).not.toBe('#9cc2e8');
+    expect(heldEdge?.style?.strokeDasharray).not.toBe('6 5');
   });
 
   it('conflict edges', () => {

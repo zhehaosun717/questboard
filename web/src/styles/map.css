@@ -139,6 +139,45 @@
   text-overflow: ellipsis;
 }
 
+/* Quest kind, as a shape independent of the status pin's colour: code = square, review = circle,
+   art = triangle, tool = diamond, owner = hex. Decorative only (aria-hidden) — the KIND text label next to
+   it is what a screen reader reads. */
+.map-view .kind-icon {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 3px;
+  background: #6e5a44;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.map-view .kind-icon-circle {
+  border-radius: 50%;
+}
+
+.map-view .kind-icon-square {
+  border-radius: 1px;
+}
+
+.map-view .kind-icon-diamond {
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+.map-view .kind-icon-triangle {
+  width: 0;
+  height: 0;
+  background: transparent;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid #6e5a44;
+}
+
+.map-view .kind-icon-hex {
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+}
+
 .map-view .place .title {
   font-family: var(--body, "Noto Sans SC", sans-serif);
   font-size: 12px;
@@ -155,6 +194,31 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The pre-drop reason, shown on the quest a card is being dragged over: matches the board wall's q-drop-hint
+   / q-refuse text, so the map never shows only a colour the drop then contradicts. */
+.map-view .place .drop-hint {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: normal;
+  line-height: 1.3;
+  /* Always reserved, even empty: the hint text appearing during a drag must not grow the node and cover
+     whatever sits below it on the map. */
+  min-height: 14px;
+}
+
+.map-view .place .drop-hint.ok {
+  color: #3f6b21;
+}
+
+.map-view .place .drop-hint.queue {
+  color: #8a6a1a;
+}
+
+.map-view .place .drop-hint.refused {
+  color: #a8322a;
 }
 
 .map-view .rf-quest-node.focused {
@@ -179,6 +243,12 @@
   outline: 3px solid #c9a24a;
   outline-offset: 2px;
   box-shadow: 0 0 12px rgba(201, 162, 74, 0.85);
+}
+
+.map-view .rf-quest-node:focus-visible .place,
+.map-view .token:focus-visible {
+  outline: 3px solid #2b6cb0;
+  outline-offset: 2px;
 }
 
 .map-view .rf-quest-node.drop-ok .place,
@@ -229,6 +299,10 @@
   cursor: grabbing;
 }
 
+.map-view .rf-card-node {
+  position: relative;
+}
+
 .map-view .token {
   display: grid;
   place-items: center;
@@ -243,6 +317,12 @@
   border: 2px solid #ffffff;
   box-shadow: 0 2px 5px rgba(43, 33, 24, 0.4);
   transition: box-shadow 0.2s ease, transform 0.2s ease;
+  /* The avatar is the drag handle: grab/grabbing reads as "pick this up", matching the rest of the card node. */
+  cursor: grab;
+}
+
+.map-view .token:active {
+  cursor: grabbing;
 }
 
 .map-view .token.working,
@@ -317,4 +397,104 @@
 
 .map-view .react-flow__attribution a {
   color: #5c4731;
+}
+
+/* Keyboard/click-opened model detail: full identity, real status/activity, current vs past quests. */
+.map-view .rf-card-detail {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  z-index: 20;
+  width: 220px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: rgba(250, 242, 222, 0.98);
+  color: #2b2118;
+  border: 1px solid rgba(43, 33, 24, 0.4);
+  border-radius: 4px;
+  box-shadow: 0 6px 16px rgba(43, 33, 24, 0.35);
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: default;
+}
+
+.map-view .rf-card-detail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.map-view .rf-card-detail-head strong {
+  font-size: 12px;
+}
+
+.map-view .rf-card-detail-head code {
+  font-family: var(--mono, "IBM Plex Mono", Consolas, monospace);
+  font-size: 10px;
+  color: #6e5a44;
+}
+
+.map-view .rf-card-detail-model,
+.map-view .rf-card-detail-status {
+  color: #4a3826;
+  margin-bottom: 4px;
+}
+
+.map-view .rf-card-detail-section {
+  margin-top: 6px;
+}
+
+.map-view .rf-card-detail-label {
+  display: block;
+  font-weight: 700;
+  color: #6e5a44;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+
+.map-view .rf-card-detail-section ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.map-view .rf-card-detail-section li + li {
+  margin-top: 2px;
+}
+
+.map-view .rf-card-detail .link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2b6cb0;
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+  text-decoration: underline;
+}
+
+.map-view .rf-card-detail .link-btn:hover,
+.map-view .rf-card-detail .link-btn:focus-visible {
+  color: #17130f;
+}
+
+.map-view .rf-card-detail-empty {
+  color: #6e5a44;
+  margin-top: 4px;
+}
+
+/* Only the assignment an adventurer is actively working animates (set in graphLayout.ts); this turns that
+   animation off for anyone who asked the OS for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .map-view .react-flow__edge.animated .react-flow__edge-path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
 }

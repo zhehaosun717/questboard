@@ -1,6 +1,7 @@
 import type { Edge, Node } from '@xyflow/react';
 import * as dagre from 'dagre';
 import type { Card, Quest, Snapshot } from '../api/types';
+import { pinColor } from './mapLook';
 
 export interface GraphData {
   nodes: Node[];
@@ -141,7 +142,8 @@ export function buildGraph(
     }
   }
 
-  // 2. Card -> Quest (dashed blue: #3f6f9e when running, #9cc2e8 when past)
+  // 2. Card -> Quest (dashed blue #3f6f9e when running, the stalled pin colour when held but silent, dashed
+  // pale blue #9cc2e8 for a past dispatch that holds neither).
   const cardQuestSeen = new Set<string>();
   for (const q of relevantQuests) {
     for (const d of q.dispatches || []) {
@@ -151,16 +153,23 @@ export function buildGraph(
       if (cardQuestSeen.has(edgeId)) continue;
       cardQuestSeen.add(edgeId);
 
-      const isRunning = q.assignee?.adventurerId === cardId && q.status === 'dispatched';
+      const isCurrentAssignee = q.assignee?.adventurerId === cardId;
+      const isRunning = isCurrentAssignee && q.status === 'dispatched';
+      // Silence does not free a quest, so a stalled assignment still holds its card — but it is not active
+      // work right now, so it must not animate or read as identical to a quest this card is done with.
+      const isHeld = isCurrentAssignee && q.status === 'stalled';
       edges.push({
         id: edgeId,
         source: cardId,
         target: q.id,
         type: 'default',
+        // Only the assignment the adventurer is actually working animates; map.css turns this off under
+        // prefers-reduced-motion.
+        animated: isRunning,
         style: {
-          stroke: isRunning ? '#3f6f9e' : '#9cc2e8',
-          strokeWidth: isRunning ? 2.6 : 1.4,
-          strokeDasharray: '6 5',
+          stroke: isRunning ? '#3f6f9e' : isHeld ? pinColor('stalled') : '#9cc2e8',
+          strokeWidth: isRunning ? 2.6 : isHeld ? 2.2 : 1.4,
+          strokeDasharray: isHeld ? '3 4' : '6 5',
         },
       });
     }

@@ -1,4 +1,4 @@
-import type { Quest, QuestStatus } from '../api/types';
+import type { Quest, QuestKind, QuestStatus } from '../api/types';
 import { STATUS } from './labels';
 
 /**
@@ -31,6 +31,26 @@ export const DEFAULT_PIN_COLOR = '#9a8b72';
 export function pinColor(status: QuestStatus | undefined | null): string {
   if (!status) return DEFAULT_PIN_COLOR;
   return MAP_PIN_COLORS[status] ?? DEFAULT_PIN_COLOR;
+}
+
+export type KindShape = 'square' | 'circle' | 'triangle' | 'diamond' | 'hex';
+
+/**
+ * A quest's pin colour already encodes status; the kind (code/review/art/tool/owner) needs its own,
+ * colour-independent signal so the map does not rely on colour alone to tell them apart. Paired with the
+ * KIND text label, never a replacement for it.
+ */
+export const KIND_SHAPES: Record<QuestKind, KindShape> = {
+  code: 'square',
+  review: 'circle',
+  art: 'triangle',
+  tool: 'diamond',
+  owner: 'hex',
+};
+
+export function kindShape(kind: QuestKind | undefined | null): KindShape {
+  if (!kind) return 'circle';
+  return KIND_SHAPES[kind] ?? 'circle';
 }
 
 /**
