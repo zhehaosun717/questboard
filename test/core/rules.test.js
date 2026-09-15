@@ -45,8 +45,32 @@ describe('canDispatch', () => {
 
   it('enforces the parallel limit', () => {
     const running = quest({ id: 'LOOK-2F', status: 'dispatched', assignee: { adventurerId: 'codex-luna' } });
-    assert.ok(codes(check(quest(), luna, [running, quest()])).includes('adventurer_busy'));
+    const verdict = check(quest(), luna, [running, quest()]);
+    assert.ok(codes(verdict).includes('adventurer_busy'));
+    assert.equal(verdict.reasons.find((r) => r.code === 'adventurer_busy').message, '已在做 1/1 个任务（LOOK-2F dispatched），满了');
     assert.equal(check(quest(), card('codex-luna', { maxParallel: 2 }), [running, quest()]).ok, true);
+  });
+
+  it('counts a full limit against reserved slots only and names every occupier with its state', () => {
+    const three = card('codex-luna', { maxParallel: 3 });
+    const mine = (id, status) => quest({ id, status, assignee: { adventurerId: 'codex-luna' } });
+    const candidate = quest({ id: 'RUN-14' });
+    const room = check(candidate, three, [mine('RUN-10', 'dispatched'), mine('RUN-11', 'dispatched'), mine('RUN-12', 'delivered'), candidate]);
+    assert.equal(room.ok, true, 'two running and one delivered leave room under a limit of three');
+    const full = check(candidate, three, [mine('RUN-10', 'dispatched'), mine('RUN-11', 'dispatched'), mine('RUN-12', 'delivered'), mine('RUN-13', 'stalled'), quest({ id: 'RUN-99', status: 'dispatched', assignee: { adventurerId: 'agy-gemini' } }), candidate]);
+    assert.ok(codes(full).includes('adventurer_busy'), 'three reserved slots fill the limit');
+    const message = full.reasons.find((r) => r.code === 'adventurer_busy').message;
+    assert.equal(message, '已在做 3/3 个任务（RUN-10 dispatched、RUN-11 dispatched、RUN-13 stalled），满了');
+    assert.ok(!message.includes('RUN-12'), 'a delivered quest does not reserve a slot');
+    assert.ok(!message.includes('RUN-99'), "another card's quests are not occupiers of this one");
+    assert.ok(!message.includes('RUN-14'), 'the candidate quest is never listed against itself');
+  });
+
+  it('does not count the candidate quest against its own parallel limit', () => {
+    const silent = quest({ id: 'RUN-5', status: 'stalled', assignee: { adventurerId: 'codex-luna', name: 'run5' } });
+    const verdict = check(silent, luna, [silent]);
+    assert.ok(codes(verdict).includes('worker_unconfirmed'));
+    assert.ok(!codes(verdict).includes('adventurer_busy'), 'its reserved slot is the very slot this drop is about');
   });
 
   it('keeps one model family from reviewing any ancestor it wrote', () => {
@@ -65,6 +89,34 @@ describe('canDispatch', () => {
     assert.match(overlap.reasons.find((r) => r.code === 'conflict_running').message, /^排队：RUN-5 正在改同一批文件（Hud\.RunHud\.cs），一次一个$/);
     assert.ok(codes(check(quest({ conflicts: ['RUN-5'] }), luna, [{ ...running, files: [] }, quest({ conflicts: ['RUN-5'] })])).includes('conflict_running'));
     assert.ok(codes(check(quest(), luna, [{ ...running, files: [], conflicts: ['RUN-4'] }, quest()])).includes('conflict_running'));
+  });
+
+  it('binds a declared conflict on disjoint files and names it as declared, in both directions', () => {
+    const runner = quest({ id: 'RUN-5', status: 'dispatched', assignee: { adventurerId: 'agy-gemini' }, files: ['Assets/Save.cs'] });
+    const iDeclare = quest({ id: 'RUN-6', files: ['Assets/Hud.cs'], conflicts: ['RUN-5'] });
+    const mineVerdict = check(iDeclare, luna, [runner, iDeclare]);
+    const mineConflict = mineVerdict.reasons.find((r) => r.code === 'conflict_running');
+    assert.ok(mineConflict, 'my own declaration binds even with disjoint files');
+    assert.equal(mineConflict.message, '排队：RUN-5 与本任务声明了冲突，一次一个');
+    const runnerDeclares = quest({ id: 'RUN-5', status: 'dispatched', assignee: { adventurerId: 'agy-gemini' }, files: ['Assets/Save.cs'], conflicts: ['RUN-6'] });
+    const theyDeclare = quest({ id: 'RUN-6', files: ['Assets/Hud.cs'] });
+    const theirsVerdict = check(theyDeclare, luna, [runnerDeclares, theyDeclare]);
+    const theirsConflict = theirsVerdict.reasons.find((r) => r.code === 'conflict_running');
+    assert.ok(theirsConflict, 'their declaration against me binds too');
+    assert.equal(theirsConflict.message, '排队：RUN-5 与本任务声明了冲突，一次一个');
+    const sharedVerdict = check(quest({ id: 'RUN-6', files: ['Assets/Save.cs'] }), luna, [runner, quest({ id: 'RUN-6', files: ['Assets/Save.cs'] })]);
+    assert.match(sharedVerdict.reasons.find((r) => r.code === 'conflict_running').message, /^排队：RUN-5 正在改同一批文件（Save\.cs），一次一个$/, 'only a real overlap may claim shared files');
+  });
+
+  it('lets disjoint files through and treats stalled neighbours as running but delivered ones as free', () => {
+    const runner = quest({ id: 'RUN-5', status: 'dispatched', assignee: { adventurerId: 'agy-gemini' }, files: ['Assets/Save.cs'] });
+    const free = quest({ id: 'RUN-6', files: ['Assets/Hud.cs'] });
+    assert.equal(check(free, luna, [runner, free]).ok, true, 'disjoint files and no declaration is no conflict');
+    const silent = { ...runner, status: 'stalled' };
+    const touchesStalled = quest({ id: 'RUN-6', files: ['Assets/Save.cs'] });
+    assert.ok(codes(check(touchesStalled, luna, [silent, touchesStalled])).includes('conflict_running'), 'a stalled quest still reserves its files');
+    const done = { ...runner, status: 'delivered' };
+    assert.equal(check(touchesStalled, luna, [done, touchesStalled]).ok, true, 'a delivered quest has freed its files');
   });
 
   it("holds a stalled worker's slot and files until it is released", () => {

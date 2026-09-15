@@ -18,10 +18,15 @@ const MESSAGES = {
   agent_banned: (quest, adventurer) => `人格 ${adventurer.agent} 在禁用名单里`,
   lane_not_allowed: (quest) => `coordinator 只允许这些通道：${quest.allowedLanes.join('、')}`,
   lane_server_down: (quest, adventurer, detail) => `${adventurer.lane} 通道的服务没开（${detail} 连不上）：先到 设置 → 执行通道 点「一键启动服务」`,
-  adventurer_busy: (quest, adventurer) => `已在做 ${adventurer.maxParallel || 1} 个任务，满了`,
+  // A refusal that says only "满了" cannot be checked: name the quests that hold the slots and their states.
+  adventurer_busy: (quest, adventurer, detail) => `已在做 ${detail.holders.length}/${detail.limit} 个任务（${detail.holders.map((h) => `${h.id} ${h.status}`).join('、')}），满了`,
   reviewer_coded_parent: (quest, adventurer, detail) => `同一模型写过被审核的 ${detail}，不能自己审自己`,
   // Most packages in a design round share a partial, so a conflict reads as a queue, not an error.
-  conflict_running: (quest, adventurer, detail) => `排队：${detail.id} 正在改同一批文件${detail.file ? `（${detail.file.split('/').filter(Boolean).pop() || detail.file}）` : ''}，一次一个`,
+  // A declared conflict holds even when the two file lists are disjoint, so the message must not claim
+  // they touch the same files; only an overlap names the shared file.
+  conflict_running: (quest, adventurer, detail) => detail.declared
+    ? `排队：${detail.id} 与本任务声明了冲突，一次一个`
+    : `排队：${detail.id} 正在改同一批文件（${detail.file.split('/').filter(Boolean).pop() || detail.file}），一次一个`,
   needs_artist: () => '美术委托只派给会画图的模型（strengths 含 art）',
   worker_unconfirmed: (quest) => `上一个 worker（${quest.assignee.name}）只是没动静，可能还在跑：确认它停了，先在档案里释放，再派`,
   tree_locked: () => 'coordinator 正在跑验证（锁文件存在），暂停派遣',
@@ -42,8 +47,10 @@ export function holdsSlot(quest) {
   return Boolean(quest.assignee) && (quest.status === RUNNING_STATUS || quest.status === 'stalled');
 }
 
-function busyCount(adventurerId, quests) {
-  return quests.filter((q) => holdsSlot(q) && q.assignee.adventurerId === adventurerId).length;
+// Quests actually reserving one of this card's parallel slots: dispatched or stalled work other than
+// the candidate itself, whose own status is judged by the rules above, not counted against its limit.
+function busyQuests(adventurerId, quests, candidateId) {
+  return quests.filter((q) => q.id !== candidateId && holdsSlot(q) && q.assignee.adventurerId === adventurerId);
 }
 
 // One underlying model reached through two providers is one author, so cards carry a family.
@@ -72,15 +79,16 @@ function authoredAncestor(quest, adventurer, byId) {
   return null;
 }
 
-// Declared conflicts in either direction, or an overlap between the briefs' file lists.
+// Declared conflicts in either direction, or an overlap between the briefs' file lists. A declared
+// conflict binds even when the file lists are disjoint, so the result says which kind it is.
 function runningConflict(quest, quests) {
   const own = new Set(quest.conflicts || []);
   const files = new Set(quest.files || []);
   for (const other of quests) {
     if (other.id === quest.id || !holdsSlot(other)) continue;
-    if (own.has(other.id) || (other.conflicts || []).includes(quest.id)) return { id: other.id, file: null };
+    if (own.has(other.id) || (other.conflicts || []).includes(quest.id)) return { id: other.id, file: null, declared: true };
     const shared = (other.files || []).find((file) => files.has(file));
-    if (shared) return { id: other.id, file: shared };
+    if (shared) return { id: other.id, file: shared, declared: false };
   }
   return null;
 }
@@ -110,7 +118,8 @@ export function canDispatch({ quest, adventurer, quests, policy, env }) {
   const missing = (quest.parents || []).find((id) => !byId.has(id));
   if (missing) reasons.push(reason('parent_missing', quest, adventurer, missing));
   reasons.push(...adventurerReasons(quest, adventurer, policy, env));
-  if (busyCount(adventurer.id, quests) >= (adventurer.maxParallel || 1)) reasons.push(reason('adventurer_busy', quest, adventurer));
+  const holders = busyQuests(adventurer.id, quests, quest.id);
+  if (holders.length >= (adventurer.maxParallel || 1)) reasons.push(reason('adventurer_busy', quest, adventurer, { limit: adventurer.maxParallel || 1, holders: holders.map(({ id, status }) => ({ id, status })) }));
   const authored = authoredAncestor(quest, adventurer, byId);
   if (authored) reasons.push(reason('reviewer_coded_parent', quest, adventurer, authored));
   const conflict = runningConflict(quest, quests);
