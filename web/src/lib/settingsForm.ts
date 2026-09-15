@@ -2,6 +2,16 @@ import { parseCardEnv } from './rosterForm';
 
 export interface LaneDraft {
   id: string;
+  /** Stable identity for this lane's UI, independent of the editable `id` field. Never written to the saved
+   * config; only used as a React list key so delete/rename/reset cannot swap one card's local state (e.g. the
+   * health checkbox's open/closed flag) onto a different lane. */
+  formKey: string;
+  /** The key this lane was loaded under. Used to find the lane's own original data in `toRaw`, so renaming
+   * `id` mid-edit does not orphan its unknown fields (health included) onto whatever the old key now
+   * resolves to. `null` for a lane added this session — it has no original data to inherit, so `toRaw` must
+   * not look one up by key: a freshly generated id could otherwise collide with a since-deleted lane's own
+   * original key and silently pick up that lane's unknown fields once renamed. */
+  originalId: string | null;
   run: string[];
   outputDir: string;
   api: string;
@@ -15,6 +25,16 @@ export interface LaneDraft {
   env: string;
   sessionRun: string[];
   sessionSaveTo: string;
+  /** Relative to `api`, e.g. /global/health. Empty means no health contract (legacy: any HTTP reply counts). */
+  healthPath: string;
+  /** JSON text for the fields the health reply must match, e.g. {"healthy":true}. Empty means no field check. */
+  healthJson: string;
+  /** The raw `health` value from the file when it does not have a usable string `path` (not an object, an
+   * array, null, `{}`, `{path:""}`, or an object with only unrelated keys). Kept so a hand-edited mistake is
+   * shown and preserved byte-for-byte in `toRaw` instead of silently vanishing, until the owner either types a
+   * working path (repair) or unchecks the box (explicit disable, which clears this alongside the two fields
+   * above). `undefined` means the file's `health` (if any) already parsed into `healthPath`/`healthJson`. */
+  healthMalformed?: unknown;
 }
 
 export interface ProjectDraft {
@@ -53,8 +73,73 @@ export interface SettingsDrafts {
 }
 
 const LANE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+// Matches the service contract in config.js: a single leading slash, never a second slash, no backslash and
+// no whitespace. The path is joined onto the lane's own `api` by plain concatenation (`${api}${path}`), so a
+// path that cannot start a new host (no `//`) or hide one behind an escape (no `\`) can never redirect the
+// health check elsewhere — a query string containing "://" is still just a local path.
+const HEALTH_PATH_PATTERN = /^\/(?!\/)[^\s\\]*$/;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v !== undefined && v !== null ? String(v) : '');
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
+const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+// Names what is wrong with a hand-edited `health` value that has no usable string `path`, for the message
+// shown next to the checkbox — matches config.js's own order of complaints (must be an object, then path).
+export function describeMalformedHealth(value: unknown): string {
+  if (Array.isArray(value)) return '必须是一个对象，现在是数组';
+  if (value === null) return '必须是一个对象，现在是 null';
+  if (typeof value !== 'object') return `必须是一个对象，现在是 ${JSON.stringify(value)}`;
+  const obj = value as Record<string, unknown>;
+  if (!('path' in obj)) {
+    return Object.keys(obj).length > 0 ? '对象里没有可用的 path 字段（其他字段会保留）' : '是空对象，没有 path 字段';
+  }
+  if (typeof obj.path !== 'string') return 'path 必须是字符串';
+  return 'path 不能是空字符串';
+}
+
+let formKeySeq = 0;
+// Not derived from the editable `id` field (which can be blank or duplicated mid-edit) and never persisted.
+export function createLaneFormKey(): string {
+  formKeySeq += 1;
+  return `form-${formKeySeq}`;
+}
+
+export function isLocalHealthPath(healthPath: string): boolean {
+  return HEALTH_PATH_PATTERN.test(healthPath);
+}
+
+// Matches config.js's health-api check: with a health path set, the api origin it gets concatenated with
+// must not end in a way that makes the join ambiguous.
+export function healthApiError(api: string): string | null {
+  if (/\/$/.test(api)) return '开启健康检查时，接口服务 (api) 不能以 / 结尾（会和健康检查路径拼接）';
+  if (/[?#]/.test(api)) return '开启健康检查时，接口服务 (api) 不能带 ? 或 #（会和健康检查路径拼接）';
+  return null;
+}
+
+// The one contract this codebase knows by name; still an explicit button click per lane, never applied for the
+// owner — a lane pointed at a different vendor's server must not inherit OpenCode's health shape by default.
+export const OPENCODE_HEALTH_PRESET = { path: '/global/health', json: '{"healthy":true}' };
+
+export function parseHealthJson(text: string): { json: Record<string, unknown>; error: string | null } {
+  const trimmed = text.trim();
+  if (!trimmed) return { json: {}, error: null };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (err) {
+    return { json: {}, error: `期望字段必须是合法 JSON：${err instanceof Error ? err.message : String(err)}` };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { json: {}, error: '期望字段必须是一个 JSON 对象，比如 {"healthy":true}' };
+  }
+  // The service compares expected values with `!==`, so an object or array here could never match (reference
+  // equality) and would silently make the lane permanently unhealthy. Primitives only.
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (value !== null && !['string', 'number', 'boolean'].includes(typeof value)) {
+      return { json: {}, error: `期望字段 ${key} 只能是文字、数字、true/false 或 null` };
+    }
+  }
+  return { json: parsed as Record<string, unknown>, error: null };
+}
 
 function setOrDelete(obj: Record<string, unknown>, key: string, val: string) {
   const trimmed = val.trim();
@@ -87,8 +172,46 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
       const envStr = lane.env && typeof lane.env === 'object'
         ? Object.entries(lane.env as Record<string, unknown>).map(([k, v]) => `${k}=${String(v)}`).join('\n')
         : '';
+      // An object with a `path` key (any defined value, even a non-string like 42 — the text field can show it
+      // and validation can name the format problem) is the only shape read as "recognized" path/json fields.
+      // Anything else with a `health` key present at all (a string, an array, null, `{}`, `{path:""}`, or an
+      // object with only unrelated keys) is kept verbatim in `healthMalformed` instead of being read as "no
+      // health" and lost on the next save.
+      const rawHealth = lane.health;
+      let healthPath = '';
+      let healthJsonText = '';
+      let healthMalformed: unknown;
+      if (rawHealth !== undefined) {
+        if (isPlainObject(rawHealth)) {
+          const hasPath = 'path' in rawHealth;
+          const pathVal = rawHealth.path;
+          // Matches the service contract: health.path must actually be a string, not merely something
+          // String() can render. Every non-string path — null, an array, a number, an object, a boolean, a
+          // blank or whitespace-only string — takes this one branch, so no shape gets coerced into a "usable"
+          // draft value by accident; there is no per-shape list to keep in sync with the backend.
+          const pathUsable = typeof pathVal === 'string' && pathVal.trim() !== '';
+          // A usable path, or a `json` key with no `path` key at all (a hand-edited file mid-way through
+          // adding a contract, still missing its path — C2), is something the two fields can already
+          // represent and let the owner finish editing. A `path` key that is present but not a usable string
+          // has nowhere to land, so it goes to healthMalformed even when `json` is also present — never
+          // silently dropped in favor of the json half.
+          if (pathUsable || (!hasPath && 'json' in rawHealth)) {
+            healthPath = pathUsable ? str(pathVal) : '';
+            healthJsonText = 'json' in rawHealth ? JSON.stringify(rawHealth.json) : '';
+          } else {
+            healthMalformed = rawHealth;
+            // The path is unusable, but a sibling `json` is still something the owner should see and a repair
+            // should still carry forward — an invalid path must not hide an independent, editable `json`.
+            if ('json' in rawHealth) healthJsonText = JSON.stringify(rawHealth.json);
+          }
+        } else {
+          healthMalformed = rawHealth;
+        }
+      }
       lanes.push({
         id,
+        formKey: createLaneFormKey(),
+        originalId: id,
         run: strList(lane.run),
         outputDir: str(lane.outputDir),
         api: str(lane.api),
@@ -101,6 +224,9 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
         env: envStr,
         sessionRun: strList(session?.run),
         sessionSaveTo: str(session?.saveTo),
+        healthPath,
+        healthJson: healthJsonText,
+        healthMalformed,
       });
     }
   }
@@ -166,7 +292,12 @@ export function toRaw(raw: Record<string, unknown> | null | undefined, drafts: S
   const origLanes = typeof raw?.lanes === 'object' && raw.lanes !== null ? (raw.lanes as Record<string, unknown>) : {};
   const newLanes: Record<string, unknown> = {};
   for (const lane of drafts.lanes) {
-    const origLane = typeof origLanes[lane.id] === 'object' && origLanes[lane.id] !== null ? { ...(origLanes[lane.id] as Record<string, unknown>) } : {};
+    // Looked up by originalId, not the (possibly just-edited) id: a rename must still find this lane's own
+    // unknown fields instead of picking up whatever the new id used to name, or nothing at all. `null` (a
+    // lane added this session) skips the lookup entirely rather than risk its generated id colliding with a
+    // since-deleted lane's original key.
+    const origLaneRaw = lane.originalId !== null ? origLanes[lane.originalId] : undefined;
+    const origLane = isPlainObject(origLaneRaw) ? { ...origLaneRaw } : {};
     const laneObj: Record<string, unknown> = { ...origLane };
     laneObj.run = [...lane.run];
     setOrDelete(laneObj, 'outputDir', lane.outputDir);
@@ -194,6 +325,27 @@ export function toRaw(raw: Record<string, unknown> | null | undefined, drafts: S
       else delete sessionObj.saveTo;
       laneObj.session = sessionObj;
     } else delete laneObj.session;
+
+    const healthPath = lane.healthPath.trim();
+    if (healthPath) {
+      // Spread the original health object first, same as the lane itself above, so unknown keys (e.g. a
+      // future `timeout`) survive a save that only touches path/json. Only a plain object is spreadable this
+      // way; a malformed original (array, string, ...) contributes nothing here — it was never usable as a
+      // base, and repairing it (typing a working path) is what retires it.
+      const origHealth = isPlainObject(origLane.health) ? { ...origLane.health } : {};
+      const healthObj: Record<string, unknown> = { ...origHealth, path: healthPath };
+      if (lane.healthJson.trim()) {
+        const parsedHealth = parseHealthJson(lane.healthJson);
+        if (Object.keys(parsedHealth.json).length > 0) healthObj.json = parsedHealth.json;
+        else delete healthObj.json;
+      } else delete healthObj.json;
+      laneObj.health = healthObj;
+    } else if (lane.healthMalformed !== undefined) {
+      // Not repaired (no path typed) and not explicitly disabled (unchecking clears healthMalformed along with
+      // the two fields above) — keep the hand-edited mistake exactly as read, so a save elsewhere in the form
+      // never turns "health is broken" into "health is gone" behind the owner's back.
+      laneObj.health = lane.healthMalformed;
+    } else delete laneObj.health;
 
     newLanes[lane.id] = laneObj;
   }
@@ -281,6 +433,43 @@ export function validateDrafts(drafts: SettingsDrafts): Record<string, string> {
       const parsed = parseCardEnv(lane.env);
       if (parsed.error) {
         errors[`lanes.${i}.env`] = parsed.error; if (laneId) errors[`lanes.${laneId}.env`] = parsed.error;
+      }
+    }
+
+    const healthPathStr = lane.healthPath.trim();
+    const apiStr = lane.api.trim();
+    if (healthPathStr) {
+      let healthPathErr = '';
+      if (!apiStr) {
+        healthPathErr = '健康检查需要先填接口服务 (api)；不需要健康检查就把它关掉';
+      } else if (!isLocalHealthPath(healthPathStr)) {
+        healthPathErr = '健康检查路径必须是以 / 开头的相对路径，不能是 //、带反斜杠或空白（比如 /global/health）';
+      }
+      if (healthPathErr) {
+        errors[`lanes.${i}.healthPath`] = healthPathErr; if (laneId) errors[`lanes.${laneId}.healthPath`] = healthPathErr;
+      }
+
+      if (apiStr) {
+        const apiErr = healthApiError(apiStr);
+        if (apiErr) {
+          errors[`lanes.${i}.api`] = apiErr; if (laneId) errors[`lanes.${laneId}.api`] = apiErr;
+        }
+      }
+    } else if (lane.healthMalformed !== undefined) {
+      // Checked before the json-without-path message below: a malformed shape read from the file can itself
+      // carry a `json` sibling (prefilled into `healthJson` on load, see toDrafts), and that json is not
+      // something the owner typed without a path — it is part of the same mistake the banner already names.
+      const msg = `健康检查写法不对：${describeMalformedHealth(lane.healthMalformed)}。填一个有效路径可以修复，或者取消勾选来关闭健康检查`;
+      errors[`lanes.${i}.healthPath`] = msg; if (laneId) errors[`lanes.${laneId}.healthPath`] = msg;
+    } else if (lane.healthJson.trim()) {
+      const msg = '填了期望字段就要先填健康检查路径';
+      errors[`lanes.${i}.healthJson`] = msg; if (laneId) errors[`lanes.${laneId}.healthJson`] = msg;
+    }
+
+    if (healthPathStr && lane.healthJson.trim()) {
+      const parsedHealth = parseHealthJson(lane.healthJson);
+      if (parsedHealth.error) {
+        errors[`lanes.${i}.healthJson`] = parsedHealth.error; if (laneId) errors[`lanes.${laneId}.healthJson`] = parsedHealth.error;
       }
     }
   }

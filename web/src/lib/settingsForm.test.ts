@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type LaneDraft, type SettingsDrafts, toDrafts, toRaw, validateDrafts } from './settingsForm';
+import { describeMalformedHealth, OPENCODE_HEALTH_PRESET, type LaneDraft, type SettingsDrafts, toDrafts, toRaw, validateDrafts } from './settingsForm';
 
 const exampleConfig = {
   name: 'My Game',
@@ -260,6 +260,69 @@ describe('settingsForm validateDrafts rules', () => {
     expect('serve' in laneOf(toRaw(raw, d), 'oc')).toBe(false);
   });
 
+  it('rule 11: health path relative to api, JSON object, needs api, empty removes it', () => {
+    const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096' } } };
+    const d = toDrafts(raw);
+    const lane = laneAt(d, 0);
+    expect(lane.healthPath).toBe('');
+    expect(lane.healthJson).toBe('');
+    expect(validateDrafts(d)['lanes.0.healthPath']).toBeUndefined();
+
+    lane.healthPath = 'http://evil.example/health';
+    expect(validateDrafts(d)['lanes.0.healthPath']).toMatch(/相对路径/);
+    lane.healthPath = '//evil.example/health';
+    expect(validateDrafts(d)['lanes.0.healthPath']).toMatch(/相对路径/);
+    lane.healthPath = '/global/health';
+    expect(validateDrafts(d)['lanes.0.healthPath']).toBeUndefined();
+
+    lane.healthJson = 'not json';
+    expect(validateDrafts(d)['lanes.0.healthJson']).toMatch(/JSON/);
+    lane.healthJson = '[1, 2]';
+    expect(validateDrafts(d)['lanes.0.healthJson']).toMatch(/对象/);
+    lane.healthJson = '{"healthy":true}';
+    expect(validateDrafts(d)['lanes.0.healthJson']).toBeUndefined();
+
+    const saved = toRaw(raw, d);
+    expect(laneOf(saved, 'oc').health).toEqual({ path: '/global/health', json: { healthy: true } });
+
+    lane.api = '';
+    expect(validateDrafts(d)['lanes.0.healthPath']).toMatch(/api/);
+
+    lane.api = 'http://127.0.0.1:6096';
+    lane.healthPath = '';
+    expect(validateDrafts(d)['lanes.0.healthJson']).toMatch(/健康检查路径/);
+    lane.healthJson = '';
+    expect('health' in laneOf(toRaw(raw, d), 'oc')).toBe(false);
+  });
+
+  it('rule 12: opening an existing health contract round trips and survives an unrelated edit', () => {
+    const raw = {
+      ...exampleConfig,
+      lanes: {
+        oc: {
+          run: ['node', 'tools/oc.js'],
+          api: 'http://127.0.0.1:6096',
+          health: { path: '/global/health', json: { healthy: true } },
+        },
+      },
+    };
+    const d = toDrafts(raw);
+    const lane = laneAt(d, 0);
+    expect(lane.healthPath).toBe('/global/health');
+    expect(JSON.parse(lane.healthJson)).toEqual({ healthy: true });
+    expect(toRaw(raw, d)).toEqual(raw);
+
+    lane.deliveryDir = 'somewhere-else';
+    const saved = toRaw(raw, d);
+    expect(laneOf(saved, 'oc').health).toEqual({ path: '/global/health', json: { healthy: true } });
+    expect(laneOf(saved, 'oc').deliveryDir).toBe('somewhere-else');
+  });
+
+  it('rule 13: the OpenCode preset fills in a known-good contract', () => {
+    expect(OPENCODE_HEALTH_PRESET.path.startsWith('/')).toBe(true);
+    expect(JSON.parse(OPENCODE_HEALTH_PRESET.json)).toEqual({ healthy: true });
+  });
+
   it('rule 9: each lane env parsed with parseCardEnv', () => {
     const d = validDrafts();
     const lane = d.lanes[0];
@@ -272,5 +335,371 @@ describe('settingsForm validateDrafts rules', () => {
 
     lane.env = 'BASE_URL=https://api.example.com\nMODEL_TIMEOUT=30';
     expect(validateDrafts(d)[`lanes.0.env`]).toBeUndefined();
+  });
+
+  it('rule 14: health path/api validation matches the E-service contract (config.js)', () => {
+    const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096' } } };
+    const d = toDrafts(raw);
+    const lane = laneAt(d, 0);
+
+    // Rejected by the service: a backslash anywhere, or a second leading slash.
+    lane.healthPath = '/a\\b';
+    expect(validateDrafts(d)['lanes.0.healthPath']).toMatch(/相对路径/);
+    lane.healthPath = '/\\evil.example';
+    expect(validateDrafts(d)['lanes.0.healthPath']).toMatch(/相对路径/);
+
+    // Accepted by the service: a query string is still a local path even if it contains "://".
+    lane.healthPath = '/health?next=http://x';
+    expect(validateDrafts(d)['lanes.0.healthPath']).toBeUndefined();
+    // A fragment is also accepted (the service does not reject it).
+    lane.healthPath = '/health#frag';
+    expect(validateDrafts(d)['lanes.0.healthPath']).toBeUndefined();
+
+    lane.healthPath = '/global/health';
+
+    // api must not end in /, or contain ? or #, once health is set — it is joined directly with health.path.
+    lane.api = 'http://127.0.0.1:6096/';
+    expect(validateDrafts(d)['lanes.0.api']).toMatch(/\//);
+    lane.api = 'http://127.0.0.1:6096?x=1';
+    expect(validateDrafts(d)['lanes.0.api']).toMatch(/\?/);
+    lane.api = 'http://127.0.0.1:6096#f';
+    expect(validateDrafts(d)['lanes.0.api']).toMatch(/#/);
+
+    // The same api is fine without health.
+    lane.healthPath = '';
+    expect(validateDrafts(d)['lanes.0.api']).toBeUndefined();
+  });
+
+  it('rule 15: health.json expected values must be primitives, and unknown health keys survive a save', () => {
+    const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096' } } };
+    const d = toDrafts(raw);
+    const lane = laneAt(d, 0);
+    lane.healthPath = '/h';
+
+    lane.healthJson = '{"a":{"b":1}}';
+    expect(validateDrafts(d)['lanes.0.healthJson']).toMatch(/^期望字段 a /);
+    lane.healthJson = '{"a":[1]}';
+    expect(validateDrafts(d)['lanes.0.healthJson']).toMatch(/^期望字段 a /);
+    lane.healthJson = '{"healthy":true,"n":null,"tries":3,"label":"ok"}';
+    expect(validateDrafts(d)['lanes.0.healthJson']).toBeUndefined();
+
+    // An unrelated key already on the saved lane's health (e.g. a field this UI does not know about yet)
+    // is not dropped just because path/json are rewritten.
+    const rawWithExtra = {
+      ...exampleConfig,
+      lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: { path: '/h', timeout: 5 } } },
+    };
+    const d2 = toDrafts(rawWithExtra);
+    expect(laneAt(d2, 0).healthJson).toBe('');
+    const saved = toRaw(rawWithExtra, d2);
+    expect(laneOf(saved, 'oc').health).toEqual({ path: '/h', timeout: 5 });
+  });
+
+  it('rule 16: a health.json that is not an object (hand-edited file) is shown, not silently dropped', () => {
+    const raw = {
+      ...exampleConfig,
+      lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: { path: '/h', json: 'bad' } } },
+    };
+    const d = toDrafts(raw);
+    const lane = laneAt(d, 0);
+    // The bad value is visible as text, not silently turned into an empty field.
+    expect(lane.healthJson).toBe('"bad"');
+    // ...and it blocks the save with a visible error, instead of toRaw quietly writing `{path}` only.
+    expect(validateDrafts(d)['lanes.0.healthJson']).toMatch(/对象/);
+  });
+
+  it('rule 18: renaming a lane id still finds its own original data, for unknown lane keys and unknown health keys alike', () => {
+    const raw = {
+      ...exampleConfig,
+      lanes: {
+        oc: {
+          run: ['node', 'tools/oc.js'],
+          api: 'http://127.0.0.1:6096',
+          customLaneKey: 'keep-me',
+          health: { path: '/h', timeout: 5 },
+        },
+      },
+    };
+    const d = toDrafts(raw);
+    const lane = laneAt(d, 0);
+    expect(lane.originalId).toBe('oc');
+
+    lane.id = 'oc2';
+    const saved = toRaw(raw, d);
+    expect('oc' in (saved.lanes as Record<string, unknown>)).toBe(false);
+    const renamed = laneOf(saved, 'oc2');
+    expect(renamed.customLaneKey).toBe('keep-me');
+    expect(renamed.health).toEqual({ path: '/h', timeout: 5 });
+  });
+
+  describe('malformed health (R1): preserved until explicit disable or repair', () => {
+    const malformedShapes: Array<[string, unknown]> = [
+      ['a bare string', 'bad'],
+      ['an array', []],
+      ['null', null],
+      ['an empty object', {}],
+      ['an empty path', { path: '' }],
+      ['unknown keys only, no path', { timeout: 5 }],
+      // R1b: any JSON type class other than a non-blank string is malformed by the same generic rule
+      // (`typeof path === 'string' && path.trim() !== ''`), not a per-shape allowlist — this is the fix, not
+      // a growing list of special cases: null and [] used to fall through String() coercion into an empty
+      // "usable" draft and vanish on save; every other non-string type is tested here so nothing new can slip
+      // through the same hole.
+      ['a null path', { path: null }],
+      ['an empty array path', { path: [] }],
+      ['a non-empty array path', { path: ['/x'] }],
+      ['a true path', { path: true }],
+      ['a false path', { path: false }],
+      ['a number path', { path: 42 }],
+      ['a zero path', { path: 0 }],
+      ['a plain-object path', { path: {} }],
+      ['a whitespace-only string path', { path: '   ' }],
+    ];
+
+    it.each(malformedShapes)('%s round trips untouched instead of being silently dropped', (_label, healthValue) => {
+      const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: healthValue } } };
+      const d = toDrafts(raw);
+      const lane = laneAt(d, 0);
+
+      // Nothing to show in the normal fields — the value is not lost, it lives in healthMalformed instead.
+      expect(lane.healthPath).toBe('');
+      expect(lane.healthJson).toBe('');
+      expect(lane.healthMalformed).toEqual(healthValue);
+      expect(validateDrafts(d)['lanes.0.healthPath']).toMatch(/健康检查写法不对/);
+
+      // A save that never touches this lane's health must not turn "broken" into "gone".
+      const saved = toRaw(raw, d);
+      expect(laneOf(saved, 'oc').health).toEqual(healthValue);
+    });
+
+    // R1c: an invalid path must not hide an independent, editable sibling `json` — across every JSON type
+    // class the path can be malformed as, and every shape the json itself can take (valid, invalid — nested
+    // or wrong type —, with or without an unrelated unknown key alongside it).
+    describe('R1c: an invalid path does not hide a sibling json', () => {
+      const badPaths: Array<[string, unknown]> = [
+        ['null', null],
+        ['an array', []],
+        ['a boolean', true],
+        ['a number', 42],
+        ['an object', {}],
+        ['a blank string', '   '],
+      ];
+      const jsonVariants: Array<[string, unknown, 'valid' | 'invalid']> = [
+        ['a valid json object', { healthy: true }, 'valid'],
+        ['a nested json object (field values must be primitives)', { a: { b: 1 } }, 'invalid'],
+        ['a non-object json (wrong type)', 'bad', 'invalid'],
+      ];
+
+      for (const [pathLabel, pathValue] of badPaths) {
+        for (const [jsonLabel, jsonValue, jsonKind] of jsonVariants) {
+          for (const withUnknown of [false, true]) {
+            const shapeLabel = `path is ${pathLabel} with ${jsonLabel}${withUnknown ? ' and an unknown sibling' : ''}`;
+            const rawHealth: Record<string, unknown> = { path: pathValue, json: jsonValue };
+            if (withUnknown) rawHealth.timeout = 5;
+
+            it(`${shapeLabel}: json is visible on load and round trips untouched`, () => {
+              const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: rawHealth } } };
+              const d = toDrafts(raw);
+              const lane = laneAt(d, 0);
+
+              expect(lane.healthPath).toBe('');
+              expect(lane.healthJson).toBe(JSON.stringify(jsonValue));
+              expect(lane.healthMalformed).toEqual(rawHealth);
+
+              // A save that never touches this lane's health keeps every field, json included.
+              const saved = toRaw(raw, d);
+              expect(laneOf(saved, 'oc').health).toEqual(rawHealth);
+            });
+
+            it(`${shapeLabel}: repairing the path changes only the path`, () => {
+              const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: rawHealth } } };
+              const d = toDrafts(raw);
+              const lane = laneAt(d, 0);
+              lane.healthPath = '/global/health';
+
+              const saved = toRaw(raw, d);
+              const expected = { ...rawHealth, path: '/global/health' };
+              if (jsonKind === 'valid') {
+                expect(laneOf(saved, 'oc').health).toEqual(expected);
+                expect(validateDrafts(d)['lanes.0.healthJson']).toBeUndefined();
+                expect(validateDrafts(d)['lanes.0.healthPath']).toBeUndefined();
+              } else {
+                // The invalid json blocks the save with its own error — it stays visible as text, it is not
+                // silently written as an unmatchable (or missing) health check.
+                expect(validateDrafts(d)['lanes.0.healthJson']).toBeTruthy();
+              }
+            });
+          }
+        }
+      }
+    });
+
+    it('R1c: clearing the json field explicitly (leaving the path unrepaired) removes json but keeps the rest of the malformed value visible as text', () => {
+      const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: { path: null, json: { healthy: true }, timeout: 5 } } } };
+      const d = toDrafts(raw);
+      const lane = laneAt(d, 0);
+      expect(lane.healthJson).toBe('{"healthy":true}');
+
+      // What LaneCard sends when the owner clears the textarea by hand.
+      lane.healthJson = '';
+      // Still malformed (path untouched), so the whole original value is kept verbatim — clearing the json
+      // textarea without repairing the path is not a way to edit the saved value, only unchecking is.
+      const saved = toRaw(raw, d);
+      expect(laneOf(saved, 'oc').health).toEqual({ path: null, json: { healthy: true }, timeout: 5 });
+    });
+
+    it('R1c: unchecking drops the preserved json along with the rest of the malformed value; rechecking does not restore it', () => {
+      const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: { path: null, json: { healthy: true }, timeout: 5 } } } };
+      const d = toDrafts(raw);
+      const lane = laneAt(d, 0);
+      expect(lane.healthJson).toBe('{"healthy":true}');
+
+      // What LaneCard's toggleHealth(false) sends as the patch.
+      lane.healthPath = '';
+      lane.healthJson = '';
+      lane.healthMalformed = undefined;
+      expect('health' in laneOf(toRaw(raw, d), 'oc')).toBe(false);
+
+      // Rechecking (toggleHealth(true)) does not read the file again — the box reopens empty.
+      expect(lane.healthPath).toBe('');
+      expect(lane.healthJson).toBe('');
+      expect(lane.healthMalformed).toBeUndefined();
+    });
+
+    it('R1c: reset (reload from file) restores the json exactly as it was before any edit', () => {
+      const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: { path: null, json: { healthy: true }, timeout: 5 } } } };
+      const d = toDrafts(raw);
+      const lane = laneAt(d, 0);
+      lane.healthJson = '';
+      lane.healthPath = 'abc';
+
+      // "放弃未保存修改" rebuilds drafts from the original raw file, discarding every in-progress edit.
+      const reloaded = toDrafts(raw);
+      const reloadedLane = laneAt(reloaded, 0);
+      expect(reloadedLane.healthJson).toBe('{"healthy":true}');
+      expect(reloadedLane.healthPath).toBe('');
+      expect(reloadedLane.healthMalformed).toEqual({ path: null, json: { healthy: true }, timeout: 5 });
+    });
+
+    it('unchecking (explicit disable) drops the malformed value instead of keeping it hidden', () => {
+      const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: { timeout: 5 } } } };
+      const d = toDrafts(raw);
+      const lane = laneAt(d, 0);
+      // What LaneCard's toggleHealth(false) sends as the patch.
+      lane.healthPath = '';
+      lane.healthJson = '';
+      lane.healthMalformed = undefined;
+
+      const saved = toRaw(raw, d);
+      expect('health' in laneOf(saved, 'oc')).toBe(false);
+    });
+
+    it('typing a working path (repair) keeps sibling unknown keys when the original was at least an object', () => {
+      const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: { timeout: 5 } } } };
+      const d = toDrafts(raw);
+      const lane = laneAt(d, 0);
+      lane.healthPath = '/global/health';
+
+      const saved = toRaw(raw, d);
+      expect(laneOf(saved, 'oc').health).toEqual({ timeout: 5, path: '/global/health' });
+      expect(validateDrafts(d)['lanes.0.healthPath']).toBeUndefined();
+    });
+
+    it('typing a working path (repair) discards an unusable root shape (nothing recoverable in a string/array/null)', () => {
+      const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: 'bad' } } };
+      const d = toDrafts(raw);
+      const lane = laneAt(d, 0);
+      lane.healthPath = '/global/health';
+
+      const saved = toRaw(raw, d);
+      expect(laneOf(saved, 'oc').health).toEqual({ path: '/global/health' });
+    });
+
+    it('describeMalformedHealth names each shape distinctly enough to act on', () => {
+      expect(describeMalformedHealth('bad')).toMatch(/对象/);
+      expect(describeMalformedHealth([])).toMatch(/数组/);
+      expect(describeMalformedHealth(null)).toMatch(/null/);
+      expect(describeMalformedHealth({})).toMatch(/path/);
+      expect(describeMalformedHealth({ path: '' })).toMatch(/path/);
+      expect(describeMalformedHealth({ timeout: 5 })).toMatch(/path/);
+    });
+
+    it('a non-string path (e.g. 42) is malformed like any other non-string — no longer coerced into "42" as if it were legitimate draft text', () => {
+      const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: { path: 42 } } } };
+      const d = toDrafts(raw);
+      const lane = laneAt(d, 0);
+      expect(lane.healthPath).toBe('');
+      expect(lane.healthMalformed).toEqual({ path: 42 });
+      expect(describeMalformedHealth(lane.healthMalformed)).toMatch(/字符串/);
+      expect(validateDrafts(d)['lanes.0.healthPath']).toMatch(/写法不对/);
+
+      // A repair still works the same as for any other malformed shape.
+      lane.healthPath = '/global/health';
+      expect(validateDrafts(d)['lanes.0.healthPath']).toBeUndefined();
+      expect(laneOf(toRaw(raw, d), 'oc').health).toEqual({ path: '/global/health' });
+    });
+
+    it('a valid string path is not malformed, and a badly-formatted (but string) path is editable text with its own format error', () => {
+      const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', health: { path: 'not-a-slash-path' } } } };
+      const d = toDrafts(raw);
+      const lane = laneAt(d, 0);
+      expect(lane.healthPath).toBe('not-a-slash-path');
+      expect(lane.healthMalformed).toBeUndefined();
+      expect(validateDrafts(d)['lanes.0.healthPath']).toMatch(/相对路径/);
+    });
+
+    it('a valid path alongside a deleted-lane-shaped originalId (should-fix): added lane never inherits a same-id lane\'s unknown fields', () => {
+      const raw = {
+        ...exampleConfig,
+        lanes: { keep: { run: ['node', 'x.js'] }, 'lane-2': { run: ['node', 'y.js'], extraKey: 'from-lane-2' } },
+      };
+      const d = toDrafts(raw);
+      // Owner deletes lane-2, then adds a fresh lane; SettingsLanesSection's id generator can reuse the same
+      // string ('lane-2') once the list is back down to one lane, but the new draft carries originalId: null.
+      const kept = d.lanes.filter((lane) => lane.id === 'keep');
+      const added: LaneDraft = {
+        id: 'lane-2',
+        formKey: 'form-added-test',
+        originalId: null,
+        run: ['node', 'scripts/run-worker.mjs', '--lane', 'lane-2'],
+        outputDir: '.questboard-data/workers/lane-2',
+        api: '',
+        serve: [],
+        deliveryDir: '',
+        defaultModel: '',
+        editCounter: '',
+        serialize: false,
+        spacingMs: '',
+        env: '',
+        sessionRun: [],
+        sessionSaveTo: '',
+        healthPath: '',
+        healthJson: '',
+      };
+      const next: SettingsDrafts = { ...d, lanes: [...kept, added] };
+      const saved = toRaw(raw, next);
+      expect('extraKey' in laneOf(saved, 'lane-2')).toBe(false);
+    });
+  });
+
+  it('rule 17: each lane draft gets a stable formKey independent of its editable id, unaffected by rename', () => {
+    const raw = { ...exampleConfig, lanes: { a: { run: ['x'] }, b: { run: ['y'] } } };
+    const d = toDrafts(raw);
+    const keyA = laneAt(d, 0).formKey;
+    const keyB = laneAt(d, 1).formKey;
+    expect(keyA).toBeTruthy();
+    expect(keyB).toBeTruthy();
+    expect(keyA).not.toBe(keyB);
+
+    // Renaming the lane's editable id does not change its formKey.
+    const lane = laneAt(d, 0);
+    lane.id = 'renamed';
+    expect(laneAt(d, 0).formKey).toBe(keyA);
+
+    // Reloading (what "放弃未保存修改" does) rebuilds drafts from scratch, so each lane gets a fresh formKey —
+    // this is what forces the LaneCard for that slot to remount instead of inheriting a sibling's local state.
+    const reloaded = toDrafts(raw);
+    expect(laneAt(reloaded, 0).formKey).not.toBe(keyA);
+    expect(laneAt(reloaded, 1).formKey).not.toBe(keyB);
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import type { LaneServerStatus } from '../../api/types';
-import type { LaneDraft } from '../../lib/settingsForm';
+import { createLaneFormKey, type LaneDraft } from '../../lib/settingsForm';
 import { LaneCard } from './LaneCard';
 import type { LaneServerMessage } from './LaneServerPanel';
 
@@ -67,6 +67,8 @@ export function SettingsLanesSection({
       ...lanes,
       {
         id,
+        formKey: createLaneFormKey(),
+        originalId: null,
         run: ['node', 'scripts/run-worker.mjs', '--lane', id],
         outputDir: `.questboard-data/workers/${id}`,
         api: '',
@@ -79,6 +81,8 @@ export function SettingsLanesSection({
         env: '',
         sessionRun: [],
         sessionSaveTo: '',
+        healthPath: '',
+        healthJson: '',
       },
     ]);
   };
@@ -96,7 +100,7 @@ export function SettingsLanesSection({
       <div className="settings-lanes-list">
         {lanes.map((lane, idx) => (
           <LaneCard
-            key={idx}
+            key={lane.formKey}
             lane={lane}
             index={idx}
             errors={errors}

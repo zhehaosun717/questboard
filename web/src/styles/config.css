@@ -181,6 +181,11 @@
 .lane-server-msg { flex-basis: 100%; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 .lane-server-msg.ok { color: var(--ready-lt); }
 .lane-server-msg.bad { color: var(--wax-lt); }
+.lane-health-block { border-top: 1px dashed var(--oak-deep); padding-top: 12px; margin-top: 4px; }
+.lane-health-fields { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.lane-health-path-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.lane-health-hint { font-size: 11px; color: var(--dim); margin-top: 2px; }
+.lane-health-malformed { color: var(--wax-lt); margin-bottom: 2px; }
 .lane-session-block { border-top: 1px dashed var(--oak-deep); padding-top: 12px; margin-top: 4px; display: flex; flex-direction: column; gap: 10px; }
 .lane-sub-title { margin: 0; font: 700 12px var(--body); color: var(--cable); }
 .settings-add-lane-wrap { display: flex; justify-content: flex-start; margin-top: 4px; }

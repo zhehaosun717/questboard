@@ -137,7 +137,14 @@ export function SettingsView({ roster }: SettingsViewProps) {
   };
 
   const updateLanes = (lanes: LaneDraft[]) => {
-    setDrafts((prev) => (prev ? { ...prev, lanes } : prev));
+    if (!drafts) return;
+    const next = { ...drafts, lanes };
+    setDrafts(next);
+    // Errors are keyed by index/id and only computed on Save, so without this an edit or a delete that
+    // shifts positions would leave a stale error (or a stale "this lane needs attention" state) attached to
+    // whatever now sits at that slot. Only recompute once a save attempt has actually put errors on screen —
+    // before that, editing must not start nagging the owner ahead of their first Save click.
+    setErrors((prevErrors) => (Object.keys(prevErrors).length > 0 ? validateDrafts(next) : prevErrors));
   };
 
   const updatePolicy = (patch: Partial<PolicyDraft>) => {

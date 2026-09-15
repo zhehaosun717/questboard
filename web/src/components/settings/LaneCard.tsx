@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import type { LaneServerStatus } from '../../api/types';
-import type { LaneDraft } from '../../lib/settingsForm';
+import { describeMalformedHealth, OPENCODE_HEALTH_PRESET, type LaneDraft } from '../../lib/settingsForm';
 import { LaneServerPanel, type LaneServerMessage } from './LaneServerPanel';
 
 interface LaneCardProps {
@@ -31,6 +32,38 @@ export function LaneCard({
   const spacingErr = errors[`lanes.${index}.spacingMs`] || errors[`lanes.${lane.id}.spacingMs`];
   const counterErr = errors[`lanes.${index}.editCounter`] || errors[`lanes.${lane.id}.editCounter`];
   const envErr = errors[`lanes.${index}.env`] || errors[`lanes.${lane.id}.env`];
+  const apiErr = errors[`lanes.${index}.api`] || errors[`lanes.${lane.id}.api`];
+  const healthPathErr = errors[`lanes.${index}.healthPath`] || errors[`lanes.${lane.id}.healthPath`];
+  const healthJsonErr = errors[`lanes.${index}.healthJson`] || errors[`lanes.${lane.id}.healthJson`];
+
+  // "Opened, not filled yet": lets a freshly checked box keep showing its (still empty) fields. Deliberately
+  // NOT combined with `errors` below — those come from the last save attempt, are keyed by index/id, and do
+  // not get cleared or recomputed on every edit, so a lane that shifted position (a delete above it) or was
+  // simply corrected could otherwise inherit a stale error and end up checked/open (or stuck) for the wrong
+  // reason. Whether the box is checked and open is decided purely by what is actually in this lane's own draft.
+  const [healthOpen, setHealthOpen] = useState(false);
+  const hasHealthValue = lane.healthPath.trim() !== '' || lane.healthJson.trim() !== '' || lane.healthMalformed !== undefined;
+  const showHealthFields = healthOpen || hasHealthValue;
+  // The stale-value banner only makes sense while the path is still whatever the file had (blank, since a
+  // malformed value never parses into healthPath). Once the owner types a repair, `healthPathErr` — the
+  // format error for what they actually typed, e.g. "abc" — takes over instead of hiding behind this message.
+  const showMalformedBanner = lane.healthMalformed !== undefined && !lane.healthPath.trim();
+  // The block itself stays hidden for a plain lane with no api and no health, same as before; it only has to
+  // stay reachable once there is something to see (a configured or invalid health left over after api was
+  // cleared), so clearing it is never a dead end.
+  const showHealthBlock = lane.api.trim() !== '' || showHealthFields;
+
+  const toggleHealth = (checked: boolean) => {
+    setHealthOpen(checked);
+    // Unchecking is the explicit disable: it also drops a preserved malformed value, since keeping health
+    // hidden-but-remembered would defeat the point of a checkbox the owner just turned off.
+    if (!checked) onUpdate({ healthPath: '', healthJson: '', healthMalformed: undefined });
+  };
+
+  const applyOpenCodeHealthPreset = () => {
+    setHealthOpen(true);
+    onUpdate({ healthPath: OPENCODE_HEALTH_PRESET.path, healthJson: OPENCODE_HEALTH_PRESET.json });
+  };
 
   const updateRunArg = (argIdx: number, val: string) => {
     const nextRun = [...lane.run];
@@ -124,7 +157,10 @@ export function LaneCard({
           />
         </div>
         <div className="form-field">
-          <label htmlFor={`cfg-lane-api-${index}`}>接口服务 (api)</label>
+          <label htmlFor={`cfg-lane-api-${index}`}>
+            接口服务 (api)
+            {apiErr ? <span className="field-error"> · {apiErr}</span> : null}
+          </label>
           <input
             id={`cfg-lane-api-${index}`}
             value={lane.api}
@@ -165,6 +201,64 @@ export function LaneCard({
               </button>
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {showHealthBlock ? (
+        <div className="form-field lane-health-block">
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={showHealthFields}
+              onChange={(e) => toggleHealth(e.target.checked)}
+            />
+            <span>健康检查 (health - 可选，不开启就沿用旧规则：接口有响应即算正常)</span>
+          </label>
+
+          {showHealthFields ? (
+            <div className="lane-health-fields">
+              {showMalformedBanner ? (
+                <div className="lane-health-hint lane-health-malformed">
+                  从文件读到的健康检查写法不对：{describeMalformedHealth(lane.healthMalformed)}。填一个有效路径可以修复，或者取消勾选来关闭健康检查（关闭前不会丢掉原来的写法）。
+                </div>
+              ) : null}
+              <div className="form-field">
+                <label htmlFor={`cfg-lane-health-path-${index}`}>
+                  检查路径（相对于上面的 api，例如 /global/health）
+                  {healthPathErr && !showMalformedBanner ? <span className="field-error"> · {healthPathErr}</span> : null}
+                </label>
+                <div className="lane-health-path-row">
+                  <input
+                    id={`cfg-lane-health-path-${index}`}
+                    className="mono-input flex-grow"
+                    value={lane.healthPath}
+                    placeholder="/global/health"
+                    onChange={(e) => onUpdate({ healthPath: e.target.value })}
+                  />
+                  <button type="button" className="btn ghost sm-btn" onClick={applyOpenCodeHealthPreset}>
+                    套用 OpenCode 预设
+                  </button>
+                </div>
+                {!lane.healthPath.trim() && !lane.healthJson.trim() && !healthPathErr && !healthJsonErr && lane.healthMalformed === undefined ? (
+                  <div className="lane-health-hint">路径留空保存 = 不做健康检查</div>
+                ) : null}
+              </div>
+              <div className="form-field">
+                <label htmlFor={`cfg-lane-health-json-${index}`}>
+                  期望字段（可选，JSON 对象，例如 {'{"healthy":true}'}；不填就只看有没有响应）
+                  {healthJsonErr ? <span className="field-error"> · {healthJsonErr}</span> : null}
+                </label>
+                <textarea
+                  id={`cfg-lane-health-json-${index}`}
+                  rows={2}
+                  className="mono-input"
+                  value={lane.healthJson}
+                  placeholder='{"healthy":true}'
+                  onChange={(e) => onUpdate({ healthJson: e.target.value })}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
