@@ -5,7 +5,7 @@
   --rust: #c9a24a; --rust-dk: #8a6a24; --amber: #d9b45a; --amber-dk: #8a6a24;
   --pcb: #4f8a4b; --pcb-dk: #2f5e2c; --blood: #a8322a; --cobalt: #3f6f9e; --violet: #8a6fae; --teal: #3f8a80; --grey: #8f8170;
   --display: "IM Fell English SC", "Palatino Linotype", Georgia, serif;
-  --han: "ZCOOL XiaoWei", "Noto Serif SC", "Songti SC", serif;
+  --han: "Noto Serif SC", "Songti SC", "SimSun", "Microsoft YaHei", "Noto Sans CJK SC", serif;
   --body: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
   --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
   --wax-lt: #e58b7e; --ready-lt: #9fd09a; --travel-lt: #9cc2e8; --brass-lt: #f0cf8a; --hall-edge: #0f0c09; --oak-deep: #2a1d12;

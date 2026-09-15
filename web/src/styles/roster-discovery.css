@@ -178,8 +178,20 @@
   letter-spacing: inherit;
   color: inherit;
   text-transform: none;
-  min-width: 0;
-  overflow-wrap: anywhere;
+  flex: 0 1 auto;
+  min-width: 3ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* board.css's h4.guild-group::after draws a trailing rule with flex:1, sized for the old plain-text
+   heading. It now sits beside the fold button (also flex:1) and halves the button's share of the row
+   before the name even competes with the icon/count for what's left — the one-letter-per-line squeeze.
+   The fold button already carries the row's visual weight, so drop the divider here instead of touching
+   the shared board.css rule (other future .guild-group headings, if any, keep it). */
+.roster .guild-group::after {
+  content: none;
 }
 .guild-group .guild-group-count {
   margin-left: auto;

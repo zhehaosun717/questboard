@@ -172,7 +172,9 @@ export function Guild({
                   >
                     {providerMark(group.provider)}
                   </span>
-                  <span className="guild-group-name">{group.provider}</span>
+                  <span className="guild-group-name" title={group.provider}>
+                    {group.provider}
+                  </span>
                   {group.lane ? <span>{group.lane}</span> : null}
                   <span className="guild-group-count">
                     {active ? `显示 ${group.members.length} / 共 ${total} 位` : `共 ${total} 位`}
