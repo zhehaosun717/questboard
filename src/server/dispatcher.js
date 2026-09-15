@@ -5,7 +5,7 @@ import { workerName, planDispatch, executePlan, preflight, workerEvidence } from
 import { deriveTransitions } from '../core/sync.js';
 import { withFileSets } from '../core/briefs.js';
 import { lockPresent, briefExists } from '../core/snapshot.js';
-import { writeApiDelivery } from '../core/deliveries.js';
+import { writeApiDelivery, TRANSIENT_DELIVERY_CODES } from '../core/deliveries.js';
 
 const EVIDENCE_WAIT_MS = 10000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -13,11 +13,19 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null }) {
   const queues = new Map();
   const pendingDeliveries = new Set();
+  // The last transient delivery-write notice per quest id, so a fast poll loop reports "still running"
+  // once per attempt instead of every tick. Bounded: an entry exists only while that quest is stuck in a
+  // transient retry, and is dropped the moment the attempt resolves (delivered, terminally failed, or the
+  // quest moves on to a new assignment) — never accumulates across quests or attempts.
+  const transientNotices = new Map();
 
-  // A stalled quest still belongs to its worker, so a late delivery from it counts.
-  const stillOurs = (questId, name) => {
+  // A stalled quest still belongs to its worker, so a late delivery from it counts. `at` is the specific
+  // assignment's own timestamp (store.assign stamps a fresh one every time, even a same-named re-adopt),
+  // so a stale async completion from an old attempt can never land on a newer assignment or cancellation.
+  const stillOurs = (questId, name, at) => {
     const current = store.get(questId);
-    return current && (current.status === 'dispatched' || current.status === 'stalled') && current.assignee && current.assignee.name === name ? current : null;
+    return current && (current.status === 'dispatched' || current.status === 'stalled') && current.assignee
+      && current.assignee.name === name && (!at || current.assignee.at === at) ? current : null;
   };
 
   // Lanes marked serialize run one dispatch at a time (OpenCode's send script shares a session file);
@@ -114,18 +122,42 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     }
   }
 
+  // A write failure (including an empty/no-report session) is never "delivered" — that would hide the
+  // real state behind a fake success. It only counts against the attempt that started it: if the quest
+  // moved on (reassigned, released, cancelled) before the write settles, this attempt changes nothing.
   function deliverFromApi(quest, transition) {
-    const { name, lane } = quest.assignee;
+    const { name, lane, at } = quest.assignee;
     pendingDeliveries.add(quest.id);
+    // writeDelivery may throw synchronously (a bad argument, a test double, a buggy override) rather than
+    // reject; routing the call through a resolved promise turns that into a normal rejection so .catch
+    // below still runs and .finally still releases the pending-delivery slot instead of leaking it forever.
     Promise.resolve()
       .then(() => writeDelivery(config, lane, name))
-      .then((out) => `交付已写入 ${path.relative(config.root, out).split(path.sep).join('/')}`)
-      .catch((error) => {
-        store.emitEvent(quest, 'delivery_write_failed', { by: 'board', detail: error.message });
-        return `交付文件没写成：${error.message}`;
+      .then((out) => {
+        transientNotices.delete(quest.id);
+        const current = stillOurs(quest.id, name, at);
+        if (!current) return;
+        const note = `交付已写入 ${path.relative(config.root, out).split(path.sep).join('/')}`;
+        store.setStatus(quest.id, 'delivered', { detail: [note, transition.detail].filter(Boolean).join(' | '), by: 'lanes' });
       })
-      .then((note) => {
-        if (stillOurs(quest.id, name)) store.setStatus(quest.id, 'delivered', { detail: [note, transition.detail].filter(Boolean).join(' | '), by: 'lanes' });
+      .catch((error) => {
+        const current = stillOurs(quest.id, name, at);
+        if (!current) { transientNotices.delete(quest.id); return; }
+        // "Still running", an HTTP error or an unreachable API is not proof the worker died — it is
+        // positive evidence it (or the thing polling it) is still there. Leave the assignee alone so the
+        // next poll retries, and note it once per attempt (keyed on this attempt's `at` and the exact
+        // message) so a tight poll loop cannot spam the same notice forever.
+        if (TRANSIENT_DELIVERY_CODES.has(error.code)) {
+          const last = transientNotices.get(quest.id);
+          if (!last || last.at !== at || last.message !== error.message) {
+            store.emitEvent(current, 'delivery_write_failed', { by: 'board', detail: error.message });
+            transientNotices.set(quest.id, { at, message: error.message });
+          }
+          return;
+        }
+        transientNotices.delete(quest.id);
+        store.emitEvent(current, 'delivery_write_failed', { by: 'board', detail: error.message });
+        store.setStatus(quest.id, 'failed', { detail: `交付文件没写成：${error.message}`, by: 'lanes' });
       })
       .finally(() => pendingDeliveries.delete(quest.id));
   }

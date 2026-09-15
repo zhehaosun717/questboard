@@ -29,21 +29,47 @@ export function sessionState(messages, now = Date.now()) {
   const assistant = messages.filter((m) => m.info && m.info.role === 'assistant');
   if (!assistant.length) return { state: 'unknown', reason: 'no assistant messages' };
   const last = assistant.at(-1);
-  const running = !last.info.time || !last.info.time.completed;
+  const info = last.info;
   const parts = last.parts || [];
   const toolParts = parts.filter((p) => p.type === 'tool');
   const toolCounts = {};
   for (const part of toolParts) toolCounts[part.tool || 'unknown'] = (toolCounts[part.tool || 'unknown'] || 0) + 1;
   const lastText = parts.filter((p) => p.type === 'text').map((p) => p.text).join(' ').trim().slice(-300);
   const edits = (toolCounts.edit || 0) + (toolCounts.write || 0);
-  const errorDetail = last.info.error ? (last.info.error.data ? last.info.error.data.message : last.info.error.name || '') : '';
-  const toolError = parts.find((p) => p.type === 'tool' && p.state && p.state.status === 'error');
-  if (USAGE_RE.test(errorDetail) || (toolError && USAGE_RE.test(JSON.stringify(toolError.state)))) return { state: 'bounced', reason: 'usage limit', toolCounts, lastText, edits };
-  const lastActivityMs = last.info.time ? last.info.time.completed || last.info.time.updated || 0 : 0;
+  const errorDetail = info.error ? (info.error.data ? info.error.data.message : info.error.name || '') : '';
+  // A structured error on the message itself (info.error) is the only bounce evidence. Text inside a
+  // tool's own state — its input, a shell error it is still handling, a file it read — is not: the words
+  // could be quoting something unrelated, and the session could still produce more messages after it. Same
+  // rule workers.js already enforces for file lanes: only a terminal fact, never live output, calls a
+  // bounce.
+  if (USAGE_RE.test(errorDetail)) return { state: 'bounced', reason: 'usage limit', toolCounts, lastText, edits };
+  const completed = Boolean(info.time && info.time.completed);
+  // `finish` is the AssistantMessage field the installed OpenCode SDK actually exposes (see
+  // @opencode-ai/sdk's types.gen.d.ts), not a guessed name. "tool-calls" means this turn only ended to run
+  // tools — another assistant turn follows once the tool result lands, so a completed-but-tool-only turn
+  // is still mid-session, not a delivery. Same finality rule as the writeApiDelivery fix.
+  const midStep = completed && info.finish === 'tool-calls';
+  // A completed turn with no text and no `finish` field at all is exactly what a tool-only step looks like
+  // on an SDK build that does not always set `finish` (P1/N2-a) — indistinguishable here from a genuine
+  // final turn with nothing to say. Same call as writeApiDelivery: uncertain, not a delivery, so a live
+  // worker never loses its slot on a guess made from an absent field.
+  const ambiguousToolOnly = completed && !lastText && info.finish === undefined && !info.error;
+  const running = !completed || midStep || ambiguousToolOnly;
+  // Actual last activity, never the nonexistent `info.time.updated` — the SDK's AssistantMessage only ever
+  // carries `{created, completed?}` (N9). `completed` is the newest fact once a turn ends; `created` is all
+  // there is while it is still running. Without this a stale completed tool-calls turn stayed "running"
+  // forever instead of ever going "stalled".
+  const lastActivityMs = info.time ? info.time.completed || info.time.created || 0 : 0;
   if (running) {
-    const updated = last.info.time ? last.info.time.updated : 0;
-    if (toolParts.length && updated && now - updated > STALE_MS) return { state: 'stalled', reason: 'running, no activity >20m', toolCounts, lastText, edits, lastActivityMs };
+    if (toolParts.length && lastActivityMs && now - lastActivityMs > STALE_MS) return { state: 'stalled', reason: 'running, no activity >20m', toolCounts, lastText, edits, lastActivityMs };
     return { state: 'running', toolCounts, lastText, edits, lastActivityMs };
   }
+  // A structured error or a length cutoff is a real terminal fact from the adapter, never a guess made from
+  // its text — and it is not a successful delivery either: an aborted or truncated turn must not masquerade
+  // as a finished report (N10). `lastText` still carries whatever partial text existed, so nothing is lost
+  // from the quest's detail even though no delivery file is written for it.
+  if (info.error) return { state: 'failed', reason: errorDetail || info.error.name || 'assistant error', toolCounts, lastText, edits, lastActivityMs };
+  if (info.finish === 'length') return { state: 'failed', reason: 'assistant reply truncated by a length limit', toolCounts, lastText, edits, lastActivityMs };
+  if (!lastText) return { state: 'failed', reason: 'no final assistant text', toolCounts, lastText, edits, lastActivityMs };
   return { state: 'delivered', toolCounts, lastText, edits, lastActivityMs };
 }

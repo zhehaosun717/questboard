@@ -5,6 +5,9 @@ import { readJsonLines } from '../core/jsonl.js';
 import { workerState, countEdits, readText, laneLimit } from './workers.js';
 import { fetchJson, sessionModel, sessionState } from './opencode.js';
 import { latestProgress } from './progress.js';
+import { tailText } from '../core/sync.js';
+
+const LAST_TEXT_MAX = 300;
 
 const STALE_3D_MS = 3 * 24 * 60 * 60 * 1000;
 const POLL_LIMIT = 4;
@@ -44,12 +47,16 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
   const lastSeen = new Map();
   const models = new Map();
 
-  function fileWorker(entry, lane) {
+  function fileWorker(entry, lane, now) {
     const basePath = path.join(config.root, lane.outputDir, entry.name);
-    Object.assign(entry, workerState(basePath));
+    Object.assign(entry, workerState(basePath, now, { editCounter: lane.editCounter }));
     const outText = readText(`${basePath}.out`, 20000);
     entry.edits = countEdits(outText, lane.editCounter);
-    entry.lastText = readText(`${basePath}.md`, 300) || outText.slice(-300);
+    const report = readText(`${basePath}.md`, LAST_TEXT_MAX + 200).trim();
+    // A stream-json lane's .out is a tool transcript, never a report — showing its raw tail as a "summary"
+    // is exactly the bloated, mid-token cut this replaces; a text-only lane's own stdout still stands in
+    // for one, cut at a word boundary instead of mid-word/mid-token.
+    entry.lastText = tailText(report || (lane.editCounter === 'stream-json' ? '' : outText), LAST_TEXT_MAX);
   }
 
   async function apiWorker(entry, lane, skipStale, now) {
@@ -88,7 +95,7 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
       try {
         if (!lane) entry.reason = `lane ${entry.lane} is not configured`;
         else if (lane.api) jobs.push(() => apiWorker(entry, lane, skipStale, now).catch((error) => { entry.reason = error.message; }));
-        else fileWorker(entry, lane);
+        else fileWorker(entry, lane, now);
       } catch (error) {
         entry.state = 'unknown';
         entry.reason = error.message;
