@@ -73,3 +73,19 @@
 @media (max-width: 1024px) {
   .usage-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 }
+
+/* feedback 36 (S6): provider states, manual cards, catalog links and derived marks. */
+.usage-provider-state-tag { align-self: flex-start; font-size: 10px; padding: 1px 6px; border-radius: 2px; color: var(--cable); background: var(--soil); border: 1px solid var(--steel); }
+.usage-provider-state-tag.usage-provider-state-ok { color: var(--ready-lt); border-color: var(--pcb); }
+.usage-provider-state-tag.usage-provider-state-not_subscribed { color: var(--dim); }
+.usage-provider-state-tag.usage-provider-state-unknown { color: var(--dim); border-style: dashed; }
+.usage-provider-state-tag.usage-provider-state-manual_only { color: var(--amber); border-color: var(--amber-dk); }
+.usage-credential-type { font-size: 11px; color: var(--dim); }
+.usage-manual-block { display: flex; flex-direction: column; gap: 6px; }
+.usage-manual-note { margin: 0; font-size: 12px; color: var(--cable); overflow-wrap: anywhere; }
+.usage-docs-link { color: var(--amber); font-size: 12px; }
+.usage-docs-link:hover { color: var(--tag); }
+.usage-setup-command { font-family: var(--mono); font-size: 11px; color: var(--cable); background: var(--soil); border: 1px solid var(--oak-deep); border-radius: 2px; padding: 0 4px; }
+.window-reset-note { color: var(--amber); font-size: 11px; }
+.balance-availability { margin-left: 6px; font-size: 10px; color: var(--dim); }
+.balance-split { margin-left: 6px; font-size: 11px; color: var(--dim); }

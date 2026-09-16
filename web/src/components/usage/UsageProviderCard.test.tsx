@@ -113,4 +113,109 @@ describe('UsageProviderCard', () => {
     expect(html).toContain('aria-disabled="true"');
     expect(html).toContain('冷却中 8s');
   });
+
+  it('renders a manual-only card as note + console link only, with no bars or numbers', () => {
+    const html = render(
+      provider({
+        state: 'fresh',
+        providerState: 'manual_only',
+        access: 'manual',
+        credentialType: '浏览器官网控制台',
+        plan: '阿里云百炼 Token Plan',
+        note: '暂未确认公开的用量查询接口，当前通过控制台查看',
+        docsUrl: 'https://bailian.console.aliyun.com/',
+        windows: [{ label: '5h window', usedPercent: 88, resetsAt: null }],
+        balances: [{ currency: 'CNY', amount: 10 }],
+      }),
+    );
+    expect(html).toContain('usage-manual-block');
+    expect(html).toContain('暂未确认公开的用量查询接口');
+    expect(html).toContain('打开控制台');
+    expect(html).toContain('手动查看');
+    expect(html).not.toContain('usage-bar-track');
+    expect(html).not.toContain('88%');
+    expect(html).not.toContain('余额：');
+  });
+
+  it('only turns an https docsUrl into a link, and shows setupCommand as plain copyable text', () => {
+    const insecure = render(provider({ docsUrl: 'http://insecure.example/console', setupCommand: 'codex login' }));
+    expect(insecure).not.toContain('打开控制台');
+    expect(insecure).not.toContain('insecure.example');
+    expect(insecure).toContain('手动运行：');
+    expect(insecure).toContain('codex login');
+
+    const noDocs = render(provider({}));
+    expect(noDocs).not.toContain('打开控制台');
+  });
+
+  it('shows the reset copy without a bar for a reset window, keeping a （估算） mark on the derived time', () => {
+    const html = render(
+      provider({
+        state: 'fresh',
+        windows: [
+          { label: '5h window', usedPercent: null, resetsAt: '2026-09-16T12:00:00Z', state: 'reset', resetDerived: true },
+          { label: 'weekly', usedPercent: 42, resetsAt: null },
+        ],
+      }),
+    );
+    expect(html).toContain('已重置，等下次使用后更新');
+    expect(html).toContain('（估算）');
+    expect(html).not.toContain('未知');
+    expect(html.match(/usage-bar-track/g)).toHaveLength(1);
+  });
+
+  it('never draws a 0-width bar for an unknown percent, while a real 0% still gets its bar', () => {
+    const unknownPercent = render(provider({ state: 'fresh', windows: [{ label: 'weekly', usedPercent: null, resetsAt: null }] }));
+    expect(unknownPercent).toContain('未知');
+    expect(unknownPercent).not.toContain('usage-bar-track');
+
+    const zeroPercent = render(provider({ state: 'fresh', windows: [{ label: '5h window', usedPercent: 0, resetsAt: null }] }));
+    expect(zeroPercent).toContain('0%');
+    expect(zeroPercent).toContain('usage-bar-track');
+  });
+
+  it('shows balance availability, a 赠送/充值 split, and no fake amount when one is missing', () => {
+    const html = render(
+      provider({
+        state: 'fresh',
+        balances: [
+          { currency: 'CNY', amount: 12.34, isAvailable: true, granted: 10, toppedUp: 2.34 },
+          { currency: 'CNY', isAvailable: false },
+        ],
+      }),
+    );
+    expect(html).toContain('¥12.34');
+    expect(html).toContain('<span class="balance-availability">可用</span>');
+    expect(html).toContain('赠送 ¥10.00');
+    expect(html).toContain('充值 ¥2.34');
+    expect(html).toContain('<span class="balance-availability">不可用</span>');
+  });
+
+  it('falls back to the provider-level availability, and renders an explicit null as 未知, never as 不可用', () => {
+    const providerLevel = render(provider({ state: 'fresh', isAvailable: false, balances: [{ currency: 'CNY' }] }));
+    expect(providerLevel).toContain('<span class="balance-availability">不可用</span>');
+
+    const explicitUnknown = render(provider({ state: 'fresh', isAvailable: null, balances: [{ currency: 'CNY' }] }));
+    expect(explicitUnknown).toContain('<span class="balance-availability">未知</span>');
+  });
+
+  it('keeps providerState, access and credential type as three separate labels', () => {
+    const html = render(
+      provider({ state: 'fresh', providerState: 'not_subscribed', access: 'official-cli', credentialType: '登录会话', source: 'cli' }),
+    );
+    expect(html).toContain('usage-provider-state-tag');
+    expect(html).toContain('未订阅');
+    expect(html).toContain('官方命令行');
+    expect(html).toContain('登录会话');
+  });
+
+  it('falls back to the source label when no access field is present (old server)', () => {
+    const html = render(provider({ state: 'fresh', source: 'local-log' }));
+    expect(html).toContain('本机记录');
+  });
+
+  it('marks the as-of line as （估算） when the server derived it', () => {
+    const html = render(provider({ state: 'fresh', asOf: '2026-09-15T00:00:00Z', asOfDerived: true }));
+    expect(html).toContain('数据截至（估算）');
+  });
 });

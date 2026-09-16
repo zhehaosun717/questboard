@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import type { UsageProvider } from '../api/types';
 import {
+  formatAccessLabel,
+  formatAsOfLine,
   formatBalance,
+  formatBalanceAvailability,
   formatClockTime,
   formatPercentOrUnknown,
+  formatProviderStateLabel,
   formatResetTime,
   formatSourceLabel,
   formatUsageDate,
+  formatWindowResetLine,
+  formatWindowStateLabel,
   providerGuidanceText,
   usageColorClass,
   usageStateInfo,
+  WINDOW_RESET_REFRESH_TEXT,
 } from './usage';
 
 function baseProvider(overrides: Partial<UsageProvider> = {}): UsageProvider {
@@ -130,5 +137,53 @@ describe('providerGuidanceText', () => {
 
   it('falls back to a neutral fixed message when the server gives no error text', () => {
     expect(providerGuidanceText(baseProvider({ configured: false, error: undefined }))).toBe('未接入 / 未配置');
+  });
+});
+
+describe('feedback 36 labels', () => {
+  it('maps providerState to plain-Chinese labels, separate from the cache-state tag', () => {
+    expect(formatProviderStateLabel('ok')).toBe('正常');
+    expect(formatProviderStateLabel('not_subscribed')).toBe('未订阅');
+    expect(formatProviderStateLabel('unknown')).toBe('未知');
+    expect(formatProviderStateLabel('manual_only')).toBe('手动查看');
+  });
+
+  it('labels a reset window and gives it fixed refresh copy', () => {
+    expect(formatWindowStateLabel('reset')).toBe('已重置');
+    expect(WINDOW_RESET_REFRESH_TEXT).toBe('已重置，等下次使用后更新');
+  });
+
+  it('labels access values with the same vocabulary as sources', () => {
+    expect(formatAccessLabel('official-api')).toBe('官方接口');
+    expect(formatAccessLabel('official-cli')).toBe('官方命令行');
+    expect(formatAccessLabel('undocumented-api')).toBe('未公开接口');
+    expect(formatAccessLabel('local-log')).toBe('本机记录');
+    expect(formatAccessLabel('local-app')).toBe('本机应用');
+    expect(formatAccessLabel('manual')).toBe('手动查看');
+    expect(formatAccessLabel('something-new')).toBe('something-new');
+  });
+
+  it('marks a derived reset time with （估算） and keeps an observed one plain', () => {
+    const iso = '2026-05-15T12:30:00Z';
+    expect(formatWindowResetLine(null)).toBeNull();
+    expect(formatWindowResetLine('')).toBeNull();
+    const plain = formatWindowResetLine(iso);
+    expect(plain).toMatch(/^重置于 \d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(formatWindowResetLine(iso, true)).toBe(`${plain}（估算）`);
+  });
+
+  it('renders the as-of line, marked as an estimate only when derived', () => {
+    const iso = '2026-05-15T12:30:00Z';
+    expect(formatAsOfLine(null)).toBe('');
+    expect(formatAsOfLine('invalid-date')).toBe('');
+    expect(formatAsOfLine(iso)).toMatch(/^数据截至 \d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(formatAsOfLine(iso, true)).toMatch(/^数据截至（估算） \d{2}-\d{2} \d{2}:\d{2}$/);
+  });
+
+  it('keeps a definite availability apart from an unknown one', () => {
+    expect(formatBalanceAvailability(true)).toBe('可用');
+    expect(formatBalanceAvailability(false)).toBe('不可用');
+    expect(formatBalanceAvailability(null)).toBe('未知');
+    expect(formatBalanceAvailability(undefined)).toBeNull();
   });
 });

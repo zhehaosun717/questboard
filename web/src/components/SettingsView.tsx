@@ -8,6 +8,7 @@ import {
   type ProjectDraft,
   type ReviewDraft,
   type SettingsDrafts,
+  type UsageDraft,
   toDrafts,
   toRaw,
   validateDrafts,
@@ -20,6 +21,45 @@ import { SettingsPolicySection } from './settings/SettingsPolicySection';
 import { SettingsProjectSection } from './settings/SettingsProjectSection';
 import { SettingsReviewSection } from './settings/SettingsReviewSection';
 import { SettingsUsageKeysSection } from './settings/SettingsUsageKeysSection';
+import { SettingsUsageProvidersSection } from './settings/SettingsUsageProvidersSection';
+
+// 本机与连接 mixes read-only checks with 手动查看的用量来源, which DOES write usage.manualProviders and the
+// Alibaba pair into questboard.config.json on save. The old group banner ("本组只读检查，不会写入项目配置。")
+// promised nothing in this group is written, which is false for that section — and it sits directly above
+// its controls. The read-only promise is scoped to the checking sections below; the writing section says
+// the write itself (SettingsUsageProvidersSection), and the save bar keeps the restart notice.
+const LOCAL_GROUP_READ_ONLY_NOTE = '本机信息与用量密钥只读检查，不会写入项目配置。';
+
+interface SettingsLocalGroupProps {
+  home: SettingsReport['home'];
+  openCodeAuthFile: SettingsReport['openCodeAuthFile'];
+  omo: SettingsReport['omo'];
+  usageKeys: SettingsReport['usageKeys'];
+  usageDraft: UsageDraft;
+  errors: Record<string, string>;
+  onUsageChange: (patch: Partial<UsageDraft>) => void;
+}
+
+// Exported as a pure view so a server-rendered test can pin this group's exact copy (no jsdom in this repo),
+// the same pattern as NotificationsSection/NotificationsSectionView.
+export function SettingsLocalGroup({
+  home,
+  openCodeAuthFile,
+  omo,
+  usageKeys,
+  usageDraft,
+  errors,
+  onUsageChange,
+}: SettingsLocalGroupProps) {
+  return (
+    <>
+      <div className="settings-read-only-note">{LOCAL_GROUP_READ_ONLY_NOTE}</div>
+      <SettingsLocalSection home={home} openCodeAuthFile={openCodeAuthFile} omo={omo} />
+      <SettingsUsageKeysSection usageKeys={usageKeys} />
+      <SettingsUsageProvidersSection draft={usageDraft} errors={errors} onChange={onUsageChange} />
+    </>
+  );
+}
 
 interface SettingsViewProps {
   // The machine roster, so 派遣限制 can search real models and show which cards a rule would ban.
@@ -151,6 +191,15 @@ export function SettingsView({ roster }: SettingsViewProps) {
     setDrafts((prev) => (prev ? { ...prev, policy: { ...prev.policy, ...patch } } : prev));
   };
 
+  const updateUsage = (patch: Partial<UsageDraft>) => {
+    if (!drafts) return;
+    const next = { ...drafts, usage: { ...drafts.usage, ...patch } };
+    setDrafts(next);
+    // Same reasoning as updateLanes: the Alibaba pairing error is keyed by field, so an edit that now makes
+    // the pair valid again must clear the old complaint once a save attempt has put errors on screen.
+    setErrors((prevErrors) => (Object.keys(prevErrors).length > 0 ? validateDrafts(next) : prevErrors));
+  };
+
   const hasGroupErrors = (prefixes: string[]) =>
     Object.keys(errors).some((key) =>
       prefixes.some((prefix) => key === prefix || key.startsWith(`${prefix}.`)),
@@ -198,15 +247,15 @@ export function SettingsView({ roster }: SettingsViewProps) {
         );
       case 'local':
         return (
-          <>
-            <div className="settings-read-only-note">本组只读检查，不会写入项目配置。</div>
-            <SettingsLocalSection
-              home={home}
-              openCodeAuthFile={openCodeAuthFile}
-              omo={omo}
-            />
-            <SettingsUsageKeysSection usageKeys={usageKeys} />
-          </>
+          <SettingsLocalGroup
+            home={home}
+            openCodeAuthFile={openCodeAuthFile}
+            omo={omo}
+            usageKeys={usageKeys}
+            usageDraft={drafts.usage}
+            errors={errors}
+            onUsageChange={updateUsage}
+          />
         );
     }
   })();
@@ -220,7 +269,7 @@ export function SettingsView({ roster }: SettingsViewProps) {
           'project-files': hasGroupErrors(['project', 'briefs']),
           execution: hasGroupErrors(['lanes']),
           policy: hasGroupErrors(['policy']),
-          local: hasGroupErrors(['local', 'usageKeys']),
+          local: hasGroupErrors(['local', 'usageKeys', 'usage']),
         }}
       />
 

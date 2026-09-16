@@ -79,12 +79,19 @@ export interface PolicyDraft {
   bannedAgents: string[];
 }
 
+export interface UsageDraft {
+  manualProviders: string[];
+  alibabaEdition: string;
+  alibabaRegion: string;
+}
+
 export interface SettingsDrafts {
   project: ProjectDraft;
   briefs: BriefsDraft;
   lanes: LaneDraft[];
   policy: PolicyDraft;
   review: ReviewDraft;
+  usage: UsageDraft;
 }
 
 const LANE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
@@ -224,6 +231,11 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
   const review = typeof r.reviewPages === 'object' && r.reviewPages !== null ? (r.reviewPages as Record<string, unknown>) : undefined;
   const policy = typeof r.policy === 'object' && r.policy !== null ? (r.policy as Record<string, unknown>) : undefined;
   const rawLanes = typeof r.lanes === 'object' && r.lanes !== null ? (r.lanes as Record<string, unknown>) : undefined;
+  const rawUsage = typeof r.usage === 'object' && r.usage !== null ? (r.usage as Record<string, unknown>) : undefined;
+  const rawAlibaba =
+    rawUsage && typeof rawUsage.alibaba === 'object' && rawUsage.alibaba !== null
+      ? (rawUsage.alibaba as Record<string, unknown>)
+      : undefined;
 
   const lanes: LaneDraft[] = [];
   if (rawLanes) {
@@ -320,6 +332,14 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
       bannedAgents: strList(policy?.bannedAgents),
     },
     review: { dir: str(review?.dir) },
+    usage: {
+      // Trimmed like the service does before it validates: a hand-written `" nvidia "` must show as the
+      // checked NVIDIA row (and toggle off from it), not as an unchecked stray that grows a second,
+      // trimmed copy beside it on the next click.
+      manualProviders: strList(rawUsage?.manualProviders).map((id) => id.trim()),
+      alibabaEdition: str(rawAlibaba?.edition),
+      alibabaRegion: str(rawAlibaba?.region),
+    },
   };
 }
 
@@ -442,6 +462,33 @@ export function toRaw(raw: Record<string, unknown> | null | undefined, drafts: S
 
   const origPolicy = typeof raw?.policy === 'object' && raw.policy !== null ? (raw.policy as Record<string, unknown>) : {};
   next.policy = { ...origPolicy, bannedModelPatterns: [...drafts.policy.bannedModelPatterns], bannedAgents: [...drafts.policy.bannedAgents] };
+
+  // usage: spread the original section first, like every other section, so keys this form does not know
+  // about survive a save. The Alibaba pair is written together or not at all (validateDrafts refuses a
+  // half-set pair). An empty manualProviders list is written on purpose when the project already has usage
+  // settings: "all cards disabled" is a real choice, not the same as the key never having existed — but a
+  // project that never had usage.* keeps not having it.
+  const origUsage = typeof raw?.usage === 'object' && raw.usage !== null ? (raw.usage as Record<string, unknown>) : {};
+  const usageObj: Record<string, unknown> = { ...origUsage };
+  const edition = drafts.usage.alibabaEdition.trim();
+  const region = drafts.usage.alibabaRegion.trim();
+  if (edition && region) {
+    const origAlibaba =
+      typeof origUsage.alibaba === 'object' && origUsage.alibaba !== null
+        ? (origUsage.alibaba as Record<string, unknown>)
+        : {};
+    usageObj.alibaba = { ...origAlibaba, edition, region };
+  } else {
+    delete usageObj.alibaba;
+  }
+  const hadUsage = Object.keys(origUsage).length > 0;
+  const hasChoice = drafts.usage.manualProviders.length > 0 || (edition !== '' && region !== '');
+  if (hadUsage || hasChoice) {
+    usageObj.manualProviders = [...drafts.usage.manualProviders];
+    next.usage = usageObj;
+  } else {
+    delete next.usage;
+  }
   return next;
 }
 
@@ -461,6 +508,15 @@ export function validateDrafts(drafts: SettingsDrafts): Record<string, string> {
   const recentDaysNum = Number(recentDaysStr);
   if (!recentDaysStr || !Number.isInteger(recentDaysNum) || recentDaysNum <= 0) {
     errors['briefs.recentDays'] = '简报天数必须是正整数'; errors.recentDays = '简报天数必须是正整数';
+  }
+
+  // The Alibaba pair is one choice in two halves: the service rejects a lone edition or a lone region, so
+  // the form refuses it here and says which fields are involved, before a save can round-trip a refusal.
+  const usageEdition = drafts.usage.alibabaEdition.trim();
+  const usageRegion = drafts.usage.alibabaRegion.trim();
+  if ((usageEdition === '') !== (usageRegion === '')) {
+    const msg = '阿里云版本和区域要么都选，要么都不选';
+    errors['usage.alibaba'] = msg; errors.usage = msg;
   }
 
   if (!drafts.lanes || drafts.lanes.length === 0) {

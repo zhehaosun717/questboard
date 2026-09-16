@@ -26,6 +26,15 @@ const KNOWN_STATES: ReadonlySet<UsageProviderState> = new Set([
   'failed',
 ]);
 
+/** Same closed-set treatment for the provider fact carried alongside the cache state (feedback 36): an
+ * unrecognized providerState stays out rather than reaching a label lookup or a class name. */
+const KNOWN_PROVIDER_STATES: ReadonlySet<string> = new Set([
+  'ok',
+  'not_subscribed',
+  'unknown',
+  'manual_only',
+]);
+
 export interface ValidatedUsageReport {
   generatedAt: string;
   providers: UsageProvider[];
@@ -77,7 +86,17 @@ function sanitizeWindows(raw: unknown): UsageProvider['windows'] {
     const usedPercentRaw = item.usedPercent;
     const usedPercent = usedPercentRaw === null ? null : (asFiniteNumber(usedPercentRaw) ?? null);
     const resetsAt = asStringOrNull(item.resetsAt) ?? null;
-    out.push({ label, usedPercent, resetsAt });
+    // 'reset' is the only window state the backend may report (feedback 36): the window was reset and has
+    // no reading until the next use. Anything else in the field stays out, same as unknown provider states.
+    const state: 'reset' | undefined = item.state === 'reset' ? 'reset' : undefined;
+    const resetDerived = asBoolean(item.resetDerived);
+    out.push({
+      label,
+      usedPercent,
+      resetsAt,
+      ...(state !== undefined ? { state } : {}),
+      ...(resetDerived !== undefined ? { resetDerived } : {}),
+    });
   }
   return out;
 }
@@ -89,8 +108,22 @@ function sanitizeBalances(raw: unknown): UsageProvider['balances'] {
     if (!isRecord(item)) continue;
     const currency = asString(item.currency);
     const amount = asFiniteNumber(item.amount);
-    if (currency === undefined || amount === undefined) continue;
-    out.push({ currency, amount });
+    const granted = asFiniteNumber(item.granted);
+    const toppedUp = asFiniteNumber(item.toppedUp);
+    const isAvailableRaw = item.isAvailable;
+    const isAvailable = isAvailableRaw === null ? null : asBoolean(isAvailableRaw);
+    // Feedback 36 (F4): an adapter (DeepSeek) may report availability or a granted/topped-up split with no
+    // total amount — that is still a real reading, and requiring `amount` silently hid the balance. What is
+    // still dropped: an item with no currency, or one carrying no usable data at all.
+    const hasFunds = amount !== undefined || granted !== undefined || toppedUp !== undefined;
+    if (currency === undefined || (!hasFunds && isAvailable === undefined)) continue;
+    out.push({
+      currency,
+      ...(amount !== undefined ? { amount } : {}),
+      ...(granted !== undefined ? { granted } : {}),
+      ...(toppedUp !== undefined ? { toppedUp } : {}),
+      ...(isAvailable !== undefined ? { isAvailable } : {}),
+    });
   }
   return out;
 }
@@ -179,6 +212,20 @@ function sanitizeProviderEntry(
   const lastRefreshAt = raw.lastRefreshAt === undefined ? undefined : asStringOrNull(raw.lastRefreshAt);
   const refreshing = asBoolean(raw.refreshing);
   const cooling = asBoolean(raw.cooling);
+  // Feedback 36: provider-level facts the card renders as their own labels. Everything here is optional on
+  // the wire (old backends send none of it), so each field degrades to "not known" instead of failing the
+  // entry — only genuinely present-but-wrong types are dropped.
+  const providerStateRaw = asString(raw.providerState);
+  const providerState = KNOWN_PROVIDER_STATES.has(providerStateRaw ?? '')
+    ? (providerStateRaw as UsageProvider['providerState'])
+    : undefined;
+  const asOfDerived = asBoolean(raw.asOfDerived);
+  const isAvailableRaw = raw.isAvailable;
+  const isAvailable = isAvailableRaw === null ? null : asBoolean(isAvailableRaw);
+  const access = asString(raw.access);
+  const credentialType = asString(raw.credentialType);
+  const docsUrl = asString(raw.docsUrl);
+  const setupCommand = asString(raw.setupCommand);
 
   return {
     provider: {
@@ -205,6 +252,15 @@ function sanitizeProviderEntry(
       attemptedAt,
       lastSuccessAt,
       lastRefreshAt,
+      // Feedback 36 additions; conditional spreads keep old-shaped entries identical so existing consumers
+      // (and tests) never see new undefined-valued keys appear on providers that lack them.
+      ...(providerState !== undefined ? { providerState } : {}),
+      ...(asOfDerived !== undefined ? { asOfDerived } : {}),
+      ...(isAvailable !== undefined ? { isAvailable } : {}),
+      ...(access !== undefined ? { access } : {}),
+      ...(credentialType !== undefined ? { credentialType } : {}),
+      ...(docsUrl !== undefined ? { docsUrl } : {}),
+      ...(setupCommand !== undefined ? { setupCommand } : {}),
     },
     malformed: false,
   };

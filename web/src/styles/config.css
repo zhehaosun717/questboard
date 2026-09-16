@@ -6,6 +6,9 @@
 .settings-main { min-width: 0; display: flex; flex-direction: column; gap: 20px; padding-bottom: 92px; }
 .settings-group-content { display: flex; flex-direction: column; gap: 20px; }
 .settings-read-only-note { padding: 9px 12px; border-left: 3px solid var(--dim); background: rgba(255, 255, 255, 0.03); color: var(--dim); font: 11px var(--mono); }
+/* Says the 手动查看的用量来源 choices are written into the project config — the read-only note above must not
+   be read as covering them. Amber, like other "this needs your attention" marks. */
+.settings-write-note { margin: 0 0 14px; padding: 9px 12px; border-left: 3px solid var(--amber); background: rgba(217, 180, 90, 0.08); color: var(--cream); font: 11px var(--mono); }
 .settings-nav { position: sticky; top: 18px; align-self: start; padding: 12px 0; }
 .settings-nav-heading { margin: 0 0 10px; color: var(--dim); font: 400 11px var(--display); letter-spacing: 0.14em; }
 .settings-nav nav { display: flex; flex-direction: column; gap: 4px; }
@@ -262,3 +265,14 @@
 .config-policy-model-list label:hover { color: var(--tag); }
 .config-policy-model-list input { margin: 2px 0 0; }
 .config-policy-model-list > span { color: var(--dim); font-size: 11px; }
+
+/* feedback 36 (S6): manual usage providers settings. */
+.usage-providers-list { display: flex; flex-direction: column; gap: 8px; }
+.usage-provider-toggle-row { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 8px; font-size: 12px; color: var(--cable); cursor: pointer; }
+.usage-provider-toggle-name { font-weight: 700; color: var(--cream); }
+.usage-provider-toggle-note { color: var(--dim); font-size: 11px; }
+.alibaba-choice-grid { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
+.alibaba-choice-field { display: flex; flex-direction: column; gap: 4px; }
+.alibaba-choice-label { color: var(--dim); font-size: 11px; font-weight: 700; }
+.alibaba-choice-field select { font: 700 12px var(--body); color: var(--cream); background: var(--steel2); border: 1px solid var(--hall-edge); border-radius: 2px; padding: 3px 6px; }
+.usage-providers-restart-hint { margin: 10px 0 0; }

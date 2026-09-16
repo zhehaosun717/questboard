@@ -180,3 +180,39 @@ export const WINDOW_STATE_LABEL: Record<string, string> = {
 export function formatWindowStateLabel(state: string): string {
   return WINDOW_STATE_LABEL[state] ?? state;
 }
+
+/** Window text for a window the provider reports as reset: there is no reading until the next use, so the
+ * card states that instead of drawing a bar (a 0-width bar next to a real 0% would be the same picture). */
+export const WINDOW_RESET_REFRESH_TEXT = '已重置，等下次使用后更新';
+
+/** Marks a time the server only derived/estimated rather than observed directly (resetDerived/asOfDerived). */
+export const ESTIMATED_MARK = '（估算）';
+
+/** Access labels reuse the source-label table: the same vocabulary (官方接口 / 官方命令行 / 未公开接口 /
+ * 本机记录 / 本机应用 / 手动查看) already ships there, and an unrecognized access falls back to itself. */
+export function formatAccessLabel(access: string): string {
+  return USAGE_SOURCE_LABEL[access] ?? access;
+}
+
+/** Reset hint for one window: '重置于 09:05（估算）' when the server derived the time, plain otherwise;
+ * null when there is no usable time (nothing is shown). */
+export function formatWindowResetLine(resetsAt: string | null, derived?: boolean): string | null {
+  const time = formatUsageDate(resetsAt);
+  if (!time) return null;
+  return derived ? `重置于 ${time}${ESTIMATED_MARK}` : `重置于 ${time}`;
+}
+
+/** as-of line for the card's dim details; empty string when there is no usable time (nothing is shown). */
+export function formatAsOfLine(asOf: string | null, derived?: boolean): string {
+  const time = formatUsageDate(asOf);
+  if (!time) return '';
+  return derived ? `数据截至${ESTIMATED_MARK} ${time}` : `数据截至 ${time}`;
+}
+
+/** Balance availability: undefined = the backend said nothing about it (show nothing); null = the backend
+ * explicitly said "not known", which must render as 未知, never as a definite 不可用. */
+export function formatBalanceAvailability(value: boolean | null | undefined): string | null {
+  if (value === undefined) return null;
+  if (value === null) return '未知';
+  return value ? '可用' : '不可用';
+}

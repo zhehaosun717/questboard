@@ -356,7 +356,10 @@ export interface UsageWindow {
 
 export interface UsageBalance {
   currency: string;
-  amount: number;
+  // Optional since feedback 36 (F4): an adapter that only knows whether the balance can be used
+  // (e.g. DeepSeek without a read key) may report availability with no amount. Missing is not 0,
+  // and the UI must not fake one.
+  amount?: number;
   isAvailable?: boolean | null;
   granted?: number;
   toppedUp?: number;
@@ -406,6 +409,9 @@ export interface UsageProvider {
   credentialType?: string;
   docsUrl?: string;
   setupCommand?: string;
+  // Balance availability for adapters that only expose usability (DeepSeek). true/false are facts;
+  // null and an absent field both mean "not known" and must never render as 不可用.
+  isAvailable?: boolean | null;
 }
 
 export interface UsageReport {

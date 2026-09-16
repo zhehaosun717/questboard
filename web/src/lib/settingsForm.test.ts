@@ -741,3 +741,71 @@ describe('settingsForm validateDrafts rules', () => {
     expect(toRaw(raw, drafts)).toEqual(raw);
   });
 });
+
+describe('settingsForm usage section (feedback 36)', () => {
+  const rawWithUsage = {
+    ...exampleConfig,
+    usage: {
+      manualProviders: ['nvidia', 'claude-subscription'],
+      alibaba: { edition: 'personal', region: 'cn-beijing', futureKey: 'keep' },
+      futureUsageKey: 7,
+    },
+  };
+
+  it('reads the section into drafts', () => {
+    const d = toDrafts(rawWithUsage);
+    expect(d.usage).toEqual({
+      manualProviders: ['nvidia', 'claude-subscription'],
+      alibabaEdition: 'personal',
+      alibabaRegion: 'cn-beijing',
+    });
+  });
+
+  it('trims hand-written manual provider ids while reading, like the service does', () => {
+    const d = toDrafts({ usage: { manualProviders: [' nvidia ', 'claude-subscription'] } });
+    expect(d.usage.manualProviders).toEqual(['nvidia', 'claude-subscription']);
+  });
+
+  it('round trips with unknown usage fields preserved', () => {
+    const d = toDrafts(rawWithUsage);
+    expect(toRaw(rawWithUsage, d).usage).toEqual({
+      manualProviders: ['nvidia', 'claude-subscription'],
+      alibaba: { edition: 'personal', region: 'cn-beijing', futureKey: 'keep' },
+      futureUsageKey: 7,
+    });
+  });
+
+  it('writes an empty manual list as a real choice, and drops alibaba when either half is cleared', () => {
+    const d = toDrafts(rawWithUsage);
+    d.usage.manualProviders = [];
+    d.usage.alibabaRegion = '';
+    const usage = toRaw(rawWithUsage, d).usage as Record<string, unknown>;
+    expect(usage.manualProviders).toEqual([]);
+    expect('alibaba' in usage).toBe(false);
+    expect(usage.futureUsageKey).toBe(7);
+  });
+
+  it('does not invent a usage key for a project that never had one', () => {
+    const d = toDrafts(exampleConfig);
+    const result = toRaw(exampleConfig, d);
+    expect('usage' in result).toBe(false);
+  });
+
+  it('refuses a half-set Alibaba pair and accepts a full one', () => {
+    const d = toDrafts(rawWithUsage);
+    d.usage.alibabaRegion = '';
+    expect(validateDrafts(d)['usage.alibaba']).toMatch(/要么都选，要么都不选/);
+
+    d.usage.alibabaRegion = 'cn-beijing';
+    d.usage.alibabaEdition = '';
+    expect(validateDrafts(d)['usage.alibaba']).toBeDefined();
+
+    d.usage.alibabaEdition = 'personal';
+    expect(validateDrafts(d)['usage.alibaba']).toBeUndefined();
+  });
+
+  it('accepts a project with no usage settings at all', () => {
+    const d = toDrafts(exampleConfig);
+    expect(validateDrafts(d)['usage.alibaba']).toBeUndefined();
+  });
+});

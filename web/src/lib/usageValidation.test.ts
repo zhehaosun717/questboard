@@ -314,3 +314,88 @@ describe('validateUsageReport — per-provider entries', () => {
     });
   });
 });
+
+describe('validateUsageReport — feedback 36 fields', () => {
+  it('keeps a reset window with its derived flag, and drops unknown window states', () => {
+    const result = validateUsageReport(
+      {
+        providers: [
+          goodProvider({
+            windows: [
+              { label: '5h', usedPercent: null, resetsAt: '2026-09-16T00:00:00Z', state: 'reset', resetDerived: true },
+              { label: 'weekly', usedPercent: 10, resetsAt: null, state: 'made_up', resetDerived: 'yes' },
+            ],
+          }),
+        ],
+      },
+      [],
+    );
+    expect(result?.providers[0]?.windows).toEqual([
+      { label: '5h', usedPercent: null, resetsAt: '2026-09-16T00:00:00Z', state: 'reset', resetDerived: true },
+      { label: 'weekly', usedPercent: 10, resetsAt: null },
+    ]);
+  });
+
+  it('passes through the provider-level feedback 36 fields with closed vocabularies', () => {
+    const result = validateUsageReport(
+      {
+        providers: [
+          goodProvider({
+            providerState: 'manual_only',
+            asOfDerived: true,
+            isAvailable: false,
+            access: 'manual',
+            credentialType: '浏览器官网控制台',
+            docsUrl: 'https://bailian.console.aliyun.com/',
+            setupCommand: 'codex login',
+          }),
+        ],
+      },
+      [],
+    );
+    expect(result?.providers[0]).toMatchObject({
+      providerState: 'manual_only',
+      asOfDerived: true,
+      isAvailable: false,
+      access: 'manual',
+      credentialType: '浏览器官网控制台',
+      docsUrl: 'https://bailian.console.aliyun.com/',
+      setupCommand: 'codex login',
+    });
+  });
+
+  it('drops an unrecognized providerState and wrongly-typed derived/availability/access values', () => {
+    const result = validateUsageReport(
+      {
+        providers: [
+          goodProvider({ providerState: 'legit_looking_state', asOfDerived: 'yes', isAvailable: 'no', access: 42 }),
+        ],
+      },
+      [],
+    );
+    expect(result?.providers[0]?.providerState).toBeUndefined();
+    expect(result?.providers[0]?.asOfDerived).toBeUndefined();
+    expect(result?.providers[0]?.isAvailable).toBeUndefined();
+    expect(result?.providers[0]?.access).toBeUndefined();
+  });
+
+  it('keeps an availability-only balance and a granted/topped-up split, including an explicit null availability', () => {
+    const result = validateUsageReport(
+      {
+        providers: [
+          goodProvider({
+            balances: [
+              { currency: 'CNY', isAvailable: true },
+              { currency: 'CNY', granted: 10, toppedUp: 2.5, isAvailable: null },
+            ],
+          }),
+        ],
+      },
+      [],
+    );
+    expect(result?.providers[0]?.balances).toEqual([
+      { currency: 'CNY', isAvailable: true },
+      { currency: 'CNY', granted: 10, toppedUp: 2.5, isAvailable: null },
+    ]);
+  });
+});
