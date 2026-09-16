@@ -11,7 +11,27 @@ const codes = (result) => result.reasons.map((r) => r.code);
 
 describe('canDispatch', () => {
   it('allows an available card on an open quest', () => {
-    assert.deepEqual(check(quest()), { ok: true, reasons: [] });
+    assert.deepEqual(check(quest()), {
+      ok: true,
+      reasons: [],
+      warnings: [{ code: 'variant_unconfirmed', message: '尚未确认这张卡支持 variant「high」，派遣会照常进行' }],
+    });
+  });
+
+  it('refuses declared variant incompatibility, warns for unknown support, and stays quiet with no variant', () => {
+    const unsupported = check(quest(), card('codex-luna', { variants: [] }));
+    assert.equal(unsupported.ok, false);
+    assert.deepEqual(unsupported.reasons[0], {
+      code: 'variant_unsupported',
+      message: '这张卡的模型不接受 variant「high」，请在名册里清空 variant 或改用支持它的卡',
+    });
+    const listed = check(quest(), card('codex-luna', { variants: ['low', 'medium'] }));
+    assert.equal(listed.ok, false);
+    assert.equal(listed.reasons.find((reason) => reason.code === 'variant_unsupported').message, '这张卡的模型不接受 variant「high」，可接受的值是：low、medium');
+    const unknown = check(quest(), card('codex-luna'));
+    assert.equal(unknown.ok, true);
+    assert.deepEqual(unknown.warnings, [{ code: 'variant_unconfirmed', message: '尚未确认这张卡支持 variant「high」，派遣会照常进行' }]);
+    assert.deepEqual(check(quest(), card('codex-luna', { variant: '' })), { ok: true, reasons: [] });
   });
 
   it('allows re-dispatch after bounce, failure, stall or a lane limit, but not while running', () => {

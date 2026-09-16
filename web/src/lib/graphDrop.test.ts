@@ -8,6 +8,16 @@ describe('dropVerdictInfo', () => {
     expect(dropVerdictInfo(verdict, true, false)).toEqual({ cls: 'drop-ok ok', message: '放下：派去做' });
   });
 
+  it('keeps an unknown-capability warning separate from the accepted-drop hint', () => {
+    const warning = '尚未确认这张卡支持 variant「high」，派遣会照常进行';
+    expect(dropVerdictInfo({ ok: true, reasons: [], warnings: [{ code: 'variant_unconfirmed', message: warning }] }, true, false)).toEqual({
+      cls: 'drop-ok ok',
+      message: '放下：派去做',
+      warning,
+    });
+    expect(canOpenWorkOrder({ ok: true, reasons: [], warnings: [{ code: 'variant_unconfirmed', message: warning }] })).toBe(true);
+  });
+
   it('accepts an ok verdict as review with a review hint', () => {
     const verdict: Verdict = { ok: true, reasons: [] };
     expect(dropVerdictInfo(verdict, true, true)).toEqual({ cls: 'drop-ok ok', message: '放下：派去复核' });

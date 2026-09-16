@@ -8,6 +8,7 @@ export interface CardFormValues {
   model?: string;
   family?: string;
   variant?: string;
+  variants?: string | string[];
   agent?: string;
   billing?: string;
   maxParallel?: number | string;
@@ -55,6 +56,18 @@ export function suggestDuplicateId(id: string): string {
   const counter = match?.[2];
   const suffix = `-${counter ? Number(counter) + 1 : 2}`;
   return `${base.slice(0, MAX_ID_LENGTH - suffix.length)}${suffix}`;
+}
+
+export function parseCardVariants(value: string | string[]): { variants: string[]; error: string | null } {
+  const rawValues = typeof value === 'string' ? (value.trim() ? value.split(',') : []) : value;
+  const variants = rawValues.map((item) => (typeof item === 'string' ? item.trim() : item));
+  if (variants.some((item) => typeof item !== 'string' || !item)) {
+    return { variants: [], error: 'variant 列表里不能有空项，请用逗号分隔非空值' };
+  }
+  if (new Set(variants).size !== variants.length) {
+    return { variants: [], error: 'variant 列表里不能有重复值' };
+  }
+  return { variants, error: null };
 }
 
 export function validateCardForm(
@@ -148,6 +161,11 @@ export function validateCardForm(
     errors.env = parsedEnv.error;
   }
 
+  const parsedVariants = values.variants === undefined ? null : parseCardVariants(values.variants);
+  if (parsedVariants?.error) {
+    errors.variants = parsedVariants.error;
+  }
+
   if (Object.keys(errors).length > 0) {
     return { errors, value: null };
   }
@@ -189,6 +207,10 @@ export function validateCardForm(
 
   if (Object.keys(parsedEnv.env).length > 0) {
     value.env = parsedEnv.env;
+  }
+
+  if (parsedVariants) {
+    value.variants = parsedVariants.variants;
   }
 
   return { errors: {}, value };

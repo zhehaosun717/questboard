@@ -30,6 +30,9 @@ export function RosterCardFormModal({
   const [model, setModel] = useState(card?.model ?? '');
   const [family, setFamily] = useState(card?.family ?? '');
   const [variant, setVariant] = useState(card?.variant ?? '');
+  const initialVariantsMode = card?.variants === undefined ? 'unknown' : card.variants.length === 0 ? 'none' : 'list';
+  const [variantsMode, setVariantsMode] = useState<'unknown' | 'none' | 'list'>(initialVariantsMode);
+  const [variants, setVariants] = useState(card?.variants?.join(', ') ?? '');
   const [agent, setAgent] = useState(card?.agent ?? '');
   const [billing, setBilling] = useState(card?.billing ?? '');
   const [maxParallel, setMaxParallel] = useState<string>(
@@ -59,6 +62,7 @@ export function RosterCardFormModal({
       model,
       family,
       variant,
+      variants: variantsMode === 'unknown' ? undefined : variantsMode === 'none' ? [] : variants,
       agent,
       billing,
       maxParallel,
@@ -216,6 +220,31 @@ export function RosterCardFormModal({
                 onChange={(e) => setVariant(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="card-variants-mode">
+              支持的 variant（可选）
+              {errors.variants ? <span className="field-error"> · {errors.variants}</span> : null}
+            </label>
+            <select
+              id="card-variants-mode"
+              value={variantsMode}
+              onChange={(e) => setVariantsMode(e.target.value as 'unknown' | 'none' | 'list')}
+            >
+              <option value="unknown">不填：未确认</option>
+              <option value="none">留空列表：不接受 variant</option>
+              <option value="list">列出接受的 variant</option>
+            </select>
+            {variantsMode === 'list' ? (
+              <input
+                id="card-variants"
+                value={variants}
+                placeholder="例如 low, medium, high"
+                onChange={(e) => setVariants(e.target.value)}
+              />
+            ) : null}
+            <p className="hint">不填 = 未确认；留空列表 = 不接受 variant；列出后只接受这些值。</p>
           </div>
 
           <div className="form-grid-3">

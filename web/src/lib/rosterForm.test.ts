@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCardEnv, suggestDuplicateId, validateCardForm } from './rosterForm';
+import { parseCardEnv, parseCardVariants, suggestDuplicateId, validateCardForm } from './rosterForm';
 
 describe('suggestDuplicateId', () => {
   it('adds -2, then counts up, so a copy never reuses the id it was copied from', () => {
@@ -17,6 +17,15 @@ describe('suggestDuplicateId', () => {
 
 describe('rosterForm validation', () => {
   const lanes = ['code', 'review', 'art'];
+
+  it('distinguishes an omitted capability declaration from an explicit empty list and parses values', () => {
+    const base = { id: 'a-card', name: 'A', provider: 'P', lane: 'code', model: 'm', family: 'm' };
+    expect(validateCardForm(base, lanes).value).not.toHaveProperty('variants');
+    expect(validateCardForm({ ...base, variants: '' }, lanes).value?.variants).toEqual([]);
+    expect(validateCardForm({ ...base, variants: ' low, medium, high ' }, lanes).value?.variants).toEqual(['low', 'medium', 'high']);
+    expect(parseCardVariants('low,,high').error).toContain('空项');
+    expect(parseCardVariants('low,low').error).toContain('重复');
+  });
 
   it('reads env lines, drops the field when empty, and refuses key-shaped values', () => {
     expect(parseCardEnv('OPENAI_BASE_URL=https://api.example.test/v1\n# 说明\n\nORG_ID=acme')).toEqual({

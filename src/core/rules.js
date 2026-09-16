@@ -39,10 +39,36 @@ const MESSAGES = {
   // error, or it now resolves outside the project) — see briefs.js's briefUnusableInfo. Naming the file and
   // the actual cause instead of claiming it is missing.
   brief_unusable: (quest, adventurer, detail) => `brief 文件读不了：${quest.brief}（${detail.reason}）`,
+  variant_unsupported: (quest, adventurer, detail) => detail.accepted.length
+    ? `这张卡的模型不接受 variant「${detail.variant}」，可接受的值是：${detail.accepted.join('、')}`
+    : `这张卡的模型不接受 variant「${detail.variant}」，请在名册里清空 variant 或改用支持它的卡`,
 };
 
 function reason(code, quest, adventurer, detail) {
   return { code, message: MESSAGES[code](quest, adventurer, detail) };
+}
+
+/**
+ * Declared variant support is facts about the card, not a vendor-derived guess. An absent declaration is
+ * deliberately allowed but produces a warning; an explicit empty/list declaration is authoritative.
+ */
+export function checkVariantSupport(quest, adventurer) {
+  const variant = typeof adventurer.variant === 'string' ? adventurer.variant.trim() : '';
+  if (!variant) return { ok: true, warnings: [] };
+  if (adventurer.variants === undefined) {
+    return {
+      ok: true,
+      warnings: [{ code: 'variant_unconfirmed', message: `尚未确认这张卡支持 variant「${variant}」，派遣会照常进行` }],
+    };
+  }
+  if (adventurer.variants.length === 0 || !adventurer.variants.includes(variant)) {
+    return {
+      ok: false,
+      reason: reason('variant_unsupported', quest, adventurer, { variant, accepted: adventurer.variants }),
+      warnings: [],
+    };
+  }
+  return { ok: true, warnings: [] };
 }
 
 function matchesAny(value, patterns) {
@@ -136,6 +162,8 @@ function adventurerReasons(quest, adventurer, policy, env) {
 export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemptId }) {
   const byId = new Map(quests.map((q) => [q.id, q]));
   const reasons = [];
+  const variantCheck = checkVariantSupport(quest, adventurer);
+  if (!variantCheck.ok) reasons.push(variantCheck.reason);
   const ownAttempt = isOwnActiveAttempt(quest, selfAttemptId);
   if (quest.kind === 'owner') reasons.push(reason('owner_quest', quest, adventurer));
   if (quest.kind === 'art' && !(adventurer.strengths || []).includes('art')) reasons.push(reason('needs_artist', quest, adventurer));
@@ -154,7 +182,11 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
   if (env && env.treeLocked) reasons.push(reason('tree_locked', quest, adventurer));
   if (env && env.briefUnusable) reasons.push(reason('brief_unusable', quest, adventurer, env.briefUnusable));
   else if (env && env.briefExists === false) reasons.push(reason('brief_missing', quest, adventurer));
-  return { ok: reasons.length === 0, reasons };
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    ...(variantCheck.warnings.length ? { warnings: variantCheck.warnings } : {}),
+  };
 }
 
 export function eligibility({ quest, roster, quests, policy, env }) {

@@ -101,6 +101,7 @@ export interface Card {
   model: string;
   family: string;
   variant?: string;
+  variants?: string[];
   agent?: string;
   billing?: 'subscription' | 'plan' | 'payg' | 'free';
   maxParallel?: number;
@@ -142,9 +143,15 @@ export interface Reason {
   message: string;
 }
 
+export interface VerdictWarning {
+  code: string;
+  message: string;
+}
+
 export interface Verdict {
   ok: boolean;
   reasons: Reason[];
+  warnings?: VerdictWarning[];
 }
 
 export interface LiveWorker {

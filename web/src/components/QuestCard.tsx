@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, isQueueOnly } from '../lib/board';
+import { warningText } from '../lib/graphDrop';
 import { KIND, OPEN_STATUSES, STATUS } from '../lib/labels';
 import { nextStep } from '../lib/nextStep';
 import { rankOf, sealFor } from '../lib/questLook';
@@ -38,6 +39,7 @@ export function QuestCard({
 
   let dropClass = '';
   let refuseMessage = '';
+  const dropWarning = pickingCardId && verdict?.ok ? warningText(verdict) : undefined;
 
   if (pickingCardId && verdict) {
     const isOk = verdict.ok;
@@ -190,7 +192,10 @@ export function QuestCard({
         ) : null}
         {/* The same drag means different things by status, so say which before the drop. */}
         {dropClass === 'drop-ok' ? (
-          <div className="q-drop-hint">{isAwaitingSignOff(quest) ? '放下：派去复核' : '放下：派去做'}</div>
+          <>
+            <div className="q-drop-hint">{isAwaitingSignOff(quest) ? '放下：派去复核' : '放下：派去做'}</div>
+            {dropWarning ? <div className="q-drop-warning" role="note">⚠ {dropWarning}</div> : null}
+          </>
         ) : (
           <div className="q-refuse">{refuseMessage}</div>
         )}

@@ -419,7 +419,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
           } else failIfStillOurs(quest.id, attempt, result.detail);
           return undefined;
         }
-        if (result.ok) return announceStarted(quest.id, attempt);
+        if (result.ok) return announceStarted(quest.id, attempt, [`脚本已启动，worker ${attempt.name}`, ...(verdict.warnings || []).map(({ code, message }) => `警告 ${code}：${message}`)].join('\n'));
         if (result.session && result.session.unknown) return settleAmbiguousSession(quest.id, attempt, result);
         // A known session binding (a real captured id) already names a resource that may exist upstream
         // regardless of what the run step itself did — always preserved, never routed through

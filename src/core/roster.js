@@ -47,6 +47,12 @@ export function validateAdventurer(entry, where = 'adventurer') {
   if (entry.strengths !== undefined && (!Array.isArray(entry.strengths) || entry.strengths.some((s) => typeof s !== 'string'))) fail(`${at}.strengths must be an array of strings`);
   if (entry.notes !== undefined && (typeof entry.notes !== 'string' || entry.notes.length > 300)) fail(`${at}.notes must be a string of at most 300 characters`);
   if (entry.variant !== undefined && typeof entry.variant !== 'string') fail(`${at}.variant must be a string`);
+  if (entry.variants !== undefined) {
+    if (!Array.isArray(entry.variants) || entry.variants.some((variant) => typeof variant !== 'string' || !variant.trim())) {
+      fail(`${at}.variants must be an array of non-empty strings`);
+    }
+    if (new Set(entry.variants).size !== entry.variants.length) fail(`${at}.variants must not contain duplicate values`);
+  }
   if (entry.agent !== undefined && typeof entry.agent !== 'string') fail(`${at}.agent must be a string`);
   validateCardEnv(entry, at);
   return entry;

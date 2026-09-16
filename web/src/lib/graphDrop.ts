@@ -6,6 +6,13 @@ export interface DropVerdictInfo {
   cls: string;
   /** The reason text to show before the drop: an accept hint, or the first refusal reason. Never blank. */
   message: string;
+  /** A caution alongside an accepted drop; it must not turn the accepted drop into a refusal. */
+  warning?: string;
+}
+
+export function warningText(verdict: Verdict | undefined): string | undefined {
+  const warnings = verdict?.warnings ?? [];
+  return warnings.length > 0 ? warnings.map((warning) => warning.message).join('；') : undefined;
 }
 
 /**
@@ -14,7 +21,12 @@ export interface DropVerdictInfo {
  */
 export function dropVerdictInfo(verdict: Verdict | undefined, isOpen: boolean, isReview: boolean): DropVerdictInfo {
   if (verdict?.ok) {
-    return { cls: 'drop-ok ok', message: isReview ? '放下：派去复核' : '放下：派去做' };
+    const warning = warningText(verdict);
+    return {
+      cls: 'drop-ok ok',
+      message: isReview ? '放下：派去复核' : '放下：派去做',
+      ...(warning ? { warning } : {}),
+    };
   }
   const isQueue = isOpen && isQueueOnly(verdict);
   const cls = isQueue ? 'drop-queue queue' : 'drop-no refused drop-refused';

@@ -11,6 +11,8 @@ export interface QuestNodeData extends Record<string, unknown> {
   dropClass?: string;
   /** The refusal reason, or the accept hint, shown before a drop lands — the same text the board wall shows. */
   dropHint?: string;
+  /** An unconfirmed-capability note shown separately from the accepted-drop hint. */
+  dropWarning?: string;
   onSelect?: (questId: string) => void;
 }
 
@@ -21,6 +23,7 @@ export function QuestNode({ id, data }: NodeProps<QuestNodeType>) {
   const isFocus = Boolean(data.isFocus);
   const dropClass = (data.dropClass as string) || '';
   const dropHint = (data.dropHint as string) || '';
+  const dropWarning = (data.dropWarning as string) || '';
   const color = quest ? pinColor(quest.status) : '#9a8b72';
   const statusLine = quest ? questStatusLine(quest, data.adventurerName) : '';
   const kindLabel = quest.kind ? KIND[quest.kind] || quest.kind : '';
@@ -88,6 +91,7 @@ export function QuestNode({ id, data }: NodeProps<QuestNodeType>) {
             rendered (map.css reserves its line height) so the hint appearing/disappearing during a drag
             never grows the node and covers whatever sits below it. */}
         <span className={`drop-hint ${dropClass}`}>{dropHint}</span>
+        {dropWarning ? <span className="drop-warning" role="note">⚠ {dropWarning}</span> : null}
       </div>
       <Handle
         type="source"

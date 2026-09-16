@@ -148,7 +148,7 @@ function GraphViewInner({
           draggable: !compact,
           deletable: false,
           selected,
-          data: { ...node.data, dropClass: '', dropHint: '', onSelect: onSelectQuest },
+          data: { ...node.data, dropClass: '', dropHint: '', dropWarning: undefined, onSelect: onSelectQuest },
         };
       }
       return {
@@ -204,10 +204,11 @@ function GraphViewInner({
         const hint = intersectingQuests[node.id];
         const dropClass = hint?.cls || '';
         const dropHint = hint?.message || '';
-        if (node.className === dropClass && node.data.dropClass === dropClass && node.data.dropHint === dropHint) {
+        const dropWarning = hint?.warning;
+        if (node.className === dropClass && node.data.dropClass === dropClass && node.data.dropHint === dropHint && node.data.dropWarning === dropWarning) {
           return node;
         }
-        return { ...node, className: dropClass, data: { ...node.data, dropClass, dropHint } };
+        return { ...node, className: dropClass, data: { ...node.data, dropClass, dropHint, dropWarning } };
       }),
     );
   }, [intersectingQuests, setNodes]);
@@ -261,7 +262,7 @@ function GraphViewInner({
       const current = currentIntersectionRef.current;
       const same =
         Object.keys(next).length === Object.keys(current).length &&
-        Object.entries(next).every(([k, v]) => current[k]?.cls === v.cls && current[k]?.message === v.message);
+        Object.entries(next).every(([k, v]) => current[k]?.cls === v.cls && current[k]?.message === v.message && current[k]?.warning === v.warning);
       if (!same) {
         currentIntersectionRef.current = next;
         setIntersectingQuests(next);
@@ -372,7 +373,7 @@ function GraphViewInner({
       const changed =
         curKeys.length !== newKeys.length ||
         newKeys.some(
-          (k) => currentIntersectionRef.current[k]?.cls !== newMap[k]?.cls || currentIntersectionRef.current[k]?.message !== newMap[k]?.message,
+          (k) => currentIntersectionRef.current[k]?.cls !== newMap[k]?.cls || currentIntersectionRef.current[k]?.message !== newMap[k]?.message || currentIntersectionRef.current[k]?.warning !== newMap[k]?.warning,
         );
 
       if (changed) {
