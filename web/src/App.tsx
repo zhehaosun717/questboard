@@ -168,6 +168,7 @@ export function App() {
           <main>
             {route.tab === 'threads' && (
               <ThreadsView
+                projectId={snap?.project?.id}
                 activeThreadId={route.threadId}
                 onSelectThread={handleSelectThread}
                 isNewModalOpen={isNewThreadOpen}

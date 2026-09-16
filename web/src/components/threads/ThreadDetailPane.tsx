@@ -14,6 +14,15 @@ interface ThreadDetailPaneProps {
   onTogglePin: () => void;
   onToggleClose: () => void;
   onSendReply: () => void;
+  // A direct read of a trashed thread still answers (the recycle view opens it); it takes no writes
+  // until restored, so the pane shows that state instead of the composer.
+  trashed?: boolean;
+  onRestoreFromTrash?: () => void;
+  // F5: the restore buttons wait for a running bulk action instead of racing it.
+  restoreBusy?: boolean;
+  // R5-3: 置顶/关闭 had no busy gate at all — a synchronous double click sent two POSTs. Both buttons
+  // share one flag (they write the same pane) and disable together while either is in flight.
+  writeBusy?: boolean;
 }
 
 export function ThreadDetailPane({
@@ -28,6 +37,10 @@ export function ThreadDetailPane({
   onTogglePin,
   onToggleClose,
   onSendReply,
+  trashed = false,
+  onRestoreFromTrash,
+  restoreBusy = false,
+  writeBusy = false,
 }: ThreadDetailPaneProps) {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -36,9 +49,19 @@ export function ThreadDetailPane({
   }
 
   if (!activeThread) {
+    // While the route points at a thread that has not loaded yet (or has just changed), the pane has no
+    // stale controls to show — but it still says why it looks inactive, the same way any other blocked
+    // write does, instead of looking like nothing is selected. G3: that reason is announced (role +
+    // aria-live) exactly like the bulk bar's own status line already is — a screen-reader user gets the
+    // same "still loading, not actually empty" signal a sighted owner reads from the text itself.
     return (
-      <div className="empty" style={{ margin: 'auto' }}>
-        选一个主题，或者开一个新的
+      <div
+        className="empty"
+        style={{ margin: 'auto' }}
+        role={refusalMessage ? 'status' : undefined}
+        aria-live={refusalMessage ? 'polite' : undefined}
+      >
+        {refusalMessage ? <span className="th-refusal">{refusalMessage}</span> : '选一个主题，或者开一个新的'}
       </div>
     );
   }
@@ -56,6 +79,9 @@ export function ThreadDetailPane({
         <div className="th-head-info">
           <div className="th-head-top">
             <h2>{activeThread.title}</h2>
+            {trashed && (
+              <span className="stamp s-cancelled">在回收站中</span>
+            )}
             {activeThread.closed && (
               <span className="stamp s-cancelled">已关闭</span>
             )}
@@ -69,12 +95,25 @@ export function ThreadDetailPane({
           </div>
         </div>
         <div className="th-head-actions">
-          <button className="btn ghost" type="button" onClick={onTogglePin}>
-            {activeThread.pinned ? '取消置顶' : '置顶'}
-          </button>
-          <button className="btn ghost" type="button" onClick={onToggleClose}>
-            {activeThread.closed ? '重新打开' : '关闭'}
-          </button>
+          {trashed ? (
+            <button
+              className="btn primary tb-btn"
+              type="button"
+              onClick={onRestoreFromTrash}
+              disabled={restoreBusy}
+            >
+              还原出回收站
+            </button>
+          ) : (
+            <>
+              <button className="btn ghost" type="button" onClick={onTogglePin} disabled={writeBusy}>
+                {activeThread.pinned ? '取消置顶' : '置顶'}
+              </button>
+              <button className="btn ghost" type="button" onClick={onToggleClose} disabled={writeBusy}>
+                {activeThread.closed ? '重新打开' : '关闭'}
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -109,7 +148,21 @@ export function ThreadDetailPane({
       </div>
 
       <div className="thread-composer">
-        {activeThread.closed ? (
+        {trashed ? (
+          <div className="th-closed-tape tb-trashed-note">
+            此主题在回收站里（消息都还在，还原后保持原样继续）。
+            {onRestoreFromTrash && (
+              <button
+                className="btn primary tb-btn"
+                type="button"
+                onClick={onRestoreFromTrash}
+                disabled={restoreBusy}
+              >
+                还原此主题
+              </button>
+            )}
+          </div>
+        ) : activeThread.closed ? (
           <div className="th-closed-tape">此主题已关闭</div>
         ) : (
           <div className="th-composer-inner">

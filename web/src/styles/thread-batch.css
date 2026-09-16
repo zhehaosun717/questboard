@@ -1,0 +1,133 @@
+/* Thread bulk actions (QB-FB-THREAD-BATCH): scoped to .threads-view and .tb-* names only.
+   Rows keep their old look; the checkbox column and the bulk bar are the additions. Narrow sidebars
+   wrap instead of overflowing. */
+
+.tb-thread-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.tb-check {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent, #b8860b);
+}
+
+.tb-check:focus-visible {
+  outline: 2px solid var(--accent, #b8860b);
+  outline-offset: 2px;
+}
+
+.tb-thread-row .thread-item {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tb-bulk-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 10px 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line, #444);
+  border-radius: 6px;
+}
+
+.tb-bulk-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.tb-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 9px;
+  border: 1px solid var(--line, #555);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tb-btn:hover:not(:disabled) {
+  border-color: var(--accent, #b8860b);
+}
+
+.tb-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tb-btn:focus-visible {
+  outline: 2px solid var(--accent, #b8860b);
+  outline-offset: 1px;
+}
+
+.tb-btn.on {
+  border-color: var(--accent, #b8860b);
+}
+
+.tb-count {
+  margin-left: auto;
+  font-size: 12px;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.tb-status {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 4px 6px;
+  border-left: 3px solid var(--accent, #b8860b);
+  background: color-mix(in srgb, var(--accent, #b8860b) 8%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.tb-view-row {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+
+.tb-confirm .tb-note {
+  font-size: 12.5px;
+  line-height: 1.6;
+  opacity: 0.9;
+}
+
+.tb-id-list {
+  margin: 8px 0;
+  padding-left: 18px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.tb-id-list li {
+  overflow-wrap: anywhere;
+}
+
+/* F1: the recycle bin lists every status, so the status selector is replaced by this plain note. */
+.threads-sidebar-head .tb-status-locked {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  opacity: 0.75;
+  padding: 0 6px;
+}
+
+/* F7: the trashed-thread notice in the composer area. */
+.tb-trashed-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
