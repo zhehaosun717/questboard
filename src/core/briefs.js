@@ -207,7 +207,7 @@ export function fileSetFor(config, brief) {
 // is never masked by this one, and — unlike embedding the human-readable reason in the token itself — it
 // never needs to leak into anything public; the reason lives on the held quest's own briefUnknownReason.
 function unknownConflictKey(questId) {
-  return ` unknown-brief ${questId}`;
+  return `\u0000unknown-brief\u0000${questId}`;
 }
 
 // quests, each annotated with .files (real, public file list only — never a token) and, only when relevant,

@@ -144,7 +144,11 @@ export function App() {
                 />
               </>
             ) : null}
-            <BriefShelf unpostedBriefs={snap?.unpostedBriefs} />
+            <BriefShelf
+              unpostedBriefs={snap?.unpostedBriefs}
+              briefDiscovery={snap?.briefDiscovery}
+              onRescan={refresh}
+            />
           </main>
           {snap && (
             <Guild
