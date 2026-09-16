@@ -446,6 +446,11 @@
   margin-bottom: 4px;
 }
 
+.map-view .rf-card-detail-derived {
+  color: #8a5a1a;
+  margin-bottom: 4px;
+}
+
 .map-view .rf-card-detail-section {
   margin-top: 6px;
 }

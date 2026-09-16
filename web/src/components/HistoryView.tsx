@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { LanesReport } from '../api/types';
+import type { LaneLimit, LanesReport } from '../api/types';
 import { startLanesPoll } from '../lib/historyLanesPoll';
 import {
   countInvalidAt,
@@ -31,6 +31,58 @@ import '../styles/history.css';
  * revision 5 D2). lib/historyLanesPoll.ts owns the real AbortController and the in-flight guard, kept
  * out of the shared api client since that one has no signal parameter and is used well beyond this tab. */
 const LANES_POLL_TIMEOUT_MS = 8000;
+
+// N16: `cleared` is timing-dependent, not proof of an owner click — word it neutrally. GET /api/lanes only
+// ever sends the raw collector laneEvidence (N17), so most entries here simply have no `cleared` at all
+// (their own known reset passed); that case reads as an honest "expired or unattributable" too.
+const CLEARED_LABEL: Record<string, string> = {
+  owner: '该卡片已不再限额',
+  status: '该卡片状态已改变',
+  no_card: '名册里已经找不到这张卡片',
+};
+
+export function evidenceReason(cleared: string | undefined): string {
+  if (cleared && CLEARED_LABEL[cleared]) return CLEARED_LABEL[cleared];
+  return '已过期或无法归因的证据';
+}
+
+export interface LaneEvidenceRow {
+  key: string;
+  lane: string;
+  name: string;
+  reason: string;
+}
+
+// Never a limit (requirement 5): every row here already fell out of laneLimits, on the roster side, before
+// this report was even generated — so no `laneLimits` cross-check belongs here, only wording.
+export function buildLaneEvidenceRows(laneEvidence: LanesReport['laneEvidence']): LaneEvidenceRow[] {
+  return Object.entries(laneEvidence || {}).flatMap(([lane, evidence]) => [
+    ...Object.entries(evidence.cards || {}).map(([adventurerId, entry]) => ({
+      key: `${lane}-${adventurerId}`,
+      lane,
+      name: entry.name || adventurerId,
+      reason: evidenceReason(entry.cleared),
+    })),
+    // N1: unidentified evidence has no adventurerId to key or attribute by, but the strip claims to cover
+    // "已过期或无法归因" — an entry that could not be attributed to any card belongs here too.
+    ...(evidence.unidentified || []).map((entry, i) => ({
+      key: `${lane}-unid-${i}`,
+      lane,
+      name: entry.name || '未知来源',
+      reason: evidenceReason(undefined),
+    })),
+  ]);
+}
+
+// A dated `until` can outlive the window it named (a passed known reset, or a manual relimit that keeps the
+// old bounce's dated text while resetsAt is cleared to null) — never show it unless resetsAt still parses to
+// a real future time (review B3; also covers N18 here since a manual relimit's resetsAt is null).
+export function laneLimitUntilLabel(limit: Pick<LaneLimit, 'until' | 'resetsAt'>): string {
+  if (!limit.until || !limit.resetsAt) return '';
+  const t = Date.parse(limit.resetsAt);
+  if (!Number.isFinite(t) || t <= Date.now()) return '';
+  return `，${limit.until} 恢复`;
+}
 
 /**
  * The history tab (QB-FB-HISTORY): three clearly separated parts —
@@ -169,6 +221,7 @@ export function HistoryView() {
   const { active, stale } = splitStale(packages);
   const openQuestions = report?.board?.openQuestions ?? 0;
   const laneLimitEntries = Object.entries(report?.laneLimits || {});
+  const laneEvidenceRows = buildLaneEvidenceRows(report?.laneEvidence);
   /** 派出详情/项目测试 read from the SAME lanes report as the header, and must be just as honest about
    * not having one yet (revision 6 F2): `report` only ever holds the last SUCCESSFUL read, so its
    * presence alone — never `error` — proves "known empty" is real and not just "haven't read it". */
@@ -213,7 +266,18 @@ export function HistoryView() {
           {laneLimitEntries.map(([lane, lim]) => (
             <span key={lane} className="chip warn">
               <i className="led warn" />
-              {laneLabel(lane)} 限额中（{formatClock(lim.since)} 起{lim.until ? `，${lim.until} 恢复` : ''}）
+              {laneLabel(lane)} 限额中（{formatClock(lim.since)} 起{laneLimitUntilLabel(lim)}）
+            </span>
+          ))}
+        </div>
+      )}
+
+      {laneEvidenceRows.length > 0 && (
+        <div className="history-chips-strip" aria-label="已过期或无法归因的限额证据">
+          {laneEvidenceRows.map((row) => (
+            <span key={row.key} className="chip">
+              <i className="led" />
+              {laneLabel(row.lane)} · {row.name} · {row.reason}
             </span>
           ))}
         </div>

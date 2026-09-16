@@ -16,6 +16,17 @@ interface CardBadgeProps {
   onDragEnd: () => void;
 }
 
+// The backend's own reasonFor() already bakes a known reset time into `derived.reason` ("…，10:50 AM 恢
+// 复"); this only supplies the closing clause, and only when the backend did not already give one. A passed
+// reset means `derived.reason` is already the honest "限额窗口已过，尚未验证可用" — never editorialize on
+// top of that (feedback9 row 4/CardBadge).
+function derivedNote(derived: NonNullable<Card['derived']>): string {
+  const resetsAt = derived.resetsAt;
+  if (resetsAt && Date.parse(resetsAt) <= Date.now()) return derived.reason;
+  if (!resetsAt) return `${derived.reason}（重置时间未知，成功一次或你手动确认后恢复）`;
+  return `${derived.reason}（自动判断，限额过去后自动恢复）`;
+}
+
 const LED: Record<CardStatus, string> = {
   available: 'ok',
   limited: 'warn',
@@ -129,15 +140,19 @@ export function CardBadge({
             </div>
           ) : null}
           {card.derived ? (
-            <div className="a-note derived">
-              ⟳ {card.derived.reason}（自动判断，限额过去后自动恢复）
-            </div>
+            <div className="a-note derived">⟳ {derivedNote(card.derived)}</div>
           ) : null}
           {card.status !== 'available' && !card.derived ? (
             <div className="a-note derived">
               {CARD_STATUS[card.status] || card.status}
               {card.statusSince ? ` · ${formatMonthDay(card.statusSince)} 起` : ''}
               {card.statusReason ? ` · ${card.statusReason}` : ''}
+            </div>
+          ) : null}
+          {card.laneDiagnostics && card.laneDiagnostics.length > 0 ? (
+            <div className="a-note">
+              {/* N3: the collector can report the same diagnostic more than once (e.g. a repeated poll). */}
+              {Array.from(new Set(card.laneDiagnostics.map((d) => d.message))).join('；')}
             </div>
           ) : null}
           {card.notes ? <div className="a-note">{card.notes}</div> : null}

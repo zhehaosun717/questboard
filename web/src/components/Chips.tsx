@@ -7,6 +7,15 @@ interface ChipsProps {
   error: string | null;
 }
 
+// A dated `until` string can outlive the window it named (a passed known reset, or a manual relimit that
+// keeps the old bounce's dated text while resetsAt itself is cleared to null) — never show it unless the
+// entry's own resetsAt still parses to a real future time (review B3).
+function hasActiveReset(resetsAt: string | null): boolean {
+  if (!resetsAt) return false;
+  const t = Date.parse(resetsAt);
+  return Number.isFinite(t) && t > Date.now();
+}
+
 export function Chips({ snap, connected, error }: ChipsProps) {
   if (!snap) {
     return (
@@ -56,12 +65,19 @@ export function Chips({ snap, connected, error }: ChipsProps) {
           🔒 coordinator 正在验证，暂停派出
         </span>
       )}
-      {Object.entries(snap.laneLimits || {}).map(([lane, limit]) => (
-        <span className="chip warn" key={lane}>
-          <i className="led" />
-          {lane} 限额中{limit.until ? `，${limit.until} 恢复` : ''}
-        </span>
-      ))}
+      {Object.entries(snap.laneLimits || {}).map(([lane, limit]) => {
+        // The kept card can be manually re-limited after its bounce cleared (N18): the top-level `until` is
+        // then the old bounce's, not a live one. Only show a recovery time while the card it names still
+        // carries `derived` — i.e. the limit is still the automatic one this chip is reporting.
+        const card = snap.roster.find((c) => c.id === limit.adventurerId);
+        const showUntil = Boolean(limit.until && card?.derived && hasActiveReset(limit.resetsAt));
+        return (
+          <span className="chip warn" key={lane}>
+            <i className="led" />
+            {lane} 限额中{showUntil ? `，${limit.until} 恢复` : ''}
+          </span>
+        );
+      })}
       {Boolean(snap.openQuestions) && (
         <a className="chip warn" href="/board" target="_blank" rel="noreferrer">
           <i className="led" />

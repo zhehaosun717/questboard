@@ -10,13 +10,16 @@ export interface RosterCardRowProps {
   onDelete: (card: Card) => void;
 }
 
-const DERIVED_HINT = '由接入方式数据推断，不在名册里';
+// Feedback9 row 5: the card IS in the roster; only its status is inferred from lane evidence while it stays
+// there. The old wording ("推断，不在名册里") said the opposite.
+const DERIVED_HINT = '状态由接入方式证据推断得出，卡片本身仍在名册里';
 
 export function RosterCardRow({ card, onOpenStatus, onEdit, onDuplicate, onDelete }: RosterCardRowProps) {
   const isDerived = Boolean(card.derived);
   const billingLabel = card.billing ? BILLING[card.billing] ?? card.billing : '-';
   const led = card.status === 'available' ? 'ok' : card.status === 'limited' ? 'warn' : 'bad';
   const fullModel = `${card.model}${card.variant ? ` · ${card.variant}` : ''}`;
+  const baseStatus = card.baseStatus ?? card.status;
 
   return (
     <tr className={isDerived ? 'row-derived' : ''}>
@@ -61,10 +64,21 @@ export function RosterCardRow({ card, onOpenStatus, onEdit, onDuplicate, onDelet
             <i className={`led ${led}`} />
             <span className={`st-label st-${card.status}`}>{CARD_STATUS[card.status] ?? card.status}</span>
           </div>
+          {isDerived && baseStatus !== card.status ? (
+            <span className="status-reason">基础状态：{CARD_STATUS[baseStatus] ?? baseStatus}</span>
+          ) : null}
           {card.statusSince ? <span className="status-since">{formatMonthDay(card.statusSince)} 起</span> : null}
           {card.statusReason ? (
+            // N4: on a derived row this is the older manual reason sitting underneath the effective
+            // status, not the reason for the current 限额 — label it so it does not read as one reason.
             <span className="status-reason" title={card.statusReason}>
-              {card.statusReason}
+              {isDerived ? `基础原因：${card.statusReason}` : card.statusReason}
+            </span>
+          ) : null}
+          {isDerived && card.derived ? (
+            <span className="derived-hint">
+              {card.derived.reason}
+              {card.derived.resetsAt ? '' : '（重置时间未知）'}
             </span>
           ) : null}
           {isDerived ? <span className="derived-hint">{DERIVED_HINT}</span> : null}
@@ -75,31 +89,18 @@ export function RosterCardRow({ card, onOpenStatus, onEdit, onDuplicate, onDelet
           <button className="btn action-btn" type="button" onClick={() => onOpenStatus(card)}>
             改状态
           </button>
-          <button
-            className="btn action-btn"
-            type="button"
-            disabled={isDerived}
-            title={isDerived ? DERIVED_HINT : undefined}
-            onClick={() => onEdit(card)}
-          >
+          <button className="btn action-btn" type="button" onClick={() => onEdit(card)}>
             编辑
           </button>
           <button
             className="btn action-btn"
             type="button"
-            disabled={isDerived}
-            title={isDerived ? DERIVED_HINT : '照这位冒险者再开一位，只改要改的'}
+            title="照这位冒险者再开一位，只改要改的"
             onClick={() => onDuplicate(card)}
           >
             复制
           </button>
-          <button
-            className="btn action-btn danger-text"
-            type="button"
-            disabled={isDerived}
-            title={isDerived ? DERIVED_HINT : undefined}
-            onClick={() => onDelete(card)}
-          >
+          <button className="btn action-btn danger-text" type="button" onClick={() => onDelete(card)}>
             删除
           </button>
         </div>

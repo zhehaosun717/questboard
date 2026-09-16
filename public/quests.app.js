@@ -314,17 +314,49 @@
 
   function editAdventurer(advId) {
     const a = adventurer(advId);
+    // The manual layer, not the possibly-derived a.status/a.statusReason (feedback9: saving unchanged must
+    // never persist a lane-derived "limited"). An older server without baseStatus falls back to status,
+    // which is equivalent whenever there is no derived overlay anyway.
+    const baseStatus = a.baseStatus ?? a.status;
+    const baseReason = a.baseReason ?? a.statusReason ?? '';
     const modal = $('#modal');
     modal.hidden = false;
     modal.innerHTML = `<div class="order" role="dialog" aria-modal="true" aria-labelledby="idTitle">
       <p class="eyebrow">ID CARD · 冒险者档案</p><h2 id="idTitle">${esc(a.name)}</h2>
       <dl class="order-lines"><dt>模型</dt><dd><code>${esc(a.model)}</code></dd><dt>通道</dt><dd>${esc(a.provider)} · ${esc(a.lane)}</dd></dl>
-      <label for="advStatus">STATUS 状态</label><select id="advStatus">${Object.entries(ADV).map(([k, v]) => `<option value="${k}"${k === a.status ? ' selected' : ''}>${v}</option>`).join('')}</select>
-      <label for="advNote">REASON 原因（会显示在工牌上，写明为什么、到什么时候）</label><input id="advNote" maxlength="300" value="${esc(a.statusReason || '')}">
+      ${a.derived ? `<div class="a-note derived" role="note" style="color:var(--ink)">
+        <p>自动判断：${esc(a.derived.reason)}</p>
+        <p>${a.derived.resetsAt ? `预计 ${esc(clock(a.derived.resetsAt))} 恢复` : '重置时间未知'}</p>
+        <button class="btn ghost" type="button" id="advConfirmRestored">确认额度已恢复</button>
+        <p>只是登记，不会向服务商核实额度是否真的恢复。</p>
+      </div>` : ''}
+      <label for="advStatus">STATUS 状态</label><select id="advStatus">${Object.entries(ADV).map(([k, v]) => `<option value="${k}"${k === baseStatus ? ' selected' : ''}>${v}</option>`).join('')}</select>
+      <label for="advNote">REASON 原因（会显示在工牌上，写明为什么、到什么时候）</label><input id="advNote" maxlength="300" value="${esc(baseReason)}">
       <div class="row end"><button class="btn ghost" data-modal-close type="button">算了</button><button class="btn primary" data-save type="button">盖章保存</button></div></div>`;
+    // B1: a second 确认额度已恢复 after an earlier one already left base at available/该原因 must still
+    // write, not silently no-op because status/reason now match base again. Any manual edit to the fields
+    // after clicking it cancels that guarantee — it is no longer "just confirmed", it is a fresh edit.
+    let confirmed = false;
+    if (a.derived) {
+      modal.querySelector('#advConfirmRestored').addEventListener('click', () => {
+        $('#advStatus').value = 'available';
+        $('#advNote').value = '已手动确认额度恢复';
+        confirmed = true;
+      });
+    }
+    $('#advStatus').addEventListener('change', () => { confirmed = false; });
+    $('#advNote').addEventListener('input', () => { confirmed = false; });
     modal.querySelector('[data-save]').addEventListener('click', async () => {
+      const status = $('#advStatus').value;
+      const reason = $('#advNote').value;
+      if (!confirmed && status === baseStatus && reason === baseReason) {
+        // Nothing the owner actually changed — never write a status here, derived or otherwise.
+        closeModal();
+        refresh();
+        return;
+      }
       try {
-        await api(`/api/roster/${encodeURIComponent(a.id)}/status`, 'POST', { status: $('#advStatus').value, reason: $('#advNote').value, setBy: 'owner' });
+        await api(`/api/roster/${encodeURIComponent(a.id)}/status`, 'POST', { status, reason, setBy: 'owner' });
         closeModal();
         refresh();
       } catch (error) { toast(`保存失败：${error.message}`); }

@@ -72,13 +72,68 @@ describe('CardBadge recent execution failure (real JSX)', () => {
     expect(html).toContain('draggable="false"');
   });
 
-  it('leaves a quota-limited card with its derived auto note next to the failure line', () => {
+  it('leaves a quota-limited card (known future reset) with its derived auto note next to the failure line', () => {
     const html = render(
-      card({ status: 'limited', derived: { from: 'lanes', reason: '额度限额中' } }),
+      card({
+        status: 'limited',
+        derived: { from: 'lanes', reason: '额度限额中', at: '2026-09-16T08:00:00.000Z', resetsAt: '2099-01-01T00:00:00.000Z' },
+      }),
       failure,
     );
     expect(html).toContain('额度限额中');
     expect(html).toContain('自动判断，限额过去后自动恢复');
     expect(html).toContain('最近一次执行失败');
+  });
+
+  it('shows an honest unknown-reset note instead of a promised auto-recovery when resetsAt is null', () => {
+    const html = render(
+      card({
+        status: 'limited',
+        derived: { from: 'lanes', reason: '额度限额中', at: '2026-09-16T08:00:00.000Z', resetsAt: null },
+      }),
+      null,
+    );
+    expect(html).toContain('重置时间未知，成功一次或你手动确认后恢复');
+    expect(html).not.toContain('限额过去后自动恢复');
+  });
+
+  it('shows the backend wording verbatim, with no extra clause, once a known reset has passed', () => {
+    const html = render(
+      card({
+        status: 'available',
+        derived: { from: 'lanes', reason: '限额窗口已过，尚未验证可用', at: '2026-09-16T08:00:00.000Z', resetsAt: '2020-01-01T00:00:00.000Z' },
+      }),
+      null,
+    );
+    expect(html).toContain('限额窗口已过，尚未验证可用');
+    expect(html).not.toContain('自动判断');
+    expect(html).not.toContain('重置时间未知');
+  });
+
+  it('shows laneDiagnostics as an advisory line, never as a status', () => {
+    const html = render(
+      card({
+        laneDiagnostics: [
+          { code: 'quota_identity_unknown', lane: 'codex', model: null, package: null, at: null, message: '限额证据无法对应到具体卡片，未改变卡片状态' },
+        ],
+      }),
+      null,
+    );
+    expect(html).toContain('限额证据无法对应到具体卡片，未改变卡片状态');
+    expect(html).not.toContain('a-note derived');
+  });
+
+  it('N3: de-duplicates a repeated diagnostic message instead of showing it twice', () => {
+    const html = render(
+      card({
+        laneDiagnostics: [
+          { code: 'quota_identity_unknown', lane: 'codex', model: null, package: null, at: null, message: '同一条证据' },
+          { code: 'quota_identity_unknown', lane: 'codex', model: null, package: null, at: null, message: '同一条证据' },
+        ],
+      }),
+      null,
+    );
+    const occurrences = html.split('同一条证据').length - 1;
+    expect(occurrences).toBe(1);
   });
 });

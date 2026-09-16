@@ -84,7 +84,28 @@ export interface Card {
   statusSince: string | null;
   statusReason: string;
   statusSetBy: string | null;
-  derived?: { from: 'lanes'; reason: string };
+  // status/statusReason are the effective (overlaid) values. derived, when present, explains why they differ
+  // from the manual layer below; at/resetsAt are null only when that time genuinely is not known (src/core/
+  // overlay.js effectiveRoster). Never invent a countdown from a null resetsAt.
+  derived?: { from: 'lanes'; reason: string; at: string | null; resetsAt: string | null };
+  // Additive (feedback9 web slice, src/core/overlay.js withBase): the manual status-log layer underneath
+  // `status`/`statusReason`. Seed edit forms from these, not from the possibly-derived `status`. Optional so
+  // an older server (or a fixture that predates this field) still type-checks — treat a missing baseStatus
+  // as "no derived layer", i.e. fall back to `status`/`statusReason`.
+  baseStatus?: CardStatus;
+  baseReason?: string;
+  laneDiagnostics?: LaneDiagnostic[];
+}
+
+// Advisory only (src/core/overlay.js diagnostic): lane evidence that could not be attributed to one exact
+// card. It never changes any card's status — it is shown next to the roster as a hint, never as a status.
+export interface LaneDiagnostic {
+  code: string;
+  lane: string | null;
+  model: string | null;
+  package: string | null;
+  at: string | null;
+  message: string;
 }
 
 export interface Reason {
@@ -180,6 +201,49 @@ export interface Verification {
   playXml: { total: number; passed: number; failed: number } | null;
 }
 
+// laneLimits/laneEvidence shapes (src/core/overlay.js visibleLaneLimits, N15/N17): a lane-level claim that
+// stays in lockstep with the per-card roster status, never a separate source of truth.
+export interface LaneLimitCardEntry {
+  since: string;
+  at: string;
+  until: string | null;
+  resetsAt: string | null;
+  adventurerId: string;
+  name: string;
+}
+
+// snapshot.laneLimits[lane] / GET /api/lanes .laneLimits: present only while at least one roster card on
+// this lane is effectively limited with an active (unknown or future reset) entry. The top-level fields are
+// a copy of the newest kept card entry — read `cards` for the rest.
+export interface LaneLimit extends LaneLimitCardEntry {
+  cards: Record<string, LaneLimitCardEntry>;
+}
+
+export type LaneEvidenceClearedReason = 'owner' | 'status' | 'no_card';
+
+export interface LaneEvidenceCardEntry extends LaneLimitCardEntry {
+  // Present only for an entry dropped out of laneLimits — see LaneEvidenceClearedReason. Absent means the
+  // entry's own known reset has simply passed. Word this neutrally in the UI (N16): `cleared: 'owner'` means
+  // the card is no longer limited, not that the owner necessarily clicked anything.
+  cleared?: LaneEvidenceClearedReason;
+}
+
+export interface LaneEvidenceUnidentified {
+  since: string;
+  at: string;
+  until: string | null;
+  resetsAt: string | null;
+  name?: string;
+}
+
+// snapshot.laneEvidence[lane]: history/diagnostics only, never a limit. GET /api/lanes returns the raw
+// collector field instead (no `cleared` entries — see N17), so treat `cleared` as optional everywhere this
+// type is used.
+export interface LaneEvidence {
+  cards: Record<string, LaneEvidenceCardEntry>;
+  unidentified: LaneEvidenceUnidentified[];
+}
+
 export interface Snapshot {
   generatedAt: string;
   // id is the stable, opaque project digest (src/core/snapshot.js projectId). Optional: an older server
@@ -199,11 +263,14 @@ export interface Snapshot {
   reviewPages: ReviewPage[];
   unpostedBriefs: UnpostedBrief[];
   verification: Verification | null;
-  laneLimits: Record<string, { since: string; until: string | null }>;
+  laneLimits: Record<string, LaneLimit>;
   openQuestions: number;
   // Optional: an older server sends none, and the shelf then shows only the plain unpostedBriefs list, same
   // as before this field existed.
   briefDiscovery?: BriefDiscovery;
+  // Additive (feedback9 web slice): history/diagnostics only (N17) — optional so an older server still
+  // parses, in which case the history tab simply has nothing to show here.
+  laneEvidence?: Record<string, LaneEvidence>;
 }
 
 // Message board (src/server/boardStore.js). Thread lists carry no messages; a single thread does.
@@ -263,10 +330,14 @@ export interface LanePackage {
 
 export interface LanesReport {
   packages: LanePackage[];
-  laneLimits: Record<string, { since: string; until: string | null }>;
+  laneLimits: Record<string, LaneLimit>;
   verification: Verification | null;
   generatedAt?: string;
   board: { openQuestions: number };
+  // Additive (feedback9 web slice, N17): the raw collector field, not filtered the way laneLimits is — an
+  // entry dropped from laneLimits (owner/status/no_card) does not appear here, only an entry whose own known
+  // reset has passed. Optional so an older server still parses.
+  laneEvidence?: Record<string, LaneEvidence>;
 }
 
 // Usage (src/usage/service.js via GET /api/usage). The accepted contract today only has the fields above

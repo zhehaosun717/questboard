@@ -20,12 +20,55 @@ function failureTimeLabel(iso: string): string {
   return `${formatMonthDay(iso)} ${formatClock(iso)}`;
 }
 
+function derivedTimeLabel(derived: NonNullable<Card['derived']>): string {
+  const judged = derived.at ? `${formatMonthDay(derived.at)} ${formatClock(derived.at)} 判断` : '';
+  const reset = derived.resetsAt
+    ? `预计 ${formatMonthDay(derived.resetsAt)} ${formatClock(derived.resetsAt)} 恢复`
+    : '重置时间未知';
+  return [judged, reset].filter(Boolean).join(' · ');
+}
+
+const CONFIRM_RESTORED_REASON = '已手动确认额度恢复';
+
+// A save is a genuine no-op (never written) only when nothing changed AND the owner did not just click the
+// confirm action — otherwise a second 确认额度已恢复 after an earlier one (base is already `available` +
+// the same fixed reason) would silently do nothing (review B1).
+export function decideSave(
+  current: { status: CardStatus; reason: string; confirmed: boolean },
+  base: { status: CardStatus; reason: string },
+): boolean {
+  if (current.confirmed) return true;
+  return current.status !== base.status || current.reason !== base.reason;
+}
+
 export function CardModal({ card, failure, onOpenQuest, onClose, onSuccess, onError }: CardModalProps) {
-  const [status, setStatus] = useState<CardStatus>(card.status);
-  const [reason, setReason] = useState<string>(card.statusReason || '');
+  // The manual layer, not the possibly-derived `status`/`statusReason` (feedback9: saving unchanged must
+  // never persist a lane-derived "limited"). Older servers without baseStatus fall back to status, which is
+  // equivalent whenever there is no derived overlay anyway.
+  const baseStatus = card.baseStatus ?? card.status;
+  const baseReason = card.baseReason ?? card.statusReason ?? '';
+  const [status, setStatus] = useState<CardStatus>(baseStatus);
+  const [reason, setReason] = useState<string>(baseReason);
+  const [confirmed, setConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setStatus(e.target.value as CardStatus);
+    setConfirmed(false);
+  };
+
+  const handleReasonChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setReason(e.target.value);
+    setConfirmed(false);
+  };
+
   const handleSave = async () => {
+    if (!decideSave({ status, reason, confirmed }, { status: baseStatus, reason: baseReason })) {
+      // Nothing the owner actually changed — never write a status here, derived or otherwise, and never
+      // claim success for a write that never happened (N2).
+      onClose();
+      return;
+    }
     setSaving(true);
     try {
       await api.setCardStatus(card.id, status, reason);
@@ -35,6 +78,12 @@ export function CardModal({ card, failure, onOpenQuest, onClose, onSuccess, onEr
       const msg = err instanceof Error ? err.message : String(err);
       onError(`保存失败：${msg}`);
     }
+  };
+
+  const handleConfirmRestored = () => {
+    setStatus('available');
+    setReason(CONFIRM_RESTORED_REASON);
+    setConfirmed(true);
   };
 
   return (
@@ -81,12 +130,22 @@ export function CardModal({ card, failure, onOpenQuest, onClose, onSuccess, onEr
             ) : null}
           </section>
         ) : null}
+        {card.derived ? (
+          // Reuses .a-note.derived (amber, tuned for the dark sidebar cards) but this note sits on the
+          // .order paper's cream/cable gradient instead — amber-on-cream measures well under 4.5:1 there
+          // (review B2). Override with the ink color already proven readable on this same paper (.order
+          // .eyebrow, h2 em) rather than adding a rule to an unowned stylesheet.
+          <div className="a-note derived" role="note" style={{ color: 'var(--ink)' }}>
+            <p>自动判断：{card.derived.reason}</p>
+            <p>{derivedTimeLabel(card.derived)}</p>
+            <button className="btn ghost" type="button" onClick={handleConfirmRestored}>
+              确认额度已恢复
+            </button>
+            <p>只是登记，不会向服务商核实额度是否真的恢复。</p>
+          </div>
+        ) : null}
         <label htmlFor="advStatus">STATUS 状态</label>
-        <select
-          id="advStatus"
-          value={status}
-          onChange={(e) => setStatus(e.target.value as CardStatus)}
-        >
+        <select id="advStatus" value={status} onChange={handleStatusChange}>
           {Object.entries(CARD_STATUS).map(([k, v]) => (
             <option key={k} value={k}>
               {v}
@@ -96,12 +155,7 @@ export function CardModal({ card, failure, onOpenQuest, onClose, onSuccess, onEr
         <label htmlFor="advNote">
           REASON 原因（会显示在冒险者上，写明为什么、到什么时候）
         </label>
-        <input
-          id="advNote"
-          maxLength={300}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
+        <input id="advNote" maxLength={300} value={reason} onChange={handleReasonChange} />
         <div className="row end">
           <button className="btn ghost" type="button" onClick={onClose}>
             算了

@@ -109,7 +109,18 @@ export function CardNode({ data }: NodeProps<CardNodeType>) {
             {card.model}
             {card.variant ? ` · ${card.variant}` : ''}
           </div>
-          <div className="rf-card-detail-status">{CARD_STATUS[card.status] ?? card.status}</div>
+          <div className="rf-card-detail-status">
+            {CARD_STATUS[card.status] ?? card.status}
+            {card.derived && card.baseStatus && card.baseStatus !== card.status
+              ? `（基础状态：${CARD_STATUS[card.baseStatus] ?? card.baseStatus}）`
+              : ''}
+          </div>
+          {card.derived ? (
+            <div className="rf-card-detail-derived">
+              自动判断：{card.derived.reason}
+              {card.derived.resetsAt ? '' : '（重置时间未知）'}
+            </div>
+          ) : null}
           {activity.current.length > 0 ? (
             <div className="rf-card-detail-section">
               <span className="rf-card-detail-label">正在做</span>
