@@ -9,11 +9,16 @@ export type QuestStatus =
 
 export type CardStatus = 'available' | 'limited' | 'broke' | 'paused' | 'disabled';
 
+export interface RoleCardRef {
+  path: string;
+  digest: string;
+}
+
 export interface CancelRequest {
   requestId: string;
   attemptId: string | null;
   at: string;
-  bySource: 'ui' | 'cli' | 'mcp';
+  bySource: 'ui' | 'cli' | 'mcp' | 'limit';
   reason: string;
   result: 'pending' | 'never_started' | 'stopped_by_wrapper' | 'manual_required' | 'unknown';
   resolvedAt?: string;
@@ -41,6 +46,7 @@ export interface Assignee {
   requestKey?: string;
   phase?: string;
   cancelRequest?: CancelRequest;
+  roleCard?: RoleCardRef;
 }
 
 export interface Ruling {
@@ -80,6 +86,7 @@ export interface Quest {
   updatedAt: string;
   cancelRequest?: CancelRequest;
   manualResolution?: ManualResolution | null;
+  roleCard?: RoleCardRef;
 }
 
 // Owner-driven correction of a posted quest's own descriptive fields (POST /api/quests/:id/metadata,
@@ -770,7 +777,7 @@ export interface QuestEvidence {
 // GET /api/quests/:id (src/server/questRoutes.js): the snapshot's quest row enriched with the worker's live
 // output, linked threads, grouped eligibility and the unpruned report reference. Fetched on demand by the
 // receipt (see api/client.ts `api.questDetail`), never polled.
-export interface QuestDetail extends Omit<Quest, 'report'> {
+export interface QuestDetail extends Omit<Quest, 'report' | 'roleCard'> {
   live: LiveWorker | null;
   threads: ThreadLink[];
   eligibility: { canTake: string[]; refused: Record<string, string[]> };
@@ -778,6 +785,7 @@ export interface QuestDetail extends Omit<Quest, 'report'> {
   // Optional: an older server sends no `evidence` field at all, and readers must render exactly as before
   // this field existed (the section hides itself) rather than treat a missing field as an empty items list.
   evidence?: QuestEvidence;
+  roleCard?: RoleCardRef | null;
 }
 
 // GET /api/quests/:id/report success body (src/server/questRoutes.js), assembled client-side from the

@@ -114,4 +114,21 @@ describe('example-wrapper', () => {
     assert.ok(fs.existsSync(mdPath));
     assert.equal(fs.readFileSync(mdPath, 'utf8'), '# Summary report');
   });
+
+  it('prepends --role card text to the agent stdin prompt', () => {
+    const root = tmpDir('example-wrapper-role-');
+    fs.copyFileSync(CONFIG_SRC, path.join(root, 'questboard.config.json'));
+    fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+    fs.copyFileSync(WRAPPER_SRC, path.join(root, 'scripts', 'run-worker.mjs'));
+    fs.writeFileSync(path.join(root, 'brief.md'), 'BRIEF BODY');
+    fs.writeFileSync(path.join(root, 'role.md'), 'ROLE CARD');
+    const wrapper = path.join(root, 'scripts', 'run-worker.mjs');
+    execFileSync(process.execPath, [
+      wrapper, '--lane', 'codex', '--name', 'role_worker', '--brief', 'brief.md', '--role', 'role.md', '--',
+      process.execPath, '-e', "process.stdin.setEncoding('utf8'); let text=''; process.stdin.on('data', (chunk) => text += chunk); process.stdin.on('end', () => console.log(text));",
+    ], { cwd: root, encoding: 'utf8' });
+    const outPath = path.join(root, '.questboard-data', 'workers', 'codex', 'role_worker.out');
+    const output = fs.readFileSync(outPath, 'utf8');
+    assert.match(output, /ROLE CARD\n\nBRIEF BODY/);
+  });
 });

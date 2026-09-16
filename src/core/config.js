@@ -8,7 +8,7 @@ import { ALIBABA_EDITIONS, ALIBABA_REGIONS, MANUAL_PROVIDERS } from '../usage/ma
 
 export const CONFIG_FILE = 'questboard.config.json';
 const PLACEHOLDER = /\{([a-z]+)\}/g;
-const PLACEHOLDERS = new Set(['name', 'brief', 'model', 'variant', 'agent', 'package']);
+const PLACEHOLDERS = new Set(['name', 'brief', 'model', 'variant', 'agent', 'package', 'role']);
 const LANE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 // Same shape as a roster card id (src/core/roster.js ID_PATTERN): the roster itself is machine-level, so a
 // project config can only promise that the id it names is well-formed, never that the card exists.
@@ -147,10 +147,34 @@ function validateLane(id, lane) {
   if (!lane || typeof lane !== 'object') fail(`${field} must be an object`);
   const result = { id, run: checkTemplate(lane.run, `${field}.run`) };
   if (lane.session !== undefined) {
-    result.session = { run: checkTemplate(lane.session.run, `${field}.session.run`), saveTo: requireString(lane.session.saveTo, `${field}.session.saveTo`) };
+    const saveTo = requireString(lane.session.saveTo, `${field}.session.saveTo`);
+    if (saveTo.includes('{role}')) fail(`${field}.session.saveTo cannot use {role}; the role card is not available in a save path`);
+    result.session = { run: checkTemplate(lane.session.run, `${field}.session.run`), saveTo };
+  }
+  if (lane.roleInPrompt !== undefined) {
+    if (typeof lane.roleInPrompt !== 'boolean') fail(`${field}.roleInPrompt must be a boolean`);
+    result.roleInPrompt = lane.roleInPrompt;
+  }
+  if (lane.limits !== undefined) {
+    if (!lane.limits || typeof lane.limits !== 'object' || Array.isArray(lane.limits)) fail(`${field}.limits must be an object`);
+    const limits = {};
+    for (const key of Object.keys(lane.limits)) {
+      if (!['maxMessages', 'maxMinutes'].includes(key)) fail(`${field}.limits has unknown field ${key}`);
+    }
+    for (const key of ['maxMessages', 'maxMinutes']) {
+      if (lane.limits[key] === undefined) continue;
+      if (!Number.isSafeInteger(lane.limits[key]) || lane.limits[key] <= 0) {
+        fail(`${field}.limits.${key} must be a positive integer`);
+      }
+      limits[key] = lane.limits[key];
+    }
+    result.limits = limits;
   }
   if (lane.env !== undefined) {
     if (!lane.env || typeof lane.env !== 'object' || Object.values(lane.env).some((v) => typeof v !== 'string')) fail(`${field}.env must map names to strings`);
+    for (const [key, value] of Object.entries(lane.env || {})) {
+      if (value.includes('{role}')) fail(`${field}.env.${key} cannot use {role}; the role card is never placed in environment variables`);
+    }
     checkTemplate(Object.values(lane.env).length ? Object.values(lane.env) : [''], `${field}.env`);
     result.env = { ...lane.env };
   }

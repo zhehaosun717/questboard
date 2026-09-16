@@ -72,6 +72,32 @@ describe('QuestDrawer 修改委托 hook-in', () => {
     expect(html).toContain('ON QUEST');
   });
 
+  it('shows the bound reason and manual-required note for a stalled attempt without an adapter', () => {
+    const quest = makeQuest({
+      id: 'A-3', status: 'stalled', assignee: makeAssignee('card-1'),
+      lastDetail: '超过消息上限 10 条 | manual_required：无法自动停止，请手动处理',
+    });
+    const html = render(quest, makeSnapshot({ quests: [quest] }));
+    expect(html).toContain('超过消息上限 10 条');
+    expect(html).toContain('无法自动停止，请手动处理');
+  });
+
+  it('shows an existing cancellation request state without the no-adapter manual hint', () => {
+    for (const result of ['pending', 'stopped_by_wrapper'] as const) {
+      const quest = makeQuest({
+        id: `A-${result}`, status: 'stalled', assignee: makeAssignee('card-1'),
+        lastDetail: '超过时长上限 1 分钟',
+        cancelRequest: {
+          requestId: 'req-1', attemptId: 'attempt-1', at: '2026-09-13T00:00:00.000Z', bySource: 'limit',
+          reason: '超过时长上限 1 分钟', result,
+        },
+      });
+      const html = render(quest, makeSnapshot({ quests: [quest] }));
+      expect(html).toContain(result);
+      expect(html).not.toContain('无法自动停止，请手动处理');
+    }
+  });
+
   it('shows the binding source and counts for a linked review page (feedback 11)', () => {
     const quest = makeQuest({ id: 'A-2', kind: 'art', reviewPage: 'p1' });
     const snap = makeSnapshot({

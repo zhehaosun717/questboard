@@ -280,6 +280,19 @@ describe('executePlan', () => {
     assert.equal(result.neverStarted, true, 'a spawn that never created a process is a distinct, verified signal');
   });
 
+  it('handles a session starter that closes stdin while a prompt is being written', async () => {
+    const { config, write } = makeProject({ lanes: {
+      prompt: { session: { run: ['node', 'tools/session-starter.mjs'], saveTo: '.work/session-{name}.txt' }, run: ['node', 'tools/send.mjs'], outputDir: '.work/prompt' },
+    } });
+    write('tools/session-starter.mjs', "console.log('session_prompt');\n");
+    write('tools/send.mjs', 'process.exit(0);\n');
+    const result = await executePlan(config, [{
+      kind: 'session', command: ['node', 'tools/session-starter.mjs'], saveTo: '.work/session-prompt.txt', env: {}, prompt: 'x'.repeat(70 * 1024),
+    }], { name: 'prompt' });
+    assert.equal(result.ok, true);
+    assert.equal(fs.readFileSync(path.join(config.root, '.work/session-prompt.txt'), 'utf8'), 'session_prompt');
+  });
+
   it('never flags a run step that merely throws through a third-party runner override as neverStarted', async () => {
     const { config } = makeProject();
     const result = await executePlan(config, planDispatch(config, q, card('codex-luna'), 'n2n'), {

@@ -70,6 +70,8 @@ export function QuestDrawer({
   const step = nextStep(quest, snap);
   const rungs = evidenceFor(quest, snap);
   const archived = isArchived(quest);
+  const limitStall = quest.status === 'stalled'
+    && Boolean(quest.lastDetail && /超过消息上限|超过时长上限/.test(quest.lastDetail));
 
   const handleCancel = async () => {
     const action = cancelActionFor(quest.status);
@@ -142,11 +144,16 @@ export function QuestDrawer({
 
       <NextStepPanel step={step} onOpenQuest={onSelectQuest} />
 
-      {quest.cancelRequest ? (
+      {quest.cancelRequest || limitStall ? (
         <DrawerSection en="CANCELLATION" zh="取消请求">
           <div className="rec">
-            {quest.cancelRequest.result} · {quest.cancelRequest.bySource} · {quest.cancelRequest.reason}
+            {quest.cancelRequest
+              ? `${quest.cancelRequest.result} · ${quest.cancelRequest.bySource} · ${quest.cancelRequest.reason}`
+              : quest.lastDetail}
           </div>
+          {quest.cancelRequest?.result === 'manual_required' || (!quest.cancelRequest && limitStall) ? (
+            <p className="hint">无法自动停止，请手动处理</p>
+          ) : null}
           {canResolve ? (
             <div className="row end">
               <button className="btn primary" type="button" onClick={handleResolve}>确认已停止并人工释放</button>

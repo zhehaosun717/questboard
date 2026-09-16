@@ -3,14 +3,27 @@
 import path from 'node:path';
 import { readJsonLines } from '../core/jsonl.js';
 import { workerState, countEdits, readText, laneLimit, laneEvidence as readLaneEvidence, mtime, resetAt } from './workers.js';
-import { fetchJson, sessionModel, sessionState } from './opencode.js';
+import { fetchJson, sessionLimitReason, sessionModel, sessionState } from './opencode.js';
 import { latestProgress } from './progress.js';
-import { tailText } from '../core/sync.js';
+import { isCurrentRow, tailText } from '../core/sync.js';
 
 const LAST_TEXT_MAX = 300;
 
 const STALE_3D_MS = 3 * 24 * 60 * 60 * 1000;
 const POLL_LIMIT = 4;
+const TERMINAL_STATES = new Set(['bounced', 'delivered', 'failed']);
+
+function fileLimitReason(entry, lane) {
+  return lane.limits?.maxMinutes !== undefined && entry.elapsed > lane.limits.maxMinutes * 60 * 1000
+    ? `超过时长上限 ${lane.limits.maxMinutes} 分钟` : null;
+}
+
+function stallForLimit(entry, reason, lane) {
+  if (!reason) return false;
+  Object.assign(entry, { state: 'stalled', reason, limitReason: reason,
+    ...(lane.control?.type !== 'generic-wrapper' ? { manualRequired: true } : {}) });
+  return true;
+}
 
 function groupRegistry(rows) {
   const packages = new Map();
@@ -42,14 +55,27 @@ function packageIdentity(quest, dispatch, identitiesByName) {
   return dispatch.adventurerId ? String(dispatch.adventurerId) : null;
 }
 
-function baseEntry(pkg, dispatch, data, now, adventurerId) {
+function attemptStartAt(quest, dispatch) {
+  const attempts = [
+    ...(quest?.assignee ? [quest.assignee] : []),
+    ...[...(quest?.dispatches || [])].reverse(),
+  ];
+  const matching = attempts.find((attempt) => attempt && attempt.name === dispatch.name
+    && (!dispatch.attemptId || !attempt.attemptId || dispatch.attemptId === attempt.attemptId));
+  return matching?.at || dispatch.at;
+}
+
+function baseEntry(pkg, dispatch, data, now, adventurerId, quest) {
   const history = [
     ...data.dispatches.map((d) => ({ at: d.at, lane: d.lane, model: d.model, event: 'dispatch' })),
     ...data.notes.map((n) => ({ at: n.at, event: 'note', text: n.text })),
   ].sort((a, b) => a.at.localeCompare(b.at));
+  const current = Boolean(quest?.assignee && isCurrentRow({ dispatchedAt: dispatch.at }, quest.assignee, quest));
+  const startedAt = current ? attemptStartAt(quest, dispatch) : dispatch.at;
   return {
     package: pkg, lane: dispatch.lane, model: dispatch.model, variant: dispatch.variant || '', name: dispatch.name,
-    session: dispatch.session || null, dispatchedAt: dispatch.at, elapsed: Math.max(0, now - Date.parse(dispatch.at)),
+    session: dispatch.session || null, dispatchedAt: dispatch.at,
+    ...(current ? { attemptAt: startedAt } : {}), elapsed: Math.max(0, now - Date.parse(startedAt)),
     state: 'unknown', reason: '', stale: false, edits: 0, tokens: null, lastText: '', bounceUntil: null, history,
     ...(adventurerId ? { adventurerId } : {}),
   };
@@ -71,7 +97,7 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
   function fileWorker(entry, lane, now) {
     const basePath = path.join(config.root, lane.outputDir, entry.name);
     Object.assign(entry, workerState(basePath, now, { editCounter: lane.editCounter, stallAfterMinutes: config.policy.stallAfterMinutes, bouncePatterns: config.policy.bouncePatterns }));
-    if (['bounced', 'delivered', 'failed'].includes(entry.state)) {
+    if (TERMINAL_STATES.has(entry.state)) {
       const observed = mtime(`${basePath}.exit`) || mtime(`${basePath}.out`);
       if (observed) {
         entry.observedAt = new Date(observed).toISOString();
@@ -81,6 +107,7 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
         }
       }
     }
+    if (!TERMINAL_STATES.has(entry.state) && stallForLimit(entry, fileLimitReason(entry, lane), lane)) return;
     const outText = readText(`${basePath}.out`, 20000);
     entry.edits = countEdits(outText, lane.editCounter);
     const report = readText(`${basePath}.md`, LAST_TEXT_MAX + 200).trim();
@@ -103,7 +130,8 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
     const info = sessionState(messages, now);
     if (info.lastActivityMs) lastSeen.set(entry.session, info.lastActivityMs);
     Object.assign(entry, info);
-    if (['bounced', 'delivered', 'failed'].includes(entry.state)) {
+    if (!TERMINAL_STATES.has(entry.state) && stallForLimit(entry, sessionLimitReason(messages, entry.elapsed, lane.limits), lane)) return;
+    if (TERMINAL_STATES.has(entry.state)) {
       const observed = info.observedAt || info.lastActivityMs || now;
       entry.observedAt = new Date(observed).toISOString();
       if (entry.state === 'bounced' && entry.bounceUntil) {
@@ -137,7 +165,7 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
       const dispatch = data.dispatches.at(-1);
       if (!dispatch) continue;
       const adventurerId = packageIdentity(questRows.get(pkg), dispatch, identitiesByName);
-      const entry = baseEntry(pkg, dispatch, data, now, adventurerId);
+      const entry = baseEntry(pkg, dispatch, data, now, adventurerId, questRows.get(pkg));
       const lane = config.lanes[entry.lane];
       rows.push(entry);
       try {

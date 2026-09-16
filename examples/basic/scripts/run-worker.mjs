@@ -25,7 +25,7 @@ const agentCmd = args.slice(dashDash + 1);
 if (agentCmd.length === 0) fail('no agent command specified after --');
 
 // 2. Parse flags before '--' (flags may come in any order; unknown flags are an error)
-let lane, name, brief, model = '', variant = '', pkg = '', report = null;
+let lane, name, brief, model = '', variant = '', pkg = '', report = null, role = null;
 for (let i = 0; i < wrapperArgs.length; i++) {
   const flag = wrapperArgs[i];
   const next = () => (++i < wrapperArgs.length ? wrapperArgs[i] : fail(`missing value for ${flag}`));
@@ -36,6 +36,7 @@ for (let i = 0; i < wrapperArgs.length; i++) {
   else if (flag === '--variant') variant = next();
   else if (flag === '--package') pkg = next();
   else if (flag === '--report') report = next();
+  else if (flag === '--role') role = next();
   else fail(`unknown option: ${flag}`);
 }
 
@@ -49,6 +50,18 @@ try {
   briefText = fs.readFileSync(briefPath, 'utf8');
 } catch (err) {
   fail(`cannot read brief file: ${err.message}`);
+}
+
+let roleText = '';
+if (role) {
+  const rolePath = path.resolve(process.cwd(), role);
+  const relativeRole = path.relative(process.cwd(), rolePath);
+  if (relativeRole === '..' || relativeRole.startsWith(`..${path.sep}`)) fail(`role card path is outside the project: ${role}`);
+  try {
+    roleText = fs.readFileSync(rolePath, 'utf8');
+  } catch (err) {
+    fail(`cannot read role card: ${err.message}`);
+  }
 }
 
 // 4. Read questboard.config.json from cwd to resolve outputDir and registry path
@@ -471,7 +484,7 @@ child.on('error', (err) => {
 });
 
 child.stdin.on('error', () => {});
-child.stdin.end(briefText);
+child.stdin.end(roleText ? `${roleText}\n\n${briefText}` : briefText);
 
 child.on('close', (code) => {
   if (settled) return;

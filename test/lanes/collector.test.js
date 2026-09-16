@@ -6,6 +6,7 @@ import { createCollector } from '../../src/lanes/collector.js';
 import { laneLimit, laneEvidence, workerState, countEdits, bounceTimeMs } from '../../src/lanes/workers.js';
 import { parseProgress, latestProgress } from '../../src/lanes/progress.js';
 import { sessionModel } from '../../src/lanes/opencode.js';
+import { deriveTransitions } from '../../src/core/sync.js';
 import { appendJsonLine } from '../../src/core/jsonl.js';
 import { makeProject } from '../helpers.js';
 
@@ -46,6 +47,116 @@ describe('collector', () => {
     assert.equal(row.edits, 1);
     assert.deepEqual(row.tokens, { input: 5, output: 7 });
     assert.deepEqual([row.model, row.modelSource], ['kimi-for-coding/k3-256k', 'session']);
+  });
+
+  it('stalls file lanes over maxMinutes and session lanes over all-message maxMessages', async () => {
+    const { config } = makeProject({ lanes: {
+      filelimited: { run: ['tools/run.sh'], outputDir: '.work/file-limited', limits: { maxMinutes: 1 } },
+      sessionlimited: {
+        session: { run: ['node', 'tools/new-session.mjs'], saveTo: '.work/session-{name}.txt' },
+        run: ['tools/send.sh', '{name}', '{brief}'], api: 'http://oc.test', deliveryDir: '.work/session-limited',
+        limits: { maxMessages: 2 },
+      },
+    } });
+    const now = Date.now();
+    appendJsonLine(config.paths.registry, { at: new Date(now - 2 * 60 * 1000).toISOString(), event: 'dispatch', variant: '', package: 'LIMIT-F', lane: 'filelimited', model: 'm', name: 'limitf' });
+    appendJsonLine(config.paths.registry, { at: new Date(now).toISOString(), event: 'dispatch', variant: '', package: 'LIMIT-S', lane: 'sessionlimited', model: 'm', name: 'limits', session: 'ses-limit' });
+    const messages = [{ info: { role: 'user' } }, { info: { role: 'assistant', time: { created: now } }, parts: [] }, { info: { role: 'user' } }];
+    const result = await createCollector(config, { fetchImpl: async (url) => ({ ok: true, json: async () => (url.endsWith('/message') ? messages : {}) }) }).collect({ now });
+    const byPackage = Object.fromEntries(result.packages.map((row) => [row.package, row]));
+    assert.equal(byPackage['LIMIT-F'].state, 'stalled');
+    assert.equal(byPackage['LIMIT-F'].reason, '超过时长上限 1 分钟');
+    assert.equal(byPackage['LIMIT-F'].manualRequired, true);
+    assert.equal(byPackage['LIMIT-S'].state, 'stalled');
+    assert.equal(byPackage['LIMIT-S'].reason, '超过消息上限 2 条');
+    assert.equal(byPackage['LIMIT-S'].manualRequired, true);
+  });
+
+  it('keeps terminal file evidence after the lane time bound', async () => {
+    const { config, write } = makeProject({ lanes: {
+      limited: { run: ['tools/run.sh'], outputDir: '.work/limited', limits: { maxMinutes: 1 } },
+    } });
+    const now = Date.parse('2026-09-16T12:00:00.000Z');
+    const at = new Date(now - 2 * 60 * 1000).toISOString();
+    appendJsonLine(config.paths.registry, { at, event: 'dispatch', variant: '', package: 'LIMIT-D', lane: 'limited', model: 'm', name: 'done' });
+    write('.work/limited/done.out', 'final report');
+    write('.work/limited/done.md', '1. delivered');
+    write('.work/limited/done.exit', '0');
+    appendJsonLine(config.paths.registry, { at, event: 'dispatch', variant: '', package: 'LIMIT-F', lane: 'limited', model: 'm', name: 'failed' });
+    write('.work/limited/failed.out', 'crashed');
+    write('.work/limited/failed.exit', '1');
+    const rows = await createCollector(config).collect({ now });
+    const byPackage = Object.fromEntries(rows.packages.map((row) => [row.package, row]));
+    assert.equal(byPackage['LIMIT-D'].state, 'delivered');
+    assert.equal(byPackage['LIMIT-D'].limitReason, undefined);
+    assert.equal(byPackage['LIMIT-F'].state, 'failed');
+    assert.equal(byPackage['LIMIT-F'].reason, 'exit 1');
+  });
+
+  it('measures a collected row from the current quest attempt when it is newer than the registry row', async () => {
+    const { config, write } = makeProject({ lanes: {
+      limited: { run: ['tools/run.sh'], outputDir: '.work/limited', limits: { maxMinutes: 1 } },
+    } });
+    const registryAt = Date.parse('2026-09-16T11:00:00.000Z');
+    const attemptAt = Date.parse('2026-09-16T11:59:30.000Z');
+    appendJsonLine(config.paths.registry, { at: new Date(registryAt).toISOString(), event: 'dispatch', variant: '', package: 'LIMIT-A', lane: 'limited', model: 'm', name: 'adopted' });
+    write('.work/limited/adopted.out', 'working');
+    const questFile = path.join(config.paths.data, 'quests.jsonl');
+    fs.mkdirSync(path.dirname(questFile), { recursive: true });
+    fs.writeFileSync(questFile, `${JSON.stringify({ id: 'LIMIT-A', status: 'dispatched', assignee: { name: 'adopted', at: new Date(attemptAt).toISOString(), adopted: true }, dispatches: [], kind: 'code' })}\n`);
+    const [row] = (await createCollector(config).collect({ now: Date.parse('2026-09-16T12:00:00.000Z') })).packages;
+    assert.equal(row.elapsed, 30 * 1000);
+    assert.equal(row.dispatchedAt, new Date(registryAt).toISOString());
+    assert.equal(row.attemptAt, new Date(attemptAt).toISOString());
+  });
+
+  it('keeps collector rows bound to their own time before deriveTransitions checks adopted and fresh attempts', async () => {
+    const adoptedProject = makeProject({ lanes: {
+      limited: { run: ['tools/run.sh'], outputDir: '.work/limited', limits: { maxMinutes: 1 } },
+    } });
+    const adoptionAt = Date.parse('2026-09-16T12:00:00.000Z');
+    const laterDispatchAt = adoptionAt + 30 * 60 * 1000;
+    appendJsonLine(adoptedProject.config.paths.registry, {
+      at: new Date(laterDispatchAt).toISOString(), event: 'dispatch', variant: '', package: 'R1A',
+      lane: 'limited', model: 'm', name: 'run4',
+    });
+    adoptedProject.write('.work/limited/run4.out', 'unrelated later run');
+    adoptedProject.write('.work/limited/run4.md', 'unrelated report');
+    adoptedProject.write('.work/limited/run4.exit', '0');
+    const adoptedQuest = {
+      id: 'R1A', status: 'dispatched', assignee: { name: 'run4', at: new Date(adoptionAt).toISOString(), adopted: true },
+      dispatches: [], kind: 'code',
+    };
+    fs.mkdirSync(path.dirname(adoptedProject.config.paths.data), { recursive: true });
+    fs.writeFileSync(path.join(adoptedProject.config.paths.data, 'quests.jsonl'), `${JSON.stringify(adoptedQuest)}\n`);
+    const adoptedNow = laterDispatchAt + 1000;
+    const adoptedLanes = await createCollector(adoptedProject.config).collect({ now: adoptedNow });
+    assert.equal(adoptedLanes.packages[0].dispatchedAt, new Date(laterDispatchAt).toISOString());
+    assert.equal(adoptedLanes.packages[0].attemptAt, undefined, 'an unrelated later row gets no attempt start');
+    assert.deepEqual(deriveTransitions([adoptedQuest], adoptedLanes.packages, adoptedNow).map((transition) => transition.status), ['stalled']);
+
+    const freshProject = makeProject({ lanes: {
+      limited: { run: ['tools/run.sh'], outputDir: '.work/limited', limits: { maxMinutes: 1 } },
+    } });
+    const freshAt = Date.parse('2026-09-16T12:00:00.000Z');
+    const oldDispatchAt = freshAt - 2 * 24 * 60 * 60 * 1000;
+    appendJsonLine(freshProject.config.paths.registry, {
+      at: new Date(oldDispatchAt).toISOString(), event: 'dispatch', variant: '', package: 'R1B',
+      lane: 'limited', model: 'm', name: 'run4',
+    });
+    freshProject.write('.work/limited/run4.out', 'old hand run');
+    freshProject.write('.work/limited/run4.exit', '1');
+    const freshQuest = {
+      id: 'R1B', status: 'dispatched', assignee: { name: 'run4', at: new Date(freshAt).toISOString() },
+      dispatches: [], kind: 'code',
+    };
+    fs.mkdirSync(path.dirname(freshProject.config.paths.data), { recursive: true });
+    fs.writeFileSync(path.join(freshProject.config.paths.data, 'quests.jsonl'), `${JSON.stringify(freshQuest)}\n`);
+    const freshNow = freshAt + 60 * 1000;
+    const freshLanes = await createCollector(freshProject.config).collect({ now: freshNow });
+    assert.equal(freshLanes.packages[0].dispatchedAt, new Date(oldDispatchAt).toISOString());
+    assert.equal(freshLanes.packages[0].attemptAt, undefined, 'an old row gets no current-at override');
+    assert.deepEqual(deriveTransitions([freshQuest], freshLanes.packages, freshNow), []);
   });
 
   it('reports lane limits and the verification strip', async () => {

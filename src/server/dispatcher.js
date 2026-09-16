@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { canDispatch, OPEN_STATUSES } from '../core/rules.js';
 import { workerName, planDispatch, executePlan, preflight, workerEvidence, recordedNames } from '../core/dispatch.js';
 import { deriveTransitions } from '../core/sync.js';
-import { withFileSets } from '../core/briefs.js';
+import { withFileSets, briefUsable } from '../core/briefs.js';
 import { lockPresent, briefExists, briefUnusable } from '../core/snapshot.js';
 import { writeApiDelivery, TRANSIENT_DELIVERY_CODES } from '../core/deliveries.js';
 import { sameAttempt } from '../core/store.js';
@@ -12,6 +12,7 @@ import { attemptEvidence } from '../core/cancellation.js';
 import { captureAttemptReport } from '../core/reportEvidence.js';
 import { createNonDurableBindings, sanitizeUnpersistedSession } from '../core/nonDurableBindings.js';
 import { prepareAnnotationSnapshot, writeAnnotationSnapshot } from '../core/annotationSnapshot.js';
+import { writeRoleCard } from '../core/roleCard.js';
 import { createGenericWrapperAdapter } from './workerControlAdapters.js';
 
 const EVIDENCE_WAIT_MS = 10000;
@@ -28,6 +29,13 @@ const TERMINAL_STATUSES = new Set(['delivered', 'failed', 'bounced']);
 // minted by store.assign()/adopt(); the name+lane+at fallback only serves a legacy row that predates it.
 function attemptKey({ attemptId, name, lane, at }) {
   return attemptId || `${name}:${lane || ''}:${at}`;
+}
+
+function laneUsesRole(lane) {
+  return Boolean(lane && (lane.roleInPrompt === true || [
+    ...(lane.run || []),
+    ...(lane.session?.run || []),
+  ].some((value) => typeof value === 'string' && value.includes('{role}'))));
 }
 
 export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer }) {
@@ -297,6 +305,14 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     return { treeLocked: lockPresent(config), briefExists: briefExists(config, quest), briefUnusable: briefUnusable(config, quest), laneIds: new Set(Object.keys(config.lanes)), ...(getDownLanes() ? { downLanes: getDownLanes() } : {}) };
   }
 
+  function roleCardBriefReason(quest, adventurer, quests) {
+    if (quest.kind === 'owner' && !quest.brief) return null;
+    if (quest.brief && briefUsable(config, quest.brief)) return null;
+    const verdict = canDispatch({ quest, adventurer, quests, policy: config.policy, env: dispatchEnv(quest) });
+    return verdict.reasons.find(({ code }) => code === 'brief_missing' || code === 'brief_unusable')
+      || { code: 'brief_missing', message: `找不到 brief 文件：${quest.brief || '（未填写）'}` };
+  }
+
   // Re-read the quest and re-run canDispatch in full right before this attempt actually spawns something —
   // called from inside executePlan, so it runs once before the session step and again before the run step,
   // catching a lane-queue wait and the async gap between the two alike. A job whose attempt is no longer
@@ -360,6 +376,8 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     if (stale) return stale;
     const verdict = canDispatch({ quest, adventurer, quests, policy: config.policy, env: dispatchEnv(quest) });
     if (!verdict.ok) return { status: 409, body: { error: 'refused', reasons: verdict.reasons } };
+    const roleBriefReason = roleCardBriefReason(quest, adventurer, quests);
+    if (roleBriefReason) return { status: 409, body: { error: 'refused', reasons: [roleBriefReason] } };
     let annotationPreparation = null;
     if (quest.kind === 'art' && String(quest.reviewPage || '').trim()) {
       try {
@@ -374,9 +392,10 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     // still its report/session/output file on disk, and package-id normalization can land two different
     // quests (one now finished) on the same base name.
     const name = workerName(quest, recordedNames(quests));
+    const needsRole = laneUsesRole(config.lanes[adventurer.lane]);
     let plan;
     try {
-      plan = planDispatch(config, quest, adventurer, name);
+      plan = planDispatch(config, quest, adventurer, name, quest.brief, needsRole ? '{role}' : undefined);
       if (!runners) preflight(config, plan);
     } catch (error) {
       return { status: 409, body: { error: 'refused', reasons: [{ code: 'preflight', message: error.message }] } };
@@ -393,9 +412,6 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
           items: annotationPreparation.items, content: annotationPreparation.content,
         });
         running = store.recordAnnotationSnapshot(quest.id, assignedAttempt, annotationSnapshot);
-        const rebuiltPlan = planDispatch(config, quest, adventurer, name, annotationSnapshot.path);
-        if (!runners && !samePlan(plan, rebuiltPlan)) preflight(config, rebuiltPlan);
-        plan = rebuiltPlan;
       } catch (error) {
         // Assignment is already durable, but no child effect has started. Settle this verified
         // never-started attempt through the normal failed transition so a 409 cannot hide a held slot.
@@ -413,7 +429,42 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         }
       }
     }
-    const attempt = { ...assignedAttempt, ...(annotationSnapshot ? { annotationSnapshot } : {}) };
+    let roleCard = null;
+    try {
+      roleCard = writeRoleCard({ config, quest, attempt: { ...assignedAttempt, kind: quest.kind } });
+      running = store.recordRoleCard(quest.id, assignedAttempt, roleCard);
+    } catch (error) {
+      const detail = `角色卡写入失败（尝试 ${assignedAttempt.attemptId}，worker 尚未启动）：${error.message}`;
+      try {
+        store.setStatus(quest.id, 'failed', {
+          detail, by: 'board', source: 'dispatcher',
+          evidence: { kind: 'dispatcher', attempt: attemptEvidence(assignedAttempt) },
+        });
+        return { status: 503, body: { error: 'role_card_failed_after_assign', attemptId: assignedAttempt.attemptId, settled: true, reasons: [{ code: error.code || 'role_card', message: error.message }] } };
+      } catch (settleError) {
+        return { status: 503, body: { error: 'role_card_failed_after_assign', attemptId: assignedAttempt.attemptId, settled: false, reasons: [{ code: error.code || 'role_card', message: error.message }, { code: 'settlement_failed', message: settleError.message }] } };
+      }
+    }
+    if (needsRole || annotationPreparation) {
+      try {
+        const effectiveBrief = annotationSnapshot?.path || quest.brief;
+        const rebuiltPlan = planDispatch(config, quest, adventurer, name, effectiveBrief, roleCard.path);
+        if (!runners && !samePlan(plan, rebuiltPlan)) preflight(config, rebuiltPlan);
+        plan = rebuiltPlan;
+      } catch (error) {
+        const detail = `角色卡计划失败（尝试 ${assignedAttempt.attemptId}，worker 尚未启动）：${error.message}`;
+        try {
+          store.setStatus(quest.id, 'failed', {
+            detail, by: 'board', source: 'dispatcher',
+            evidence: { kind: 'dispatcher', attempt: attemptEvidence(assignedAttempt) },
+          });
+          return { status: 503, body: { error: 'role_card_plan_failed_after_assign', attemptId: assignedAttempt.attemptId, settled: true, reasons: [{ code: 'role_card_plan', message: error.message }] } };
+        } catch (settleError) {
+          return { status: 503, body: { error: 'role_card_plan_failed_after_assign', attemptId: assignedAttempt.attemptId, settled: false, reasons: [{ code: 'role_card_plan', message: error.message }, { code: 'settlement_failed', message: settleError.message }] } };
+        }
+      }
+    }
+    const attempt = { ...assignedAttempt, roleCard, ...(annotationSnapshot ? { annotationSnapshot } : {}) };
     const controlToken = config.lanes[adventurer.lane]?.control?.type === 'generic-wrapper' ? randomUUID() : null;
     if (controlToken) controlHandles.set(attempt.attemptId, { token: controlToken, child: null, lane: attempt.lane, name: attempt.name });
     // Snapshot of exactly what the plan above was built from, immutable for the life of this attempt — every
@@ -509,7 +560,19 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     // new name — never recorded on this quest at all — stays adoptable without qualification.
     const priorAttempt = (quest.dispatches || []).some((d) => d && d.name === name);
     if (priorAttempt) return { status: 409, body: { error: `worker ${name} 是这个任务更早一次派遣用过的名字，接管会认错那次的记录；换个新名字` } };
-    return { status: 200, body: { quest: store.assign(questId, { adventurer, name, by, detail: `接管已在跑的 worker ${name}`, event: 'dispatched', adopted: true, requestKey }) } };
+    const roleBriefReason = roleCardBriefReason(quest, adventurer, withFileSets(config, store.list()));
+    if (roleBriefReason) return { status: 409, body: { error: 'refused', reasons: [roleBriefReason] } };
+    let assigned = store.assign(questId, { adventurer, name, by, detail: `接管已在跑的 worker ${name}`, event: 'dispatched', adopted: true, requestKey });
+    const attempt = { attemptId: assigned.assignee.attemptId, name: assigned.assignee.name, lane: assigned.assignee.lane, at: assigned.assignee.at };
+    try {
+      const roleCard = writeRoleCard({ config, quest, attempt: { ...attempt, kind: quest.kind } });
+      assigned = store.recordRoleCard(questId, attempt, roleCard);
+      return { status: 200, body: { quest: assigned } };
+    } catch (error) {
+      // Adoption represents a worker that is already running. A card I/O failure cannot prove that worker
+      // failed, so preserve its dispatched state and slot; only the card is unavailable for this attempt.
+      return { status: 503, body: { error: 'role_card_failed_after_adopt', attemptId: attempt.attemptId, settled: false, cardUnavailable: true, reasons: [{ code: error.code || 'role_card', message: `角色卡不可用：${error.message}` }] } };
+    }
   }
 
   // Frees a stalled quest after someone confirmed its worker is gone; refuses everything else.
@@ -535,11 +598,17 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     if (requested.assignee?.phase === 'queued') return { status: 202, body: { quest: requested, result: 'pending', request } };
     const lane = config.lanes[requested.assignee?.lane];
     if (lane?.control?.type !== 'generic-wrapper') {
+      if (source === 'limit') {
+        const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: 'manual_required：无法自动停止，请手动处理' });
+        return { status: 200, body: { quest: next, result: 'manual_required', request: next.cancelRequest } };
+      }
       const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: '该 lane 没有可验证的 generic wrapper 控制，需要人工确认' });
       return { status: 200, body: { quest: next, result: 'manual_required', request: next.cancelRequest } };
     }
     const result = await genericWrapper({ attempt: requested.assignee, request, handle: controlHandles.get(request.attemptId) });
-    const next = store.recordCancellationResult(questId, { requestId: request.requestId, ...result });
+    const cancellation = source === 'limit' && result.result === 'manual_required'
+      ? { ...result, detail: 'manual_required：无法自动停止，请手动处理' } : result;
+    const next = store.recordCancellationResult(questId, { requestId: request.requestId, ...cancellation });
     return { status: 202, body: { quest: next, result: result.result, request: next.cancelRequest } };
   }
 
@@ -638,6 +707,11 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
             detail: transition.detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(current?.assignee) },
             ...(report ? { report } : {}),
           });
+          if (transition.limitReason && !current?.cancelRequest && lane?.control?.type === 'generic-wrapper') {
+            void cancel(transition.id, 'limit', transition.limitReason).catch((error) => {
+              reportPersistenceFailure('limit cancellation', transition.id, error);
+            });
+          }
         }
       } catch (error) {
         // A refusal or persistence fault for one quest must not abort the rest of this collector snapshot.

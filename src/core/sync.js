@@ -27,7 +27,7 @@ function priorAttemptFor(quest, assignee) {
   return latest;
 }
 
-function isCurrentRow(row, assignee, quest) {
+export function isCurrentRow(row, assignee, quest) {
   // A row with no dispatchedAt has nothing to compare against a fresh attempt's own `at` — trusting it
   // unconditionally is only ever legitimate for an adopted worker, whose registry row predates the board
   // recording it at all (see the adopted branch below), never for a brand-new, timestamped attempt: an
@@ -56,10 +56,17 @@ export function tailText(text, max = 300) {
 
 function detailFor(row) {
   const parts = [];
-  if (row.reason) parts.push(row.reason);
+  if (row.limitReason && row.reason !== row.limitReason) parts.push(row.limitReason);
+  else if (row.reason) parts.push(row.reason);
   if (row.bounceUntil) parts.push(`${row.bounceUntil} 恢复`);
   if (row.lastText) parts.push(tailText(row.lastText));
+  if (row.manualRequired) parts.push('manual_required：无法自动停止，请手动处理');
   return parts.join(' | ');
+}
+
+function alreadyStalledForLimit(quest, limitReason) {
+  if (quest.status !== 'stalled' || typeof quest.lastDetail !== 'string') return false;
+  return quest.lastDetail === limitReason || quest.lastDetail.startsWith(`${limitReason} |`);
 }
 
 export function deriveTransitions(quests, laneRows, now = Date.now()) {
@@ -102,6 +109,17 @@ export function deriveTransitions(quests, laneRows, now = Date.now()) {
       continue;
     }
     const status = LANE_TO_QUEST[row.state];
+    // A terminal exit/session result is authoritative even when the row also carries a stale bound reason.
+    // Bounds are for non-terminal observations; they must never hide a finished worker from a silent quest.
+    if (status && status !== 'stalled') {
+      transitions.push({ id: quest.id, status, detail: detailFor(row) });
+      continue;
+    }
+    const detail = detailFor(row);
+    if (row.limitReason && !quest.cancelRequest && !alreadyStalledForLimit(quest, row.limitReason)) {
+      transitions.push({ id: quest.id, status: 'stalled', detail, limitReason: row.limitReason, manualRequired: row.manualRequired === true });
+      continue;
+    }
     if (status && !(silent && status === 'stalled')) transitions.push({ id: quest.id, status, detail: detailFor(row) });
   }
   return transitions;

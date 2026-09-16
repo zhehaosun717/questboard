@@ -138,6 +138,19 @@ describe('sync', () => {
     assert.deepEqual(deriveTransitions([silent], [], later(30)), [], 'a missing row does not free it');
   });
 
+  it('lets terminal rows win over stale bounds and applies a later bound reason to a silent quest', () => {
+    const silent = { ...running, status: 'stalled', lastDetail: 'worker quiet' };
+    const terminal = { name: 'run4', state: 'delivered', limitReason: '超过时长上限 1 分钟', dispatchedAt: at, lastText: 'done' };
+    assert.equal(deriveTransitions([silent], [terminal], later(30))[0].status, 'delivered');
+    const bounded = { name: 'run4', state: 'stalled', reason: '超过时长上限 1 分钟', limitReason: '超过时长上限 1 分钟', manualRequired: true, dispatchedAt: at };
+    const [transition] = deriveTransitions([silent], [bounded], later(30));
+    assert.deepEqual(transition, {
+      id: 'RUN-4', status: 'stalled', detail: '超过时长上限 1 分钟 | manual_required：无法自动停止，请手动处理',
+      limitReason: '超过时长上限 1 分钟', manualRequired: true,
+    });
+    assert.deepEqual(deriveTransitions([{ ...silent, lastDetail: transition.detail }], [bounded], later(30)), []);
+  });
+
   it('stalls a quest whose worker never registered', () => {
     assert.deepEqual(deriveTransitions([running], [], later(5)), []);
     assert.equal(deriveTransitions([running], [], later(11))[0].status, 'stalled');

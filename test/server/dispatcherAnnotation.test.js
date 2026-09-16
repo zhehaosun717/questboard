@@ -34,6 +34,13 @@ describe('feedback 39 annotation dispatch', () => {
       const assigned = await fx.api('/api/quests/ART-39/assign', 'POST', { adventurer: 'codex-astra' });
       assert.equal(assigned.status, 200, assigned.text);
       const metadata = assigned.body.quest.assignee.annotationSnapshot;
+      const roleCard = assigned.body.quest.assignee.roleCard;
+      assert.match(roleCard.path, /^\.questboard-data\/dispatch-briefs\/ART-39\/ART-39-[^/]+\.role\.md$/);
+      assert.equal(roleCard.digest.length, 64);
+      const roleText = fs.readFileSync(path.join(fx.project.root, roleCard.path), 'utf8');
+      assert.match(roleText, /你是委托包 ART-39 的执行者。只按简报改文件，不改别的文件，不提交，不读其他 worker 的交付物；完成后把报告写到 \.work\/codex\/art39\.md。/);
+      const detail = await fx.api('/api/quests/ART-39');
+      assert.deepEqual(detail.body.quest.roleCard, roleCard);
       assert.equal(metadata.page, 'robot8');
       assert.equal(metadata.count, 1);
       assert.match(metadata.path, /^\.questboard-data\/dispatch-briefs\/ART-39\/ART-39-[^/]+\.md$/);

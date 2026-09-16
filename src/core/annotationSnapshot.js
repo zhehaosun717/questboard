@@ -181,18 +181,27 @@ export function renderAnnotationSnapshot({ briefText, page, title, capturedAt, i
     + (rows.length ? `${rows.join('\n\n')}\n` : '（批注数量为 0；当前页面没有已保存批注。）\n');
 }
 
-function safeAttemptTarget(config, packageId, attemptId) {
+// Shared by all immutable per-attempt artifacts. The suffix is deliberately allowlisted: callers may choose
+// the annotation snapshot or role-card name, but may not turn this helper into an arbitrary file writer.
+export function safeAttemptTarget(config, packageId, attemptId, suffix = '.md') {
   const packagePattern = packageIdPattern(config);
   if (!packagePattern.test(packageId)) fail(`任务编号 ${packageId} 不符合项目编号格式`, 'invalid_package');
   if (!ATTEMPT_PATTERN.test(attemptId)) fail(`派遣尝试编号不符合格式`, 'invalid_attempt');
+  if (!['.md', '.role.md'].includes(suffix)) fail('unsupported attempt artifact type', 'snapshot_write_failed');
   const directory = path.join(config.paths.data, 'dispatch-briefs', packageId);
-  const file = path.join(directory, `${packageId}-${attemptId}.md`);
+  const file = path.join(directory, `${packageId}-${attemptId}${suffix}`);
   const assertContainment = (target) => {
     const dataIssue = realpathContainmentIssue(config.paths.data, target);
     if (dataIssue) fail(`\u6279\u6ce8\u5feb\u7167\u8def\u5f84\u4e0d\u5b89\u5168\uff1a${dataIssue}`, 'snapshot_containment');
     const projectIssue = realpathContainmentIssue(config.root, target);
     if (projectIssue) fail(`\u6279\u6ce8\u5feb\u7167\u8def\u5f84\u5728\u9879\u76ee\u5916\uff1a${projectIssue}`, 'snapshot_containment');
   };
+  // The first role card for a fresh project may be the first artifact under data. Validate the data root
+  // from the project before creating it, then the realpath checks below can safely inspect it.
+  const dataRootIssue = realpathContainmentIssue(config.root, config.paths.data);
+  if (dataRootIssue) fail(`dispatch data directory is not safe: ${dataRootIssue}`, 'snapshot_containment');
+  try { fs.mkdirSync(config.paths.data, { recursive: true }); }
+  catch (error) { fail(`dispatch data directory creation failed: ${error.code || error.message}`, 'snapshot_write_failed'); }
   // Check before mkdir so an existing dispatch-briefs junction cannot create a package folder outside data.
   assertContainment(directory);
   try { fs.mkdirSync(directory, { recursive: true }); }
@@ -205,6 +214,26 @@ function safeAttemptTarget(config, packageId, attemptId) {
   return { directory, file };
 }
 
+// Exclusive create plus a full write and fsync. Item 39 uses this for annotation snapshots; role cards use
+// the same primitive so a retry can never clobber the first bytes recorded for an attempt.
+export function writeExclusiveFile(file, content) {
+  let fd = null;
+  let created = false;
+  try {
+    fd = fs.openSync(file, 'wx', 0o600);
+    created = true;
+    const buffer = Buffer.from(content, 'utf8');
+    let offset = 0;
+    while (offset < buffer.length) offset += fs.writeSync(fd, buffer, offset, buffer.length - offset);
+    fs.fsyncSync(fd);
+  } catch (error) {
+    if (created) { try { fs.unlinkSync(file); } catch { /* preserve the original failure */ } }
+    throw error;
+  } finally {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* the write result is already known */ } }
+  }
+}
+
 export function writeAnnotationSnapshot({ config, packageId, attemptId, briefText, page, title, capturedAt = new Date().toISOString(), items, content: preparedContent }) {
   // prepareAnnotationSnapshot renders once before assign. The attempt id changes only the destination path,
   // so the size check cannot become a post-assign refusal. Direct callers still get the same bound when they
@@ -214,22 +243,13 @@ export function writeAnnotationSnapshot({ config, packageId, attemptId, briefTex
   const bytes = Buffer.byteLength(content, 'utf8');
   if (bytes > MAX_ANNOTATION_SNAPSHOT_BYTES) fail(`批注快照过大（上限 ${MAX_ANNOTATION_SNAPSHOT_BYTES} 字节）`, 'snapshot_oversized');
   const target = safeAttemptTarget(config, packageId, attemptId);
-  let fd = null;
-  let created = false;
   try {
-    // wx is the immutable-attempt guard. A repeated attempt id can never replace the first capture.
-    fd = fs.openSync(target.file, 'wx', 0o600);
-    created = true;
-    const buffer = Buffer.from(content, 'utf8');
-    let offset = 0;
-    while (offset < buffer.length) offset += fs.writeSync(fd, buffer, offset, buffer.length - offset);
-    fs.fsyncSync(fd);
+    // writeExclusiveFile's wx is the immutable-attempt guard. A repeated attempt id can never replace the
+    // first capture.
+    writeExclusiveFile(target.file, content);
   } catch (error) {
-    if (created) { try { fs.unlinkSync(target.file); } catch { /* preserve the original failure */ } }
     if (error.code === 'EEXIST') fail(`批注快照已经存在，不能覆盖这次派遣`, 'snapshot_exists');
     fail(`批注快照写入失败：${error.code || error.message}`, 'snapshot_write_failed');
-  } finally {
-    if (fd !== null) { try { fs.closeSync(fd); } catch { /* the write result is already known */ } }
   }
   const relative = path.relative(config.root, target.file).split(path.sep).join('/');
   if (relative === '..' || relative.startsWith('../')) fail('snapshot path is outside the project', 'snapshot_containment');

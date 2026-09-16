@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { fillTemplate, fillOptionalArgs } from './config.js';
 import { readJsonLines } from './jsonl.js';
+import { readRoleCard } from './roleCard.js';
 
 const GIT_BASH_CANDIDATES = ['D:/Program Files/Git/bin/bash.exe', 'C:/Program Files/Git/bin/bash.exe', 'C:/Program Files (x86)/Git/bin/bash.exe'];
 
@@ -47,12 +48,12 @@ export function workerName(quest, usedNames = new Set()) {
   return name;
 }
 
-export function planDispatch(config, quest, adventurer, name, effectiveBrief = quest.brief) {
+export function planDispatch(config, quest, adventurer, name, effectiveBrief = quest.brief, rolePath) {
   const lane = config.lanes[adventurer.lane];
   if (!lane) throw new Error(`this project has no lane ${adventurer.lane}`);
   // The optional fifth value is only the immutable brief path for an art attempt whose snapshot was written.
   // It is intentionally string-only: no alternate object-shaped template input is part of this contract.
-  const values = { name, brief: effectiveBrief, model: adventurer.model, variant: adventurer.variant, agent: adventurer.agent, package: quest.id };
+  const values = { name, brief: effectiveBrief, model: adventurer.model, variant: adventurer.variant, agent: adventurer.agent, package: quest.id, role: rolePath };
   const field = `lanes.${adventurer.lane}`;
   const laneEnv = lane.env ? Object.fromEntries(Object.entries(lane.env).map(([k, v]) => [k, fillTemplate([v], values, `${field}.env.${k}`)[0]])) : {};
   // A card's own values win over the lane's, so one generic lane can serve several providers (a different
@@ -61,7 +62,9 @@ export function planDispatch(config, quest, adventurer, name, effectiveBrief = q
   const env = { ...laneEnv, ...cardEnv };
   const steps = [];
   if (lane.session) {
-    steps.push({ kind: 'session', command: fillTemplate(lane.session.run, values, `${field}.session.run`), saveTo: fillTemplate([lane.session.saveTo], values, `${field}.session.saveTo`)[0], env });
+    const sessionStep = { kind: 'session', command: fillTemplate(lane.session.run, values, `${field}.session.run`), saveTo: fillTemplate([lane.session.saveTo], values, `${field}.session.saveTo`)[0], env };
+    if (lane.roleInPrompt === true && rolePath && rolePath !== '{role}') sessionStep.prompt = readRoleCard(config, rolePath);
+    steps.push(sessionStep);
   }
   // A lane without optionalArgs gets its exact run array back from fillOptionalArgs unchanged, so this
   // stays byte-for-byte the same dispatch every existing lane already produces.
@@ -127,7 +130,7 @@ function runScript(config, step, logFile, onChild = () => {}) {
 function runSession(config, step) {
   return new Promise((resolve) => {
     const { file, args } = resolveCommand(config, step.command);
-    execFile(file, args, { cwd: config.root, env: { ...process.env, ...step.env }, timeout: 30000, windowsHide: true }, (error, stdout, stderr) => {
+    const child = execFile(file, args, { cwd: config.root, env: { ...process.env, ...step.env }, timeout: 30000, windowsHide: true }, (error, stdout, stderr) => {
       const id = String(stdout || '').trim().split(/\s+/).pop();
       if (error || !id) {
         resolve({ code: 1, error: (stderr || (error && error.message) || `no session id in output: ${stdout}`).slice(0, 500) });
@@ -148,6 +151,8 @@ function runSession(config, step) {
       }
       resolve({ code: 0, session: id });
     });
+    child.stdin.on('error', () => {});
+    if (step.prompt !== undefined) child.stdin.end(step.prompt);
   });
 }
 

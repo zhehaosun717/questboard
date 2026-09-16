@@ -15,6 +15,7 @@ import {
   validateMetadataUpdate, validateParents, sameList,
   reviewTargetLockedMessage, findReviewAncestorLock, reviewAncestorLockedMessage, kindLockReason,
 } from './metadataUpdate.js';
+import { validateRoleCard } from './roleCard.js';
 
 export const KINDS = new Set(['code', 'review', 'art', 'tool', 'owner']);
 export const QUEST_STATUSES = new Set(['posted', 'dispatched', 'delivered', 'reviewing', 'needs_owner', 'owner_playtest', 'lane_limited',
@@ -374,6 +375,20 @@ export class QuestStore extends EventEmitter {
     return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
   }
 
+  // The role card reference is the durable write-ahead binding for every dispatch attempt. The file is
+  // created first by the dispatcher; this second write records exactly which immutable bytes belong to the
+  // assignee and to its historical dispatch row.
+  recordRoleCard(id, attempt, roleCard) {
+    const quest = this.quests.get(id);
+    if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(`${id} 的这次派遣已经不是当前记录了，角色卡没法登记`);
+    const value = validateRoleCard(this.config, id, attempt.attemptId, roleCard);
+    if (quest.assignee.roleCard) throw new Error(`${id} 的这次派遣已经登记过角色卡`);
+    const assignee = { ...quest.assignee, roleCard: value };
+    const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt)
+      ? { ...dispatch, roleCard: value } : dispatch);
+    return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
+  }
+
   setStatus(id, status, { detail = '', by = 'coordinator', report = null, source, ack = false, evidence } = {}) {
     if (!QUEST_STATUSES.has(status)) throw new Error(`status must be one of ${[...QUEST_STATUSES].join('|')}`);
     const quest = this.quests.get(id);
@@ -423,7 +438,7 @@ export class QuestStore extends EventEmitter {
     if (!quest) return null;
     const bySource = cancellationSource(source);
     const why = cancellationReason(reason);
-    if (!bySource) throw cancellationError('invalid_source', 'cancellation source must be ui, cli or mcp');
+    if (!bySource) throw cancellationError('invalid_source', 'cancellation source must be ui, cli, mcp or limit');
     if (!why) throw cancellationError('reason_required', 'cancellation reason is required');
     if (!quest.assignee || !['dispatched', 'stalled'].includes(quest.status)) {
       throw cancellationError('not_cancellable', `${id} has no unresolved running worker to cancel`);

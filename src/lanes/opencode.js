@@ -116,3 +116,9 @@ export function sessionState(messages, now = Date.now()) {
   if (!lastText) return { state: 'failed', reason: 'no final assistant text', toolCounts, lastText, edits, lastActivityMs };
   return { state: 'delivered', toolCounts, lastText, edits, lastActivityMs };
 }
+
+export function sessionLimitReason(messages, elapsed, limits = {}) {
+  if (limits.maxMessages !== undefined && messages.length > limits.maxMessages) return `超过消息上限 ${limits.maxMessages} 条`;
+  if (limits.maxMinutes !== undefined && elapsed > limits.maxMinutes * 60 * 1000) return `超过时长上限 ${limits.maxMinutes} 分钟`;
+  return null;
+}

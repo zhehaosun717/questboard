@@ -1,6 +1,6 @@
 // Shared cancellation and manual-resolution vocabulary.  These values are deliberately small and
 // non-secret: a request may be replayed in the board, while the control token remains process-local.
-export const CANCELLATION_SOURCES = new Set(['ui', 'cli', 'mcp']);
+export const CANCELLATION_SOURCES = new Set(['ui', 'cli', 'mcp', 'limit']);
 export const CANCELLATION_RESULTS = new Set(['pending', 'never_started', 'stopped_by_wrapper', 'manual_required', 'unknown']);
 
 export function cancellationSource(value) {
