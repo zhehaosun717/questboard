@@ -127,6 +127,10 @@ questboard post --package RUN-4 --brief docs/briefs/RUN-4-x.md [--kind code|revi
      [--parents A-1] [--conflicts B-2] [--lanes codex,agy] [--priority 1|2|3] [--needs-owner "question"]
 questboard list | status <id> <status> | ruling <id> --text ... | assign <id> --adventurer <card>
 questboard adopt <id> --adventurer <card> --name <worker>
+questboard update <id> [--title ...] [--brief ...] [--parents ...] [--conflicts ...] [--lanes ...]
+     [--needs-owner "question"] [--if-revision <n>]   # correct a posted quest's own fields; refused while a worker holds its slot
+     # a posted review's own parent/kind, and every ancestor it reaches (and that ancestor's kind), are fixed
+     # permanently, even once the review is cancelled — post a new, correctly linked quest instead
 questboard card list | card status <card> <available|limited|broke|paused|disabled> --reason "..."
 questboard roster init [--force] | roster path | roster import <old roster.json> [--dry-run | --force | --replace --force]
 questboard board post|reply|list|read|close|inbox
@@ -157,7 +161,11 @@ CLI so the board can see the worker (registry row, `.out` / `.exit` / `.md` file
 commands: `questboard_list_quests`, `questboard_get_quest` (with who may take it and why not),
 `questboard_post_quest`, `questboard_set_quest_status`, `questboard_record_ruling`, `questboard_assign`,
 `questboard_adopt`, `questboard_release_worker` (free a stalled quest once you confirmed its process is
-gone), `questboard_list_cards`, `questboard_set_card_status`, `questboard_events`, `questboard_board_post`,
+gone), `questboard_update_metadata` (revision-guarded correction of title/brief/parents/conflicts/
+allowedLanes/needsOwner on a quest that does not hold a worker's slot; any other field is refused, and a
+posted review's own parent/kind, plus every ancestor it reaches and that ancestor's kind, are permanently
+fixed), `questboard_list_cards`,
+`questboard_set_card_status`, `questboard_events`, `questboard_board_post`,
 `questboard_board_reply`, `questboard_board_inbox`. Writes go through the running board server; start it
 with `questboard serve` first.
 

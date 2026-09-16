@@ -164,6 +164,21 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       sendJson(response, 201, { review: assigned.body.quest, quest: result.body.quest });
       return;
     }
+    if (parts[3] === 'metadata') {
+      const ifRevision = body.ifRevision === undefined || body.ifRevision === null || body.ifRevision === '' ? undefined : Number(body.ifRevision);
+      if (ifRevision !== undefined && !Number.isInteger(ifRevision)) { sendJson(response, 400, { error: 'ifRevision must be an integer' }); return; }
+      let result;
+      try {
+        result = store.updateMetadata(questId, body, { by, ifRevision });
+      } catch (error) {
+        if (error.code === 'stale_revision') { sendJson(response, 409, { error: 'stale', revision: error.revision, reasons: [{ code: 'stale_revision', message: error.message }] }); return; }
+        if (error.code === 'holds_slot') { sendJson(response, 409, { error: 'refused', reasons: [{ code: 'holds_slot', message: error.message }] }); return; }
+        throw error;
+      }
+      if (result.errors) { sendJson(response, 400, { error: 'validation failed', fields: result.errors }); return; }
+      sendJson(response, 200, { quest: result.quest });
+      return;
+    }
     if (parts[3] === 'ruling') {
       const next = store.rule(questId, { text: body.text, by });
       replyOnThreads(questId, String(body.text).trim());

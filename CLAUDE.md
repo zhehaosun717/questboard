@@ -44,7 +44,9 @@ stay in the bundle resources (`desktop/src-tauri/tauri.bundle.json`) or setup fr
 
 - Events file: one JSON line per change, `{at, event, package, lane, model, variant, name, by, detail}`.
   Events: posted, review_posted, assigned, dispatched, delivered, failed, bounced, stalled, released,
-  cancelled, owner_ruling, delivery_write_failed, status_<status>. Coordinators depend on these names.
+  cancelled, owner_ruling, delivery_write_failed, status_<status>, metadata_update. Coordinators depend on
+  these names. `metadata_update` additionally carries `changedFields` (names only) and `changes`
+  (`{field: {from, to}}`, non-secret values only — every metadata field is plain text or id lists).
 - Silence does not free a quest: `stalled` keeps the assignee, its slot and its file reservations until
   `release` confirms the worker is gone. Only exit files (failed/bounced/delivered) end a worker by themselves.
 - Registry file: written by the project's own dispatch scripts, one `event: "dispatch"` line per worker.

@@ -90,6 +90,31 @@ export function createTools({ config, base, author, home, request }) {
       },
     },
     {
+      name: 'questboard_update_metadata',
+      title: 'Correct a posted quest',
+      description: 'Revision-guarded correction of title, brief, parents, conflicts, allowedLanes or needsOwner on a quest that does not hold a worker\'s slot — never status or assignee, those only change through set_quest_status/assign/adopt/release, and any other field is refused with an error naming it. Only fields you pass are touched; a field left out stays exactly as it was. Pass ifRevision (from get_quest) so a quest changed since you read it is refused as stale (409) instead of clobbered; refused (409) while a worker holds the quest\'s slot, release it first. A posted review\'s own parent is fixed, and so is every ancestor its parent chain reaches (at any depth) and that ancestor\'s kind — clearing, reparenting or kind-switching any of them is always refused, permanently, even once the review is cancelled; post a new, correctly linked quest (and review, if needed) instead.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          title: { type: 'string' },
+          brief: { type: 'string', description: `Brief path inside ${config.briefs.dispatchDirs.join(' or ')}` },
+          parents: idList, conflicts: idList,
+          allowedLanes: { type: 'array', items: { type: 'string', enum: Object.keys(config.lanes) } },
+          needsOwner: { type: 'string' },
+          ifRevision: { type: 'integer', description: 'The quest revision you decided on' },
+        },
+        required: ['id'],
+      },
+      annotations: write,
+      handler: async (args) => {
+        required(args, ['id']);
+        const { id, ifRevision, ...fields } = args;
+        const body = await api(`/api/quests/${encodeURIComponent(id)}/metadata`, 'POST', { ...fields, by: author, ifRevision });
+        return questSummary(body.quest);
+      },
+    },
+    {
       name: 'questboard_set_quest_status',
       title: 'Set a quest status',
       description: 'Move a quest after verification or a decision: done, delivered, reviewing, needs_owner, owner_playtest, lane_limited, superseded, cancelled, failed. Dispatch itself only happens through assign or adopt.',

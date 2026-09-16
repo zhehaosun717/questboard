@@ -195,3 +195,165 @@ describe('quest API', () => {
     }
   });
 });
+
+describe('quest metadata', () => {
+  let mfx;
+  before(async () => {
+    mfx = await startFixture();
+    mfx.project.write('docs/briefs/META-1-x.md', 'META-1 — x');
+    mfx.project.write('docs/briefs/META-2-x.md', 'META-2 — x');
+  });
+  after(() => mfx.close());
+
+  it('corrects a posted quest\'s fields, leaving untouched ones exactly as they were, with the actor recorded', async () => {
+    const posted = await mfx.api('/api/quests', 'POST', { package: 'META-1', brief: 'docs/briefs/META-1-x.md', title: 'old title', needsOwner: 'pick one' });
+    const revision = posted.body.quest.revision;
+    const updated = await mfx.api('/api/quests/META-1/metadata', 'POST', { title: 'new title', by: 'owner-zh' });
+    assert.equal(updated.status, 200, updated.text);
+    assert.equal(updated.body.quest.title, 'new title');
+    assert.equal(updated.body.quest.needsOwner, 'pick one', 'a field never mentioned in this update is untouched');
+    assert.equal(updated.body.quest.revision, revision + 1);
+    const last = mfx.events().at(-1);
+    assert.equal(last.event, 'metadata_update');
+    assert.equal(last.by, 'owner-zh');
+    assert.deepEqual(last.changedFields, ['title']);
+  });
+
+  it('rejects a validation failure (bad field) with 400 and leaves revision/events unchanged', async () => {
+    const posted = await mfx.api('/api/quests', 'POST', { package: 'META-2', brief: 'docs/briefs/META-2-x.md' });
+    const before = mfx.events().length;
+    const bad = await mfx.api('/api/quests/META-2/metadata', 'POST', { parents: 'GHOST-1' });
+    assert.equal(bad.status, 400, bad.text);
+    assert.match(bad.body.fields.parents, /GHOST-1 not found/);
+    const unchanged = await mfx.api('/api/quests/META-2');
+    assert.equal(unchanged.body.quest.revision, posted.body.quest.revision, 'an invalid candidate never bumps the revision');
+    assert.equal(mfx.events().length, before, 'and never appends an event');
+  });
+
+  it('refuses with 409 while a worker holds the quest\'s slot, and again after it stalls with the worker still assigned', async () => {
+    await mfx.api('/api/quests/META-2/assign', 'POST', { adventurer: 'codex-luna' });
+    await tick();
+    const busy = await mfx.api('/api/quests/META-2/metadata', 'POST', { title: 'nope' });
+    assert.equal(busy.status, 409, busy.text);
+    assert.equal(busy.body.reasons[0].code, 'holds_slot');
+    await mfx.api('/api/quests/META-2/status', 'POST', { status: 'stalled', detail: 'no output' });
+    const stillBusy = await mfx.api('/api/quests/META-2/metadata', 'POST', { title: 'nope' });
+    assert.equal(stillBusy.status, 409);
+    await mfx.api('/api/quests/META-2/release', 'POST', { detail: 'confirmed gone' });
+  });
+
+  it('refuses a stale ifRevision with 409 and the current revision, then accepts once re-read', async () => {
+    const current = (await mfx.api('/api/quests/META-2')).body.quest.revision;
+    const stale = await mfx.api('/api/quests/META-2/metadata', 'POST', { title: 'x', ifRevision: current - 1 });
+    assert.equal(stale.status, 409, stale.text);
+    assert.equal(stale.body.revision, current);
+    const fresh = await mfx.api('/api/quests/META-2/metadata', 'POST', { title: 'x', ifRevision: current });
+    assert.equal(fresh.status, 200, fresh.text);
+  });
+
+  it('404s a metadata update for a quest that does not exist', async () => {
+    assert.equal((await mfx.api('/api/quests/NOPE-1/metadata', 'POST', { title: 'x' })).status, 404);
+  });
+
+  it('rejects a privileged or unknown field with a 400 naming it, applying nothing at all', async () => {
+    const posted = await mfx.api('/api/quests', 'POST', { package: 'META-3', brief: 'docs/briefs/META-2-x.md', title: 'kept' });
+    const before = mfx.events().length;
+    const bad = await mfx.api('/api/quests/META-3/metadata', 'POST', { title: 'new', status: 'done', kind: 'owner' });
+    assert.equal(bad.status, 400, bad.text);
+    assert.match(bad.body.fields.status, /unknown field/);
+    assert.match(bad.body.fields.kind, /unknown field/);
+    const unchanged = await mfx.api('/api/quests/META-3');
+    assert.equal(unchanged.body.quest.title, 'kept');
+    assert.equal(unchanged.body.quest.revision, posted.body.quest.revision);
+    assert.equal(mfx.events().length, before);
+  });
+});
+
+describe('review ancestry protection', () => {
+  let mfx;
+  before(async () => {
+    mfx = await startFixture();
+    mfx.project.write('docs/briefs/RA-4-x.md', 'RA-4 — x');
+    mfx.project.write('docs/briefs/RA-5-x.md', 'RA-5 — x');
+    mfx.project.write('docs/briefs/RA-6-x.md', 'RA-6 — x');
+    await mfx.api('/api/quests', 'POST', { package: 'RA-4', brief: 'docs/briefs/RA-4-x.md' });
+    await mfx.api('/api/quests', 'POST', { package: 'RA-6', brief: 'docs/briefs/RA-6-x.md' });
+    await mfx.api('/api/quests/RA-4/assign', 'POST', { adventurer: 'codex-luna' });
+    await tick();
+    await mfx.api('/api/quests/RA-4/status', 'POST', { status: 'delivered', detail: 'd' });
+    await mfx.api('/api/quests', 'POST', { package: 'RA-5', kind: 'review', brief: 'docs/briefs/RA-5-x.md', parents: 'RA-4' });
+  });
+  after(() => mfx.close());
+
+  it('refuses to clear or reparent a posted review through the metadata endpoint, over HTTP', async () => {
+    const cleared = await mfx.api('/api/quests/RA-5/metadata', 'POST', { parents: '' });
+    assert.equal(cleared.status, 400, cleared.text);
+    assert.match(cleared.body.fields.parents, /RA-5 is a posted review/);
+    const reparented = await mfx.api('/api/quests/RA-5/metadata', 'POST', { parents: 'RA-6' });
+    assert.equal(reparented.status, 400);
+    assert.match(reparented.body.fields.parents, /RA-5 is a posted review/);
+    const still = await mfx.api('/api/quests/RA-5');
+    assert.deepEqual(still.body.quest.parents, ['RA-4']);
+  });
+
+  it('refuses the same clear/reparent, and a kind change, through the re-post upsert endpoint', async () => {
+    const cleared = await mfx.api('/api/quests', 'POST', { package: 'RA-5', kind: 'review', brief: 'docs/briefs/RA-5-x.md', parents: '' });
+    assert.equal(cleared.status, 400, cleared.text);
+    assert.match(cleared.body.fields.parents, /RA-5 is a posted review/);
+    const kindSwitch = await mfx.api('/api/quests', 'POST', { package: 'RA-5', kind: 'code', brief: 'docs/briefs/RA-5-x.md', parents: '' });
+    assert.equal(kindSwitch.status, 400);
+    assert.match(kindSwitch.body.fields.kind, /RA-5 is a posted review/);
+    const still = await mfx.api('/api/quests/RA-5');
+    assert.deepEqual(still.body.quest.parents, ['RA-4']);
+    assert.equal(still.body.quest.kind, 'review');
+  });
+
+  it('keeps the author refused before and after every attempted bypass', async () => {
+    const refusedFor = (body) => body.eligibility['RA-5']['codex-luna'].reasons.some((r) => r.code === 'reviewer_coded_parent');
+    assert.ok(refusedFor((await mfx.api('/api/quests')).body));
+    await mfx.api('/api/quests/RA-5/metadata', 'POST', { parents: '' });
+    await mfx.api('/api/quests', 'POST', { package: 'RA-5', kind: 'code', brief: 'docs/briefs/RA-5-x.md', parents: '' });
+    await mfx.api('/api/quests', 'POST', { package: 'RA-5', kind: 'review', brief: 'docs/briefs/RA-5-x.md', parents: '' });
+    assert.ok(refusedFor((await mfx.api('/api/quests')).body), 'still refused after every attempted bypass');
+  });
+});
+
+// QB-FB-REVIEW-METADATA2 found the review-target lock above did not reach an ancestor two or more links
+// away, and did not stop an ancestor's kind from being laundered into or out of 'review' — over HTTP, the
+// same as the store-level tests in test/core/reviewLineageLock.test.js.
+describe('review lineage lock: ancestors beyond the immediate parent, over HTTP', () => {
+  let mfx;
+  before(async () => {
+    mfx = await startFixture();
+    for (const id of ['RB-2', 'RB-3', 'RB-4', 'RB-6']) mfx.project.write(`docs/briefs/${id}-x.md`, `${id} — x`);
+    await mfx.api('/api/quests', 'POST', { package: 'RB-2', brief: 'docs/briefs/RB-2-x.md' });
+    await mfx.api('/api/quests', 'POST', { package: 'RB-6', brief: 'docs/briefs/RB-6-x.md' });
+    await mfx.api('/api/quests/RB-2/assign', 'POST', { adventurer: 'codex-luna' });
+    await tick();
+    await mfx.api('/api/quests/RB-2/status', 'POST', { status: 'delivered', detail: 'd' });
+    await mfx.api('/api/quests', 'POST', { package: 'RB-3', brief: 'docs/briefs/RB-3-x.md', parents: 'RB-2' });
+    await mfx.api('/api/quests/RB-3/assign', 'POST', { adventurer: 'oc-mimo' });
+    await tick();
+    await mfx.api('/api/quests/RB-3/status', 'POST', { status: 'delivered', detail: 'd' });
+    await mfx.api('/api/quests', 'POST', { package: 'RB-4', brief: 'docs/briefs/RB-4-x.md', kind: 'review', parents: 'RB-3' });
+  });
+  after(() => mfx.close());
+
+  it('refuses to give the grandparent a new parent through the metadata endpoint, naming the protecting review', async () => {
+    // RB-2 was posted with no parents of its own, so giving it one (not clearing, which would be a no-op) is
+    // the actual change the lock must refuse.
+    const reparented = await mfx.api('/api/quests/RB-2/metadata', 'POST', { parents: 'RB-6' });
+    assert.equal(reparented.status, 400, reparented.text);
+    assert.match(reparented.body.fields.parents, /RB-2 is locked/);
+    assert.match(reparented.body.fields.parents, /RB-4 is a posted review/);
+    assert.match(reparented.body.fields.parents, /does not unlock RB-2/);
+    assert.deepEqual((await mfx.api('/api/quests/RB-2')).body.quest.parents, []);
+  });
+
+  it('refuses turning the delivered, authored parent into a review through the re-post endpoint', async () => {
+    const switched = await mfx.api('/api/quests', 'POST', { package: 'RB-3', brief: 'docs/briefs/RB-3-x.md', kind: 'review' });
+    assert.equal(switched.status, 400, switched.text);
+    assert.match(switched.body.fields.kind, /RB-3 has dispatch history or an assignee/);
+    assert.equal((await mfx.api('/api/quests/RB-3')).body.quest.kind, 'code');
+  });
+});

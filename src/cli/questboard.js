@@ -11,6 +11,9 @@
 //   questboard release <id> --detail "how you confirmed the worker stopped"   (frees a stalled quest only; never kills or forces anything)
 //   questboard status RUN-4 done|delivered|reviewing|needs_owner|owner_playtest|lane_limited|superseded|cancelled|failed [--detail "..."]
 //   questboard ruling RUN-4 --text "..."
+//   questboard update RUN-4 [--title "..."] [--brief docs/briefs/x.md] [--parents A-1,B-2] [--conflicts C-3]
+//        [--lanes codex,agy] [--needs-owner "question"] [--if-revision 3] [--by who]
+//        (correct title/brief/parents/conflicts/allowedLanes/needsOwner on a posted quest; refused while a worker holds its slot)
 //   questboard assign RUN-4 --adventurer codex-luna [--request-key run4-a] [--if-revision 3]
 //   questboard adopt RUN-3 --adventurer codex-luna --name run3      (a worker started by hand; runs nothing)
 //   questboard doctor                                               (read-only setup check)

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { QuestStore, sameAttempt } from '../../src/core/store.js';
 import { appendJsonLine, readJsonLines } from '../../src/core/jsonl.js';
 import { eventsAfter, readEvents } from '../../src/core/events.js';
+import { canDispatch } from '../../src/core/rules.js';
 import { makeProject, card } from '../helpers.js';
 
 let project;
@@ -30,6 +31,18 @@ describe('QuestStore', () => {
     assert.ok(errors.package && errors.kind && errors.priority && errors.parents);
     assert.match(errors.allowedLanes, /this project defines codex, claude, agy, dsh, opencode/);
     assert.match(store.post({ package: 'RUN-4', brief: '../x.md' }).errors.brief, /docs\/briefs/);
+  });
+
+  it('refuses a new post naming a parent that is not on the board yet, self, or a cycle — before persisting', () => {
+    const missing = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', parents: 'RUN-9' });
+    assert.match(missing.errors.parents, /RUN-9 not found; post it first/);
+    assert.equal(store.get('RUN-4'), null, 'an unusable task is never written');
+    assert.match(store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', parents: 'RUN-4' }).errors.parents, /cannot be its own parent/);
+    store.post({ package: 'RUN-3', brief: 'docs/briefs/RUN-3-x.md' });
+    store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', parents: 'RUN-3' });
+    assert.match(store.post({ package: 'RUN-3', brief: 'docs/briefs/RUN-3-x.md', parents: 'RUN-4' }).errors.parents, /cycle back to RUN-3/);
+    // A real, already-posted parent is accepted.
+    assert.deepEqual(store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', parents: 'RUN-3' }).quest.parents, ['RUN-3']);
   });
 
   it('accepts dispatchable briefs only in dispatchDirs, owner briefs also in ownerDirs', () => {
@@ -228,5 +241,241 @@ describe('QuestStore', () => {
     fs.writeFileSync(questsPath, backup);
     // A fresh reload from disk agrees with the untouched in-memory state — nothing was silently lost either.
     assert.deepEqual(new QuestStore(project.config).get('RUN-9'), before);
+  });
+
+  describe('updateMetadata', () => {
+    it('corrects only the fields passed, bumps the revision, and records the actor and changed fields on metadata_update', () => {
+      const { quest } = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', title: 'old title' });
+      const { quest: updated } = store.updateMetadata('RUN-4', { title: 'new title' }, { by: 'owner' });
+      assert.equal(updated.title, 'new title');
+      assert.equal(updated.revision, quest.revision + 1);
+      const last = events().at(-1);
+      assert.equal(last.event, 'metadata_update');
+      assert.equal(last.by, 'owner');
+      assert.deepEqual(last.changedFields, ['title']);
+      assert.deepEqual(last.changes, { title: { from: 'old title', to: 'new title' } });
+      assert.equal(new QuestStore(project.config).get('RUN-4').title, 'new title', 'durable across a restart');
+    });
+
+    it('is a no-op — no event, no revision bump — when nothing actually changes', () => {
+      const { quest } = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', title: 'same' });
+      const before = events().length;
+      const { quest: result } = store.updateMetadata('RUN-4', { title: 'same' }, { by: 'owner' });
+      assert.equal(result.revision, quest.revision);
+      assert.equal(events().length, before);
+    });
+
+    it('leaves the revision and events unchanged when the candidate is invalid', () => {
+      store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+      const before = store.get('RUN-4');
+      const beforeEvents = events().length;
+      const { errors } = store.updateMetadata('RUN-4', { parents: 'RUN-9' }, { by: 'owner' });
+      assert.match(errors.parents, /RUN-9 not found/);
+      assert.deepEqual(store.get('RUN-4'), before);
+      assert.equal(events().length, beforeEvents);
+    });
+
+    it('refuses outright while the quest holds a worker\'s slot, without touching it', () => {
+      store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+      store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
+      const before = store.get('RUN-4');
+      assert.throws(() => store.updateMetadata('RUN-4', { title: 'new' }), /先释放再改/);
+      try { store.updateMetadata('RUN-4', { title: 'new' }); } catch (error) { assert.equal(error.code, 'holds_slot'); }
+      assert.deepEqual(store.get('RUN-4'), before);
+      store.setStatus('RUN-4', 'stalled', { detail: 'no output' });
+      assert.throws(() => store.updateMetadata('RUN-4', { title: 'new' }), /先释放再改/, 'a stalled quest still holding its assignee is also refused');
+    });
+
+    it('refuses a stale ifRevision with the current revision, and accepts a matching one', () => {
+      const { quest } = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+      try {
+        store.updateMetadata('RUN-4', { title: 'new' }, { ifRevision: quest.revision + 1 });
+        assert.fail('expected a stale_revision throw');
+      } catch (error) {
+        assert.equal(error.code, 'stale_revision');
+        assert.equal(error.revision, quest.revision);
+      }
+      const updated = store.updateMetadata('RUN-4', { title: 'new' }, { ifRevision: quest.revision }).quest;
+      assert.equal(updated.title, 'new');
+    });
+
+    it('rejects a missing/self/cyclic parent the same as post, before persisting', () => {
+      store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+      store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md' });
+      assert.match(store.updateMetadata('RUN-4', { parents: 'RUN-9' }).errors.parents, /RUN-9 not found/);
+      assert.match(store.updateMetadata('RUN-4', { parents: 'RUN-4' }).errors.parents, /cannot be its own parent/);
+      store.updateMetadata('RUN-5', { parents: 'RUN-4' });
+      assert.match(store.updateMetadata('RUN-4', { parents: 'RUN-5' }).errors.parents, /cycle back to RUN-4/);
+    });
+
+    it('returns null for a quest that does not exist', () => {
+      assert.equal(store.updateMetadata('NOPE-1', { title: 'x' }), null);
+    });
+
+    it('repairs a legacy quest\'s missing parent while an unrelated field edit leaves it exactly as broken as before', () => {
+      const legacyAssignee = null;
+      appendJsonLine(path.join(project.config.paths.data, 'quests.jsonl'), {
+        id: 'FIX-1', kind: 'code', status: 'posted', brief: 'docs/briefs/FIX-1-x.md', title: 'old',
+        parents: ['GHOST-1'], conflicts: [], allowedLanes: [], needsOwner: '', assignee: legacyAssignee, dispatches: [],
+        createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z', revision: 1,
+      });
+      const reopened = new QuestStore(project.config);
+      assert.equal(reopened.get('FIX-1').parents[0], 'GHOST-1', 'legacy broken quest is still readable');
+      const untouched = reopened.updateMetadata('FIX-1', { title: 'new title' }, { by: 'owner' });
+      assert.equal(untouched.quest.title, 'new title');
+      assert.deepEqual(untouched.quest.parents, ['GHOST-1'], 'a field this edit never mentioned is not silently re-validated or dropped');
+      reopened.post({ package: 'RUN-1', brief: 'docs/briefs/RUN-1-x.md' });
+      const repaired = reopened.updateMetadata('FIX-1', { parents: 'RUN-1' }, { by: 'owner' });
+      assert.deepEqual(repaired.quest.parents, ['RUN-1'], 'the owner can explicitly repair the parent once a real one exists');
+    });
+
+    it('an explicit conflict removal frees only that declared block; a real file overlap still refuses dispatch', () => {
+      const a = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', conflicts: 'RUN-5' }).quest;
+      store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md' });
+      store.assign('RUN-5', { adventurer: card('agy-gemini'), name: 'run5' });
+      const luna = card('codex-luna');
+      const withFiles = (quest, files) => ({ ...quest, files });
+      const running5 = withFiles(store.get('RUN-5'), ['shared.js']);
+      const declared = canDispatch({ quest: withFiles(a, ['shared.js']), adventurer: luna, quests: [withFiles(a, ['shared.js']), running5], policy: {}, env: {} });
+      assert.ok(declared.reasons.some((r) => r.code === 'conflict_running' && r.message.includes('声明了冲突')), 'the declared conflict is refused as declared');
+      const cleared = store.updateMetadata('RUN-4', { conflicts: '' }, { by: 'owner' }).quest;
+      assert.deepEqual(cleared.conflicts, []);
+      const stillOverlap = canDispatch({ quest: withFiles(cleared, ['shared.js']), adventurer: luna, quests: [withFiles(cleared, ['shared.js']), running5], policy: {}, env: {} });
+      assert.ok(stillOverlap.reasons.some((r) => r.code === 'conflict_running' && r.message.includes('正在改同一批文件')), 'unrelated file overlap does not disappear just because the explicit conflict was cleared');
+    });
+
+    it('rejects a privileged or unknown field with a per-field error, and leaves the quest exactly as it was', () => {
+      store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+      store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
+      store.setStatus('RUN-4', 'delivered', { detail: 'd' });
+      const before = store.get('RUN-4');
+      const beforeEvents = events().length;
+      const r = store.updateMetadata('RUN-4', {
+        title: 'ok', status: 'done', kind: 'owner', priority: 1, assignee: null, dispatches: [],
+        revision: 999, id: 'HACKED-1', reviewPage: 'x', bogusField: 'y',
+      }, { by: 'owner' });
+      assert.match(r.errors.status, /unknown field/);
+      assert.match(r.errors.kind, /unknown field/);
+      assert.match(r.errors.bogusField, /unknown field/);
+      assert.deepEqual(store.get('RUN-4'), before, 'a candidate with any unknown field is refused whole, nothing is applied — not even the valid title');
+      assert.equal(events().length, beforeEvents);
+    });
+  });
+
+  describe('review ancestry protection', () => {
+    // The exact chain rules.js's reviewer_coded_parent exists to stop: RUN-4's author must never end up able
+    // to review RUN-4's own review. Every leg of the bypass a coordinator could try is checked before and
+    // after — updateMetadata, the re-post upsert, and the two-step kind-switch that empties METADATA_FIELDS'
+    // own protection by leaving kind through code and coming back.
+    function setup() {
+      store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+      store.post({ package: 'RUN-6', brief: 'docs/briefs/RUN-6-x.md' });
+      const luna = card('codex-luna');
+      store.assign('RUN-4', { adventurer: luna, name: 'w' });
+      store.setStatus('RUN-4', 'delivered', { detail: 'd' });
+      store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', kind: 'review', parents: ['RUN-4'] });
+      return luna;
+    }
+    const mayReview = (luna) => canDispatch({ quest: store.get('RUN-5'), adventurer: luna, quests: store.list(), policy: {}, env: { laneIds: new Set(['codex', 'agy']) } });
+
+    it('refuses to clear a review\'s parent through updateMetadata, before and after the attempt', () => {
+      const luna = setup();
+      assert.equal(mayReview(luna).ok, false, 'refused before any edit is attempted');
+      const cleared = store.updateMetadata('RUN-5', { parents: '' }, { by: 'owner' });
+      assert.match(cleared.errors.parents, /RUN-5 is a posted review/);
+      assert.match(cleared.errors.parents, /new package id/, 'must say a new package id is needed, not a same-id repost');
+      assert.match(cleared.errors.parents, /cancelling RUN-5 does not unlock RUN-5/, 'must say cancelling does not unlock, never an instruction to cancel first');
+      assert.deepEqual(store.get('RUN-5').parents, ['RUN-4'], 'the parent is untouched');
+      assert.equal(mayReview(luna).ok, false, 'still refused after the attempt');
+      assert.ok(mayReview(luna).reasons.some((r) => r.code === 'reviewer_coded_parent'));
+    });
+
+    it('refuses to reparent a review onto a different quest through updateMetadata', () => {
+      const luna = setup();
+      const reparented = store.updateMetadata('RUN-5', { parents: 'RUN-6' }, { by: 'owner' });
+      assert.match(reparented.errors.parents, /RUN-5 is a posted review/);
+      assert.deepEqual(store.get('RUN-5').parents, ['RUN-4']);
+      assert.equal(mayReview(luna).ok, false);
+    });
+
+    it('refuses the same clear/reparent through the re-post upsert path, not only through updateMetadata', () => {
+      const luna = setup();
+      const cleared = store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', kind: 'review', parents: '' });
+      assert.match(cleared.errors.parents, /RUN-5 is a posted review/);
+      assert.deepEqual(store.get('RUN-5').parents, ['RUN-4']);
+      const reparented = store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', kind: 'review', parents: 'RUN-6' });
+      assert.match(reparented.errors.parents, /RUN-5 is a posted review/);
+      assert.equal(mayReview(luna).ok, false);
+    });
+
+    it('closes the multi-call bypass: re-posting a review as kind code, then removing parents, then reposting as review', () => {
+      const luna = setup();
+      const toCode = store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', kind: 'code', parents: '' });
+      assert.match(toCode.errors.kind, /RUN-5 is a posted review/, 'the kind change itself is refused, before parents are ever touched');
+      assert.equal(store.get('RUN-5').kind, 'review');
+      assert.deepEqual(store.get('RUN-5').parents, ['RUN-4']);
+      // Even if kind had somehow moved, closing the loop the other direction is refused too: parents on an
+      // existing review can never come back from a post that also claims kind: 'review'.
+      const backToReview = store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', kind: 'review', parents: '' });
+      assert.match(backToReview.errors.parents, /RUN-5 is a posted review/);
+      assert.equal(mayReview(luna).ok, false);
+      assert.ok(mayReview(luna).reasons.some((r) => r.code === 'reviewer_coded_parent'));
+    });
+
+    it('allows resending the same parent as a true no-op, through both updateMetadata and re-post', () => {
+      setup();
+      const revision = store.get('RUN-5').revision;
+      const same1 = store.updateMetadata('RUN-5', { parents: 'RUN-4' }, { by: 'owner' });
+      assert.deepEqual(same1.quest.parents, ['RUN-4']);
+      assert.equal(same1.quest.revision, revision, 'a true no-op never bumps the revision');
+      const same2 = store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', kind: 'review', parents: 'RUN-4' });
+      assert.deepEqual(same2.quest.parents, ['RUN-4']);
+    });
+
+    it('keeps a legacy broken review readable and its other fields correctable, but still refuses to rewrite its target — even onto a real quest', () => {
+      appendJsonLine(path.join(project.config.paths.data, 'quests.jsonl'), {
+        id: 'REVIEW-1', kind: 'review', status: 'posted', brief: 'docs/briefs/REVIEW-1-x.md', title: 'legacy review',
+        parents: ['GHOST-1'], conflicts: [], allowedLanes: [], needsOwner: '', assignee: null, dispatches: [],
+        createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z', revision: 1,
+      });
+      const reopened = new QuestStore(project.config);
+      assert.deepEqual(reopened.get('REVIEW-1').parents, ['GHOST-1'], 'legacy broken review is still readable');
+      const titled = reopened.updateMetadata('REVIEW-1', { title: 'renamed' }, { by: 'owner' });
+      assert.equal(titled.quest.title, 'renamed');
+      assert.deepEqual(titled.quest.parents, ['GHOST-1'], 'an unrelated field edit never touches the broken target');
+      reopened.post({ package: 'RUN-1', brief: 'docs/briefs/RUN-1-x.md' });
+      const repair = reopened.updateMetadata('REVIEW-1', { parents: 'RUN-1' }, { by: 'owner' });
+      assert.match(repair.errors.parents, /REVIEW-1 is a posted review/, 'not even a real, valid replacement is a silent rewrite — cancel and repost instead');
+    });
+
+    it('leaves ordinary, non-review parent repair working exactly as before', () => {
+      appendJsonLine(path.join(project.config.paths.data, 'quests.jsonl'), {
+        id: 'FIX-2', kind: 'code', status: 'posted', brief: 'docs/briefs/FIX-2-x.md', title: 'old',
+        parents: ['GHOST-1'], conflicts: [], allowedLanes: [], needsOwner: '', assignee: null, dispatches: [],
+        createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z', revision: 1,
+      });
+      const reopened = new QuestStore(project.config);
+      reopened.post({ package: 'RUN-1', brief: 'docs/briefs/RUN-1-x.md' });
+      assert.deepEqual(reopened.updateMetadata('FIX-2', { parents: 'RUN-1' }, { by: 'owner' }).quest.parents, ['RUN-1'], 'a code (non-review) quest\'s parent is still freely repairable');
+    });
+
+    it('closes the re-post bypass of holds_slot for identity fields while stalled, without blocking a needsOwner-only re-post', () => {
+      store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', title: 'original' });
+      store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md' });
+      store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
+      store.setStatus('RUN-4', 'stalled', { detail: 'silence' });
+      const blocked = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', title: 'while stalled', parents: 'RUN-5', conflicts: 'RUN-5' });
+      assert.ok(blocked.errors.title && blocked.errors.parents && blocked.errors.conflicts, 'every changed identity field is named');
+      assert.match(blocked.errors.title, /先释放再改/);
+      const untouched = store.get('RUN-4');
+      assert.equal(untouched.title, 'original');
+      assert.deepEqual(untouched.parents, []);
+      assert.equal(untouched.status, 'stalled');
+      assert.ok(untouched.assignee, 'ownership is not freed by the refused re-post');
+      const allowed = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', needsOwner: 'switch model?' });
+      assert.equal(allowed.quest.status, 'stalled', 'a needsOwner-only re-post still works exactly as before');
+      assert.equal(allowed.quest.assignee.name, 'run4');
+      assert.equal(allowed.quest.needsOwner, 'switch model?');
+    });
   });
 });

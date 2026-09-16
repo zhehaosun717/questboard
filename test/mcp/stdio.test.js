@@ -4,7 +4,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { startFixture } from '../server/fixture.js';
+import { startFixture, tick } from '../server/fixture.js';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'cli', 'questboard.js');
 
@@ -51,7 +51,7 @@ describe('questboard mcp over stdio', () => {
   it('lists the tools with schemas and annotations', async () => {
     const { result } = await rpc('tools/list');
     const names = result.tools.map((t) => t.name);
-    for (const name of ['questboard_post_quest', 'questboard_get_quest', 'questboard_adopt', 'questboard_set_card_status', 'questboard_events', 'questboard_board_inbox']) assert.ok(names.includes(name), name);
+    for (const name of ['questboard_post_quest', 'questboard_get_quest', 'questboard_adopt', 'questboard_set_card_status', 'questboard_events', 'questboard_board_inbox', 'questboard_update_metadata']) assert.ok(names.includes(name), name);
     const post = result.tools.find((t) => t.name === 'questboard_post_quest');
     assert.deepEqual(post.inputSchema.properties.allowedLanes.items.enum, ['codex', 'claude', 'agy', 'dsh', 'opencode']);
     assert.equal(result.tools.find((t) => t.name === 'questboard_list_quests').annotations.readOnlyHint, true);
@@ -77,6 +77,68 @@ describe('questboard mcp over stdio', () => {
     assert.match((await call('questboard_adopt', { id: 'RUN-4' })).value, /missing required arguments: adventurer, name/);
     const listed = (await call('questboard_list_cards', { status: 'paused' })).value;
     assert.deepEqual(listed.map((c) => [c.id, c.reason]), [['codex-astra', '费用']]);
+  });
+
+  it('corrects a quest\'s metadata, only touching fields passed, and refuses a nonexistent parent', async () => {
+    const posted = await call('questboard_get_quest', { id: 'RUN-4' });
+    const updated = await call('questboard_update_metadata', { id: 'RUN-4', title: 'renamed', ifRevision: posted.value.revision });
+    assert.equal(updated.value.title, 'renamed');
+    const badParent = await call('questboard_update_metadata', { id: 'RUN-4', parents: ['GHOST-1'] });
+    assert.equal(badParent.error, true);
+    assert.match(badParent.value, /GHOST-1 not found/);
+    const missingId = await call('questboard_update_metadata', { title: 'x' });
+    assert.match(missingId.value, /missing required argument: id/);
+  });
+
+  it('closes the review-ancestry bypass across updateMetadata, re-post and a kind-switch, keeping the author refused throughout', async () => {
+    fx.project.write('docs/briefs/RA-4-x.md', 'RA-4 — x');
+    fx.project.write('docs/briefs/RA-5-x.md', 'RA-5 — x');
+    fx.project.write('docs/briefs/RA-6-x.md', 'RA-6 — x');
+    await call('questboard_post_quest', { package: 'RA-4', brief: 'docs/briefs/RA-4-x.md' });
+    await call('questboard_post_quest', { package: 'RA-6', brief: 'docs/briefs/RA-6-x.md' });
+    await fx.api('/api/quests/RA-4/assign', 'POST', { adventurer: 'codex-luna' });
+    await fx.api('/api/quests/RA-4/status', 'POST', { status: 'delivered', detail: 'd' });
+    await call('questboard_post_quest', { package: 'RA-5', kind: 'review', brief: 'docs/briefs/RA-5-x.md', parents: ['RA-4'] });
+
+    const cleared = await call('questboard_update_metadata', { id: 'RA-5', parents: [] });
+    assert.equal(cleared.error, true);
+    assert.match(cleared.value, /RA-5 is a posted review/);
+
+    const reparented = await call('questboard_update_metadata', { id: 'RA-5', parents: ['RA-6'] });
+    assert.equal(reparented.error, true);
+    assert.match(reparented.value, /RA-5 is a posted review/);
+
+    const kindSwitch = await call('questboard_post_quest', { package: 'RA-5', kind: 'code', brief: 'docs/briefs/RA-5-x.md', parents: [] });
+    assert.equal(kindSwitch.error, true);
+    assert.match(kindSwitch.value, /RA-5 is a posted review/);
+
+    const stillReview = (await call('questboard_get_quest', { id: 'RA-5' })).value;
+    assert.equal(stillReview.kind, 'review');
+    assert.deepEqual(stillReview.parents, ['RA-4']);
+    assert.ok(Object.values(stillReview.eligibility.refused).some((cards) => cards.includes('codex-luna')), 'the author is still refused after every attempted bypass');
+  });
+
+  it('locks a grandparent ancestor and its kind too, not only the review\'s immediate parent', async () => {
+    fx.project.write('docs/briefs/RB-2-x.md', 'RB-2 — x');
+    fx.project.write('docs/briefs/RB-3-x.md', 'RB-3 — x');
+    fx.project.write('docs/briefs/RB-5-x.md', 'RB-5 — x');
+    await call('questboard_post_quest', { package: 'RB-2', brief: 'docs/briefs/RB-2-x.md' });
+    await call('questboard_post_quest', { package: 'RB-5', brief: 'docs/briefs/RB-5-x.md' });
+    await fx.api('/api/quests/RB-2/assign', 'POST', { adventurer: 'codex-luna' });
+    await tick();
+    await fx.api('/api/quests/RB-2/status', 'POST', { status: 'delivered', detail: 'd' });
+    await call('questboard_post_quest', { package: 'RB-3', kind: 'review', brief: 'docs/briefs/RB-3-x.md', parents: ['RB-2'] });
+
+    // RB-2 was posted with no parents of its own, so giving it one (not clearing, which would be a no-op) is
+    // the actual change the lock must refuse.
+    const reparented = await call('questboard_update_metadata', { id: 'RB-2', parents: ['RB-5'] });
+    assert.equal(reparented.error, true);
+    assert.match(reparented.value, /RB-2 is locked/);
+    assert.match(reparented.value, /RB-3 is a posted review/);
+
+    const kindSwitch = await call('questboard_post_quest', { package: 'RB-2', kind: 'review', brief: 'docs/briefs/RB-2-x.md' });
+    assert.equal(kindSwitch.error, true);
+    assert.match(kindSwitch.value, /RB-2 has dispatch history or an assignee/);
   });
 
   it('adopts, reads events since a cursor, and uses the message board', async () => {

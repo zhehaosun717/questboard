@@ -147,6 +147,30 @@ export const commands = {
     out(questLine(quest));
   },
 
+  // Revision-guarded correction of a posted quest's own descriptive fields (title/brief/parents/conflicts/
+  // allowedLanes/needsOwner) — never status or assignee, and refused outright while the quest holds a
+  // worker's slot. Only flags actually passed are sent, so a field left out is never touched or re-saved.
+  async update(args) {
+    const { base } = context(args);
+    const id = positional(args, ['--title', '--brief', '--parents', '--conflicts', '--lanes', '--needs-owner', '--if-revision', '--by', '--project', '--url']);
+    if (!id) {
+      throw new Error('usage: questboard update <id> [--title "..."] [--brief docs/briefs/x.md] [--parents A-1,B-2] '
+        + '[--conflicts C-3] [--lanes codex,agy] [--needs-owner "question"] [--if-revision 3] [--by who]　'
+        + '只改传了的字段，其余不动；worker 占着这个任务时会被拒绝，先 release 再改');
+    }
+    const payload = { by: option(args, '--by') || 'owner' };
+    if (option(args, '--if-revision') !== undefined) payload.ifRevision = option(args, '--if-revision');
+    for (const [flag, field] of [
+      ['--title', 'title'], ['--brief', 'brief'], ['--parents', 'parents'],
+      ['--conflicts', 'conflicts'], ['--lanes', 'allowedLanes'], ['--needs-owner', 'needsOwner'],
+    ]) {
+      const value = option(args, flag);
+      if (value !== undefined) payload[field] = value;
+    }
+    const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/metadata`, 'POST', payload);
+    out(questLine(quest));
+  },
+
   async list(args) {
     const { base } = context(args);
     const { quests } = await request(base, '/api/quests');

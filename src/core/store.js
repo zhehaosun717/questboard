@@ -7,6 +7,10 @@ import { appendJsonLine, readJsonLines } from './jsonl.js';
 import { lastEventSeq } from './events.js';
 import { packageIdPattern, briefPathAllowed } from './patterns.js';
 import { holdsSlot } from './rules.js';
+import {
+  validateMetadataUpdate, validateParents, sameList,
+  reviewTargetLockedMessage, findReviewAncestorLock, reviewAncestorLockedMessage, kindLockReason,
+} from './metadataUpdate.js';
 
 export const KINDS = new Set(['code', 'review', 'art', 'tool', 'owner']);
 export const QUEST_STATUSES = new Set(['posted', 'dispatched', 'delivered', 'reviewing', 'needs_owner', 'owner_playtest', 'lane_limited',
@@ -47,7 +51,7 @@ function splitList(value) {
   return [...new Set(list.map((v) => String(v).trim()).filter(Boolean))];
 }
 
-export function validatePost(config, payload) {
+export function validatePost(config, payload, quests = []) {
   const input = payload && typeof payload === 'object' ? payload : {};
   const errors = {};
   const idPattern = packageIdPattern(config);
@@ -67,6 +71,16 @@ export function validatePost(config, payload) {
     if (bad) errors[field] = `${field} must be package ids, got ${bad}`;
     return list;
   };
+  const parents = ids('parents');
+  const conflicts = ids('conflicts');
+  // A pattern-valid parent list can still name a package that was never posted, itself, or a chain that
+  // loops back to itself — all three are rejected before this quest is ever written, the same as an update
+  // (see validateParents): an unusable task is never allowed onto the board in the first place, "post the
+  // child, then post the parent later" is not a supported ordering.
+  if (!errors.parents && parents.length) {
+    const err = validateParents(pkg, parents, new Map(quests.map((q) => [q.id, q])));
+    if (err) errors.parents = err;
+  }
   const allowedLanes = splitList(input.allowedLanes);
   const badLane = allowedLanes.find((lane) => !config.lanes[lane]);
   if (badLane) errors.allowedLanes = `unknown lane ${badLane}; this project defines ${Object.keys(config.lanes).join(', ')}`;
@@ -75,8 +89,8 @@ export function validatePost(config, payload) {
   const value = {
     package: pkg, kind, brief,
     title: String(input.title || '').trim().slice(0, 120),
-    parents: ids('parents'),
-    conflicts: ids('conflicts'),
+    parents,
+    conflicts,
     allowedLanes,
     priority,
     needsOwner: String(input.needsOwner || '').trim().slice(0, MAX_TEXT),
@@ -133,6 +147,12 @@ export class QuestStore extends EventEmitter {
       lane: assignee.lane || null, model: assignee.model || null, variant: assignee.variant || null, name: assignee.name || null,
       attemptId: assignee.attemptId || null,
       by: fields.by || 'board', detail: String(fields.detail || '').slice(0, 2000),
+      // Additive, never on any other event: metadata_update's own bounded record of which fields changed
+      // and their non-secret old/new values (every metadata field is plain text/id lists, never a secret).
+      // Omitted entirely unless a caller actually passes one, so every existing event's own shape on disk
+      // stays byte-identical to before this was added.
+      ...(fields.changedFields ? { changedFields: fields.changedFields } : {}),
+      ...(fields.changes ? { changes: fields.changes } : {}),
     };
     appendJsonLine(this.eventsFile, record);
     this.emit('event', record);
@@ -140,10 +160,55 @@ export class QuestStore extends EventEmitter {
   }
 
   post(payload) {
-    const { errors, value } = validatePost(this.config, payload);
+    const { errors, value } = validatePost(this.config, payload, this.list());
     if (Object.keys(errors).length) return { errors };
     const existing = this.quests.get(value.package);
     if (existing && existing.status === 'dispatched') return { errors: { package: `${value.package} is running; cancel it before re-posting` } };
+    const titleSent = Boolean(payload) && typeof payload === 'object' && payload.title !== undefined;
+    // An omitted title normally falls back to titleFromBrief (old MAIN behaviour, unchanged here) — but while
+    // a worker still holds this quest's slot, that fallback is not a harmless default, it is a hidden change:
+    // a re-post that only raises needsOwner (or otherwise never mentions title) must never silently overwrite
+    // a custom title with one derived from the brief. Only while held does the omitted case keep the existing
+    // title instead; the holds_slot guard below only ever compares this same `title`, so the two can never
+    // disagree about whether title "changed".
+    const title = titleSent ? value.title
+      : (existing && holdsSlot(existing) ? (existing.title || '') : (value.title || titleFromBrief(value.brief, value.package)));
+    // A posted review's own identity (what it targets, and that it *is* a review) is fixed the moment it is
+    // posted — never through a re-post upsert either, or a coordinator could bypass reviewer_coded_parent in
+    // three calls: turn the review into kind:'code' (which this same upsert would otherwise allow, since
+    // kind defaults to 'code' whenever a caller omits it), drop the now-unprotected parents, then post it back
+    // as kind:'review' as if it were fresh. The same laundering also runs the other way — relabel an authored
+    // *ancestor* of an existing review as a review, or an existing review's authored ancestor's kind away and
+    // back — so the kind lock below applies to any existing quest a kind-change is attempted on, not only an
+    // existing review; and the parent lock below applies to any existing quest a posted review's own ancestor
+    // walk already reaches, not only the review's own declared parent. A genuinely new review, or a quest kind
+    // change untouched by any of this, still gets its own missing/self/cycle checks in validatePost above.
+    if (existing && value.kind !== existing.kind) {
+      const lockMessage = kindLockReason(existing, this.list());
+      if (lockMessage) return { errors: { kind: lockMessage } };
+    }
+    if (existing && !sameList(value.parents, existing.parents || [])) {
+      if (existing.kind === 'review') return { errors: { parents: reviewTargetLockedMessage(existing.id) } };
+      const protectingReview = findReviewAncestorLock(existing.id, this.list());
+      if (protectingReview) return { errors: { parents: reviewAncestorLockedMessage(existing.id, protectingReview) } };
+    }
+    // The re-post path must obey the same holds_slot guard updateMetadata does for the same identity fields
+    // (title/brief/parents/conflicts/allowedLanes): a dispatched or stalled-but-owned quest is not repointed
+    // at different work out from under its worker. needsOwner is deliberately exempt — raising a question
+    // about a stalled attempt (see the test for this) must keep working through a re-post exactly as before.
+    if (existing && holdsSlot(existing)) {
+      const identityChanges = [
+        ['title', titleSent && title !== (existing.title || '')],
+        ['brief', value.brief !== (existing.brief || '')],
+        ['parents', !sameList(value.parents, existing.parents || [])],
+        ['conflicts', !sameList(value.conflicts, existing.conflicts || [])],
+        ['allowedLanes', !sameList(value.allowedLanes, existing.allowedLanes || [])],
+      ].filter(([, changed]) => changed).map(([field]) => field);
+      if (identityChanges.length) {
+        const message = `${existing.id} 有 worker 占着（${existing.status}），先释放再改`;
+        return { errors: Object.fromEntries(identityChanges.map((field) => [field, message])) };
+      }
+    }
     const at = now();
     const { by, ...fields } = value;
     // A stalled worker is silence, not a confirmed exit (see release()): it still holds its slot and file
@@ -154,7 +219,7 @@ export class QuestStore extends EventEmitter {
       ...(existing || { dispatches: [], rulings: [], assignee: null, createdAt: at, status: 'posted' }),
       ...fields,
       id: value.package,
-      title: value.title || titleFromBrief(value.brief, value.package),
+      title,
       status: value.needsOwner && !owned ? 'needs_owner' : (existing && !['done', 'superseded', 'cancelled'].includes(existing.status) ? existing.status : 'posted'),
       postedBy: by,
       updatedAt: at,
@@ -257,5 +322,40 @@ export class QuestStore extends EventEmitter {
     });
     this.emitEvent(next, 'owner_ruling', { by, detail: ruling });
     return next;
+  }
+
+  // Revision-guarded correction of title/brief/parents/conflicts/allowedLanes/needsOwner — never assignee,
+  // status or dispatch history (those change only through assign/adopt/setStatus/release/rule). Refuses
+  // outright (throws, .code 'holds_slot') while the quest actually holds a worker's slot (dispatched or
+  // stalled with an assignee): the fix is to release the worker first, never to silently clear it here just
+  // to let an edit through. `ifRevision`, when passed, must match the quest's current revision (throws,
+  // .code 'stale_revision', .revision otherwise) — the same guard assign/adopt use, so a coordinator or the
+  // UI editing from a stale read never clobbers a change made in between. Every field left out of `payload`
+  // is untouched (see validateMetadataUpdate): a quest already carrying a legacy issue in a field this call
+  // does not touch is never blocked or silently re-saved by an edit to something else.
+  updateMetadata(id, payload, { by = 'owner', ifRevision } = {}) {
+    const quest = this.quests.get(id);
+    if (!quest) return null;
+    if (holdsSlot(quest)) {
+      const error = new Error(`${id} 有 worker 占着（${quest.status}），先释放再改`);
+      error.code = 'holds_slot';
+      throw error;
+    }
+    if (ifRevision !== undefined && ifRevision !== null) {
+      const current = quest.revision || 0;
+      if (Number(ifRevision) !== current) {
+        const error = new Error(`任务在你读取之后改过（现在是第 ${current} 版，你按第 ${ifRevision} 版改的），重新读一次再改`);
+        error.code = 'stale_revision';
+        error.revision = current;
+        throw error;
+      }
+    }
+    const { errors, value, changes } = validateMetadataUpdate(this.config, quest, this.list(), payload);
+    if (Object.keys(errors).length) return { errors };
+    const changedFields = Object.keys(value);
+    if (!changedFields.length) return { quest };
+    const next = this.save({ ...quest, ...value, updatedAt: now() });
+    this.emitEvent(next, 'metadata_update', { by, detail: `改了 ${changedFields.join('、')}`, changedFields, changes });
+    return { quest: next };
   }
 }
