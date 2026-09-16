@@ -87,7 +87,7 @@ describe('quest API', () => {
     assert.equal(answered.closed, true, 'answering a question closes it, so 待答 can go down');
     assert.equal(fx.server.boardStore.getThread(mentions).closed, false, 'a thread that only mentions the quest stays open');
     assert.equal((await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'dispatched' })).status, 400);
-    assert.equal((await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'done' })).body.quest.status, 'done');
+    assert.equal((await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'done', detail: 'owner confirmed', ack: true })).body.quest.status, 'done');
   });
 
   it('holds a silent worker: refuses re-dispatch until it is released', async () => {
@@ -103,7 +103,7 @@ describe('quest API', () => {
     assert.ok(refused.body.reasons.some((r) => r.code === 'worker_unconfirmed'), JSON.stringify(refused.body));
     const snapshot = (await fx.api('/api/quests')).body;
     assert.equal(snapshot.eligibility['HAZ-1']['oc-deepseek'].ok, false, 'the refusal shows before the drop');
-    const released = await fx.api('/api/quests/HAZ-1/release', 'POST', { detail: 'process gone' });
+    const released = await fx.api('/api/quests/HAZ-1/release', 'POST', { detail: 'process gone', ack: true });
     assert.equal(released.status, 200, released.text);
     assert.equal(released.body.quest.assignee, null);
     assert.equal(fx.events().at(-1).event, 'released');
@@ -274,7 +274,7 @@ describe('quest metadata', () => {
     await mfx.api('/api/quests/META-2/status', 'POST', { status: 'stalled', detail: 'no output' });
     const stillBusy = await mfx.api('/api/quests/META-2/metadata', 'POST', { title: 'nope' });
     assert.equal(stillBusy.status, 409);
-    await mfx.api('/api/quests/META-2/release', 'POST', { detail: 'confirmed gone' });
+    await mfx.api('/api/quests/META-2/release', 'POST', { detail: 'confirmed gone', ack: true });
   });
 
   it('refuses a stale ifRevision with 409 and the current revision, then accepts once re-read', async () => {
@@ -315,7 +315,7 @@ describe('review ancestry protection', () => {
     await mfx.api('/api/quests', 'POST', { package: 'RA-6', brief: 'docs/briefs/RA-6-x.md' });
     await mfx.api('/api/quests/RA-4/assign', 'POST', { adventurer: 'codex-luna' });
     await tick();
-    await mfx.api('/api/quests/RA-4/status', 'POST', { status: 'delivered', detail: 'd' });
+    await mfx.api('/api/quests/RA-4/status', 'POST', { status: 'delivered', detail: 'd', ack: true });
     await mfx.api('/api/quests', 'POST', { package: 'RA-5', kind: 'review', brief: 'docs/briefs/RA-5-x.md', parents: 'RA-4' });
   });
   after(() => mfx.close());
@@ -365,11 +365,11 @@ describe('review lineage lock: ancestors beyond the immediate parent, over HTTP'
     await mfx.api('/api/quests', 'POST', { package: 'RB-6', brief: 'docs/briefs/RB-6-x.md' });
     await mfx.api('/api/quests/RB-2/assign', 'POST', { adventurer: 'codex-luna' });
     await tick();
-    await mfx.api('/api/quests/RB-2/status', 'POST', { status: 'delivered', detail: 'd' });
+    await mfx.api('/api/quests/RB-2/status', 'POST', { status: 'delivered', detail: 'd', ack: true });
     await mfx.api('/api/quests', 'POST', { package: 'RB-3', brief: 'docs/briefs/RB-3-x.md', parents: 'RB-2' });
     await mfx.api('/api/quests/RB-3/assign', 'POST', { adventurer: 'oc-mimo' });
     await tick();
-    await mfx.api('/api/quests/RB-3/status', 'POST', { status: 'delivered', detail: 'd' });
+    await mfx.api('/api/quests/RB-3/status', 'POST', { status: 'delivered', detail: 'd', ack: true });
     await mfx.api('/api/quests', 'POST', { package: 'RB-4', brief: 'docs/briefs/RB-4-x.md', kind: 'review', parents: 'RB-3' });
   });
   after(() => mfx.close());

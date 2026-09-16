@@ -43,7 +43,7 @@ describe('status parity backend contract', () => {
     fs.utimesSync(bounceOut, new Date(bounceAt), new Date(bounceAt));
     fs.utimesSync(bounceExit, new Date(bounceAt), new Date(bounceAt));
 
-    store.setStatus('RUN-1', 'bounced', { detail: 'quota' });
+    store.setStatus('RUN-1', 'bounced', { detail: 'quota', source: 'collector', evidence: { kind: 'collector', attemptId: store.get('RUN-1').assignee.attemptId } });
     store.assign('RUN-1', { adventurer: otherCard, name: 'run1-b' });
     let lanes = await createCollector(config).collect({ now: bounceAt + 1000 });
     let shown = effectiveRoster([card, otherCard], lanes, bounceAt + 1000);
@@ -57,7 +57,7 @@ describe('status parity backend contract', () => {
     assert.equal(shown.find((entry) => entry.id === card.id).status, 'limited', 'the old dispatch history still identifies card A');
     assert.equal(shown.find((entry) => entry.id === otherCard.id).status, 'available');
 
-    store.setStatus('RUN-1', 'bounced', { detail: 'retry' });
+    store.setStatus('RUN-1', 'bounced', { detail: 'retry', source: 'collector', evidence: { kind: 'collector', attemptId: store.get('RUN-1').assignee.attemptId } });
     store.assign('RUN-1', { adventurer: card, name: 'run1-a2' });
     appendJsonLine(config.paths.registry, { at: new Date().toISOString(), event: 'dispatch', package: 'RUN-1', lane: 'codex', model: card.model, name: 'run1-a2' });
     const successAt = Date.now() - 1000;

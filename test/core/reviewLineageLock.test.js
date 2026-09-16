@@ -17,6 +17,11 @@ let store;
 const events = () => readJsonLines(project.config.paths.events);
 const luna = card('codex-luna');
 const mimo = card('oc-mimo');
+const collectorStatus = (id, status, options = {}) => store.setStatus(id, status, {
+  ...options,
+  source: 'collector',
+  evidence: { kind: 'collector', attemptId: store.get(id)?.assignee?.attemptId },
+});
 
 beforeEach(() => {
   project = makeProject();
@@ -28,13 +33,13 @@ beforeEach(() => {
 function setupDeepChain() {
   store.post({ package: 'RUN-2', brief: 'docs/briefs/RUN-2-x.md' });
   store.assign('RUN-2', { adventurer: luna, name: 'w2' });
-  store.setStatus('RUN-2', 'delivered', { detail: 'd' });
+  collectorStatus('RUN-2', 'delivered', { detail: 'd' });
   store.post({ package: 'RUN-3', brief: 'docs/briefs/RUN-3-x.md', parents: 'RUN-2' });
   store.assign('RUN-3', { adventurer: mimo, name: 'w3' });
-  store.setStatus('RUN-3', 'delivered', { detail: 'd' });
+  collectorStatus('RUN-3', 'delivered', { detail: 'd' });
   store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', parents: 'RUN-3' });
   store.assign('RUN-4', { adventurer: mimo, name: 'w4' });
-  store.setStatus('RUN-4', 'delivered', { detail: 'd' });
+  collectorStatus('RUN-4', 'delivered', { detail: 'd' });
   store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', kind: 'review', parents: 'RUN-4' });
 }
 const mayReview = (adventurer = luna) => canDispatch({
@@ -120,7 +125,7 @@ describe('review lineage lock: kind switches on dispatched, stalled or delivered
       store = new QuestStore(project.config);
       store.post({ package: 'RUN-9', brief: 'docs/briefs/RUN-9-x.md' });
       store.assign('RUN-9', { adventurer: luna, name: 'w9' });
-      if (status !== 'dispatched') store.setStatus('RUN-9', status, { detail: 'd' });
+      if (status !== 'dispatched') collectorStatus('RUN-9', status, { detail: 'd' });
       const r = store.post({ package: 'RUN-9', brief: 'docs/briefs/RUN-9-x.md', kind: 'review' });
       if (status === 'dispatched') assert.match(r.errors.package, /running; cancel it before re-posting/, status);
       else assert.match(r.errors.kind, /dispatch history or an assignee/, status);
@@ -151,7 +156,7 @@ describe('review lineage lock survives cancelling the protecting review', () => 
     store.post({ package: 'RUN-13', brief: 'docs/briefs/RUN-13-x.md' });
     store.post({ package: 'RUN-15', brief: 'docs/briefs/RUN-15-x.md' });
     store.post({ package: 'RUN-14', brief: 'docs/briefs/RUN-14-x.md', kind: 'review', parents: 'RUN-13' });
-    store.setStatus('RUN-14', 'cancelled', { detail: 'wrong reviewer' });
+    store.setStatus('RUN-14', 'cancelled', { detail: 'wrong reviewer', source: 'ui', ack: true });
 
     const reparented = store.updateMetadata('RUN-13', { parents: 'RUN-15' }, { by: 'owner' });
     assert.match(reparented.errors.parents, /RUN-13 is locked/);
@@ -272,7 +277,7 @@ describe('message wording: no cancel-same-id-repost loop, protecting review alwa
     store.post({ package: 'RUN-40', brief: 'docs/briefs/RUN-40-x.md' });
     store.post({ package: 'RUN-41', brief: 'docs/briefs/RUN-41-x.md' });
     store.post({ package: 'RUN-42', brief: 'docs/briefs/RUN-42-x.md', kind: 'review', parents: 'RUN-40' });
-    store.setStatus('RUN-42', 'cancelled', { detail: 'wrong reviewer' });
+    store.setStatus('RUN-42', 'cancelled', { detail: 'wrong reviewer', source: 'ui', ack: true });
     const before = store.get('RUN-42');
     const beforeEvents = events().length;
 
@@ -301,7 +306,7 @@ describe('message wording: no cancel-same-id-repost loop, protecting review alwa
   it('kind lock from dispatch history alone: explains the retained lock without inventing a protecting review', () => {
     store.post({ package: 'RUN-46', brief: 'docs/briefs/RUN-46-x.md' });
     store.assign('RUN-46', { adventurer: luna, name: 'w46' });
-    store.setStatus('RUN-46', 'delivered', { detail: 'd' });
+    collectorStatus('RUN-46', 'delivered', { detail: 'd' });
     const r = store.post({ package: 'RUN-46', brief: 'docs/briefs/RUN-46-x.md', kind: 'tool' });
     assert.match(r.errors.kind, /RUN-46 has dispatch history or an assignee/);
     assert.match(r.errors.kind, /new package id/);

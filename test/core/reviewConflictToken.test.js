@@ -28,7 +28,7 @@ describe('a review is never blocked by an unrelated held quest\'s unknown brief 
 
     store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', by: 'owner' });
     store.assign('RUN-5', { adventurer: card('oc-deepseek'), name: 'run5', by: 'owner' });
-    store.setStatus('RUN-5', 'delivered', { detail: 'done', by: 'owner' });
+    store.setStatus('RUN-5', 'delivered', { detail: 'done', by: 'owner', source: 'collector', evidence: { kind: 'collector', attemptId: store.get('RUN-5').assignee.attemptId } });
 
     // Pre-drop: the same shape questRoutes.js's review route and snapshot.js's reviewEligibility use.
     const quests = withFileSets(config, store.list());

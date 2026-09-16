@@ -20,6 +20,11 @@ const MANUAL_STATUSES = new Set([...QUEST_STATUSES].filter((status) => status !=
 const REQUEST_KEY_PATTERN = /^[\w.:-]{1,80}$/;
 const EVENTS_MAX = 500;
 
+function requestSource(request) {
+  const value = String(request.headers['x-questboard-source'] || '').trim();
+  return ['ui', 'cli', 'mcp'].includes(value) ? value : 'unknown';
+}
+
 // Same grouping the MCP get_quest answers with, so one read serves CLI, board and agents alike.
 function eligibilitySummary(verdicts) {
   const canTake = [];
@@ -117,6 +122,8 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     }
     const questId = parts[1] === 'quests' ? parts[2] : null;
     if (!questId || !store.get(questId)) { sendJson(response, 404, { error: 'quest not found' }); return; }
+    const source = requestSource(request);
+    const actorSource = source;
     const by = String(body.by || (parts[3] === 'status' ? 'coordinator' : 'owner')).slice(0, 40);
     if (parts[3] === 'assign' || parts[3] === 'adopt') {
       const card = findCard(body.adventurer);
@@ -131,13 +138,27 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       return;
     }
     if (parts[3] === 'release') {
-      const result = dispatcher.release(questId, by, String(body.detail || '').slice(0, 2000));
+      const result = dispatcher.release(questId, actorSource, String(body.detail || '').slice(0, 2000), { source, ack: body.ack === true });
+      sendJson(response, result.status, result.body);
+      return;
+    }
+    if (parts[3] === 'cancel') {
+      const result = await dispatcher.cancel(questId, source, body.reason || body.detail);
+      sendJson(response, result.status, result.body);
+      return;
+    }
+    if (parts[3] === 'resolve') {
+      const result = dispatcher.resolve(questId, source, body.reason || body.detail, body.ack === true);
       sendJson(response, result.status, result.body);
       return;
     }
     if (parts[3] === 'status') {
       if (!MANUAL_STATUSES.has(body.status)) { sendJson(response, 400, { error: `status must be one of ${[...MANUAL_STATUSES].join('|')}; dispatch goes through assign` }); return; }
-      sendJson(response, 200, { quest: store.setStatus(questId, body.status, { detail: body.detail || '', by }) });
+      try {
+        sendJson(response, 200, { quest: store.setStatus(questId, body.status, { detail: body.detail || '', by: actorSource, source, ack: body.ack === true }) });
+      } catch (error) {
+        sendJson(response, 409, { error: 'refused', reasons: [{ code: error.code || 'status_refused', message: error.message }] });
+      }
       return;
     }
     if (parts[3] === 'review') {

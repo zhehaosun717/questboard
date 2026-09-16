@@ -52,7 +52,7 @@ describe('GET /api/quests/:id', () => {
     assert.equal(quest.eligibility.canTake.includes('codex-luna'), false, 'the busy card may not take it again');
     assert.equal((await fx.api('/api/quests/QD-1/release', 'POST', { detail: 'too early' })).status, 409, 'a running quest is cancelled, not released');
     await fx.api('/api/quests/QD-1/status', 'POST', { status: 'stalled', detail: 'no output for a long time' });
-    const released = await fx.api('/api/quests/QD-1/release', 'POST', { detail: 'process gone' });
+    const released = await fx.api('/api/quests/QD-1/release', 'POST', { detail: 'process gone', ack: true });
     assert.equal(released.status, 200, released.text);
     assert.equal(released.body.quest.assignee, null);
     assert.equal(fx.events().at(-1).event, 'released');
@@ -121,7 +121,7 @@ describe('GET /api/quests/:id/report', () => {
     fx.project.write(`.work/oc/${name}.md`, text);
     const report = captureAttemptReport({ config: fx.project.config, quest: store.get('RP-1') });
     assert.equal(report.source, 'delivery');
-    store.setStatus('RP-1', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', report });
+    store.setStatus('RP-1', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', report, source: 'collector', evidence: { kind: 'collector', attemptId: store.get('RP-1').assignee.attemptId } });
 
     const detail = await fx.api('/api/quests/RP-1');
     const view = detail.body.quest.report;

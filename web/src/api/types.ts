@@ -9,6 +9,25 @@ export type QuestStatus =
 
 export type CardStatus = 'available' | 'limited' | 'broke' | 'paused' | 'disabled';
 
+export interface CancelRequest {
+  requestId: string;
+  attemptId: string | null;
+  at: string;
+  bySource: 'ui' | 'cli' | 'mcp';
+  reason: string;
+  result: 'pending' | 'never_started' | 'stopped_by_wrapper' | 'manual_required' | 'unknown';
+  resolvedAt?: string;
+  detail?: string;
+}
+
+export interface ManualResolution {
+  actorSource: 'ui' | 'cli' | 'mcp' | 'unknown';
+  attempt: { attemptId: string | null; name: string | null; lane: string | null; at: string | null };
+  time: string;
+  reason: string | null;
+  scope: 'manual';
+}
+
 export interface Assignee {
   adventurerId: string;
   family: string | null;
@@ -20,6 +39,8 @@ export interface Assignee {
   by: string;
   adopted?: boolean;
   requestKey?: string;
+  phase?: string;
+  cancelRequest?: CancelRequest;
 }
 
 export interface Ruling {
@@ -51,6 +72,8 @@ export interface Quest {
   revision?: number;
   createdAt: string;
   updatedAt: string;
+  cancelRequest?: CancelRequest;
+  manualResolution?: ManualResolution | null;
 }
 
 // Owner-driven correction of a posted quest's own descriptive fields (POST /api/quests/:id/metadata,

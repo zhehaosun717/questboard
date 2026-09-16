@@ -24,12 +24,28 @@ function parseExitRecord(text) {
     const parsed = JSON.parse(value);
     if (parsed && typeof parsed === 'object' && Number.isInteger(parsed.code)) {
       const resetAt = parsed.resetAt || parsed.resetsAt || parsed.retryAt || parsed.retry_at || parsed.reset_at;
-      return { code: parsed.code, reason: typeof parsed.reason === 'string' ? parsed.reason.trim() : '', resetAt: typeof resetAt === 'string' ? resetAt.trim() : '' };
+      return {
+        code: parsed.code,
+        reason: typeof parsed.reason === 'string' ? parsed.reason.trim() : '',
+        resetAt: typeof resetAt === 'string' ? resetAt.trim() : '',
+        ...(typeof parsed.requestId === 'string' && parsed.requestId && parsed.scope === 'direct-child'
+          ? { cancelRequestId: parsed.requestId, cancelScope: parsed.scope } : {}),
+      };
     }
   } catch { /* the normal wrapper format is a plain integer */ }
   if (EXIT_CODE_RE.test(value)) return { code: parseInt(value, 10), reason: '', resetAt: '' };
   const marked = value.match(/^(-?\d+)\s+(quota(?:[_ -]?(?:exceeded|limit))?|rate[_ -]?limit(?:[_ -]?exceeded)?|usage[_ -]?limit(?:[_ -]?reached)?|resource[_ -]?exhausted|insufficient[_ -]?balance)\s*$/i);
-  return marked ? { code: Number(marked[1]), reason: marked[2], resetAt: '' } : null;
+  if (marked) return { code: Number(marked[1]), reason: marked[2], resetAt: '' };
+  const lines = value.split(/\r?\n/).filter((line) => line.trim() !== '');
+  if (!lines.length || !EXIT_CODE_RE.test(lines[0]) || lines.length > 2) return null;
+  if (lines.length === 1) return { code: parseInt(lines[0].trim(), 10), reason: '', resetAt: '' };
+  try {
+    const metadata = JSON.parse(lines[1]);
+    if (metadata && typeof metadata === 'object' && typeof metadata.requestId === 'string' && metadata.requestId && metadata.scope === 'direct-child') {
+      return { code: parseInt(lines[0].trim(), 10), reason: '', resetAt: '', cancelRequestId: metadata.requestId, cancelScope: metadata.scope };
+    }
+  } catch {}
+  return null;
 }
 
 export function mtime(file) {
@@ -64,7 +80,8 @@ export function workerState(basePath, now = Date.now(), { editCounter } = {}) {
   const exitExists = fs.existsSync(exitPath);
   const exitRecord = exitExists ? parseExitRecord(readText(exitPath)) : null;
   const code = exitRecord ? exitRecord.code : null;
-  // A malformed or half-written .exit is not terminal evidence.
+  // A malformed or half-written .exit is not terminal evidence: treat it exactly like no .exit at all —
+  // still running, or stalled once .out itself has gone quiet for a long time.
   if (code === null) {
     if (now - mtime(outPath) > STALE_MS) return { state: 'stalled', reason: exitExists ? 'malformed .exit, .out stale >20m' : 'no .exit, .out stale >20m' };
     return { state: 'running' };
@@ -72,16 +89,22 @@ export function workerState(basePath, now = Date.now(), { editCounter } = {}) {
   const outText = readText(outPath, 4000);
   if (code !== 0) {
     const bounce = bounceFromExit(lastLine(outText), exitRecord);
-    if (bounce) return bounce;
-    return { state: 'failed', reason: `exit ${code}` };
+    const cancel = exitRecord?.cancelRequestId ? { cancelRequestId: exitRecord.cancelRequestId, cancelScope: exitRecord.cancelScope } : {};
+    if (bounce) return { ...bounce, ...cancel };
+    return { state: 'failed', reason: `exit ${code}`, ...cancel };
   }
   const report = readText(`${basePath}.md`).trim();
-  if (report) return { state: 'delivered' };
+  // Exit 0 alone is not proof of a useful delivery, and a confirmed exit with nothing to show for it is
+  // not a silent worker either — it already ended, so it must not keep its slot/file reservations the way
+  // a genuinely stalled (still-running-or-unknown) worker does. But it must not be called failed while the
+  // report could still be mid-copy either: give it EXIT_REPORT_GRACE_MS from .exit's own mtime first.
+  const cancel = exitRecord?.cancelRequestId ? { cancelRequestId: exitRecord.cancelRequestId, cancelScope: exitRecord.cancelScope } : {};
+  if (report) return { state: 'delivered', ...cancel };
   const withinGrace = now - mtime(exitPath) < EXIT_REPORT_GRACE_MS;
-  if (fs.existsSync(`${basePath}.md`)) return withinGrace ? { state: 'running' } : { state: 'failed', reason: 'exit 0 but .md report is empty' };
-  if (editCounter === 'stream-json') return withinGrace ? { state: 'running' } : { state: 'failed', reason: 'exit 0 but output is a tool transcript, not a report' };
-  if (outText.trim()) return { state: 'delivered', reason: 'exit 0 (no .md)' };
-  return withinGrace ? { state: 'running' } : { state: 'failed', reason: 'exit 0 but no output and no report' };
+  if (fs.existsSync(`${basePath}.md`)) return withinGrace ? { state: 'running', ...cancel } : { state: 'failed', reason: 'exit 0 but .md report is empty', ...cancel };
+  if (editCounter === 'stream-json') return withinGrace ? { state: 'running', ...cancel } : { state: 'failed', reason: 'exit 0 but output is a tool transcript, not a report', ...cancel };
+  if (outText.trim()) return { state: 'delivered', reason: 'exit 0 (no .md)', ...cancel };
+  return withinGrace ? { state: 'running', ...cancel } : { state: 'failed', reason: 'exit 0 but no output and no report', ...cancel };
 }
 
 export function countEdits(text, counter) {

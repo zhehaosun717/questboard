@@ -64,7 +64,7 @@ export function planDispatch(config, quest, adventurer, name) {
   // A lane without optionalArgs gets its exact run array back from fillOptionalArgs unchanged, so this
   // stays byte-for-byte the same dispatch every existing lane already produces.
   const runTemplate = fillOptionalArgs(lane.run, lane.optionalArgs, values);
-  steps.push({ kind: 'run', command: fillTemplate(runTemplate, values, `${field}.run`), env });
+  steps.push({ kind: 'run', command: fillTemplate(runTemplate, values, `${field}.run`), env, ...(lane.control ? { control: lane.control } : {}) });
   return steps;
 }
 
@@ -83,7 +83,7 @@ export function preflight(config, plan) {
   }
 }
 
-function runScript(config, step, logFile) {
+function runScript(config, step, logFile, onChild = () => {}) {
   return new Promise((resolve) => {
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     // 'w', never 'a': Node opens 'a' as an append-only Windows handle, Git Bash cannot write to it, the
@@ -101,7 +101,11 @@ function runScript(config, step, logFile) {
       const { file, args } = resolveCommand(config, step.command);
       // stdio to a file, not a pipe: scripts background their worker with `( ... ) &`, and a pipe would stay
       // open until the worker ends. 'exit' fires when the script itself returns.
-      child = spawn(file, args, { cwd: config.root, env: { ...process.env, ...step.env }, stdio: ['ignore', fd, fd], windowsHide: true, detached: true });
+      child = spawn(file, args, {
+        cwd: config.root, env: { ...process.env, ...step.env },
+        stdio: ['ignore', fd, fd, step.control?.type === 'generic-wrapper' ? 'ipc' : 'ignore'],
+        windowsHide: true, detached: true,
+      });
     } catch (error) {
       // A synchronous throw here means the OS never created a process at all — the one case this module can
       // itself verify as never having started anything, worth a distinct, typed signal rather than folding
@@ -112,6 +116,7 @@ function runScript(config, step, logFile) {
     }
     // 'error' without a preceding 'exit' means spawn could not actually create the OS process (e.g. ENOENT) —
     // the same "verified nothing ran" fact as the synchronous throw above, just delivered asynchronously.
+    try { onChild(child, step); } catch (error) { finish({ code: 1, error: error.message, thrown: true }); return; }
     child.on('error', (error) => finish({ code: -1, error: error.message, neverStarted: true }));
     child.on('exit', (code) => { child.unref(); finish({ code }); });
   });
@@ -187,9 +192,9 @@ function tail(file, bytes = 1500) {
 // (the caller could not durably persist the phase — a stale attempt, a disk error), the step it would have
 // gated never runs: the plan stops there, `blocked: true`, at whatever phase was last durably persisted, so
 // the caller never spawns an effect it could not first write down.
-export async function executePlan(config, plan, { name, runners = {}, recheck, onPhase = () => {} } = {}) {
+export async function executePlan(config, plan, { name, runners = {}, recheck, onPhase = () => {}, onChild = () => {} } = {}) {
   const logFile = path.join(config.paths.data, 'dispatch', `${name}.log`);
-  const run = runners.run || ((step) => runScript(config, step, logFile));
+  const run = runners.run || ((step) => runScript(config, step, logFile, onChild));
   const session = runners.session || ((step) => runSession(config, step));
   let phase = 'queued';
   let sessionBinding = null;

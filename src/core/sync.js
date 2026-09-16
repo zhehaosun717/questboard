@@ -1,5 +1,6 @@
 // Derives quest status changes from the lane collector. Pure: returns the transitions; the server applies
 // them through the store so every change reaches the events file once.
+import { attemptEvidence } from './cancellation.js';
 
 const LANE_TO_QUEST = { delivered: 'delivered', failed: 'failed', bounced: 'bounced', superseded: 'bounced', stalled: 'stalled' };
 const CLOCK_SKEW_MS = 60 * 1000;
@@ -79,6 +80,25 @@ export function deriveTransitions(quests, laneRows, now = Date.now()) {
     }
     if (silent && row.state === 'running') {
       transitions.push({ id: quest.id, status: 'dispatched', detail: `worker ${quest.assignee.name} 又有动静了` });
+      continue;
+    }
+    if (row.cancelRequestId && row.cancelScope === 'direct-child' && quest.cancelRequest?.requestId === row.cancelRequestId) {
+      // Once this exact scoped exit has been recorded, a later collector poll is only a replay. Leave the
+      // store untouched; this also keeps applyLanes from needing to rewrite the same acknowledgement.
+      if (quest.cancelRequest.result === 'stopped_by_wrapper'
+        && quest.cancelRequest.evidence?.exitRequestId === row.cancelRequestId
+        && quest.cancelRequest.evidence?.scope === row.cancelScope) continue;
+      transitions.push({
+        // This exit record is scoped wrapper evidence, not ordinary terminal evidence. The store records it
+        // while keeping the attempt dispatched/stalled; treating it as failed/delivered here would release
+        // file reservations while a descendant of the wrapper can still be editing.
+        id: quest.id, status: quest.status, detail: 'generic wrapper acknowledged the direct-child stop',
+        cancellationResult: 'stopped_by_wrapper',
+        evidence: {
+          kind: 'collector', attempt: attemptEvidence(quest.assignee),
+          ack: true, exitRequestId: row.cancelRequestId, scope: 'direct-child',
+        },
+      });
       continue;
     }
     const status = LANE_TO_QUEST[row.state];

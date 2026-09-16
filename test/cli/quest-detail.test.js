@@ -128,6 +128,25 @@ describe('questboard release', () => {
   });
 });
 
+describe('questboard cancel and resolve', () => {
+  before(async () => {
+    fx.project.write('docs/briefs/CLI-CANCEL-1.md', 'CLI-CANCEL-1');
+    assert.equal((await fx.api('/api/quests', 'POST', { package: 'CLI-CANCEL-1', brief: 'docs/briefs/CLI-CANCEL-1.md' })).status, 201);
+    assert.equal((await fx.api('/api/quests/CLI-CANCEL-1/assign', 'POST', { adventurer: 'codex-luna' })).status, 200);
+  });
+
+  it('uses the CLI source and keeps the slot until explicit resolve acknowledgement', async () => {
+    const requested = await atBoard(['cancel', 'CLI-CANCEL-1', '--reason', 'owner stopped this attempt']);
+    assert.equal(requested.status, 0, requested.stderr);
+    assert.match(requested.stdout, /cancellation=manual_required/);
+    const resolved = await atBoard(['resolve', 'CLI-CANCEL-1', '--reason', 'CLI confirmed the worker is gone', '--ack']);
+    assert.equal(resolved.status, 0, resolved.stderr);
+    const quest = (await fx.api('/api/quests/CLI-CANCEL-1')).body.quest;
+    assert.equal(quest.assignee, null);
+    assert.equal(quest.manualResolution.actorSource, 'cli');
+  });
+});
+
 describe('board author default', () => {
   it('fills a missing author with coordinator at the CLI boundary only', async () => {
     assert.equal((await atBoard(['board', 'post', '--title', 'QD-1 which lane', '--body', '该用哪张卡'])).status, 0);
@@ -158,7 +177,7 @@ describe('questboard get — report evidence', () => {
     fs.mkdirSync(path.join(fx.project.root, '.work', 'oc'), { recursive: true });
     fx.project.write(`.work/oc/${name}.md`, text);
     const report = captureAttemptReport({ config: fx.project.config, quest: store.get('RPT-1') });
-    store.setStatus('RPT-1', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', report });
+    store.setStatus('RPT-1', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attemptId: store.get('RPT-1').assignee.attemptId }, report });
   });
 
   it('prints the report reference, verdict and first paragraph', async () => {
@@ -198,7 +217,7 @@ describe('questboard get — report evidence', () => {
     fx.project.write(`.work/oc/${name}.md`, `VERDICT: PASS\n${'y'.repeat(REPORT_READ_CAP)}\nVERDICT: FAIL\n`);
     const report = captureAttemptReport({ config: fx.project.config, quest: store.get('RPT-3') });
     assert.equal(report.truncated, true, 'the fixture file must sit over the read cap');
-    store.setStatus('RPT-3', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', report });
+    store.setStatus('RPT-3', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attemptId: store.get('RPT-3').assignee.attemptId }, report });
 
     const got = await atBoard(['get', 'RPT-3', '--report']);
     assert.equal(got.status, 0, got.stderr);

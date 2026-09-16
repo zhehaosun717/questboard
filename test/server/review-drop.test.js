@@ -15,7 +15,7 @@ describe('dropping a card on returned work', () => {
     assert.equal((await fx.api('/api/quests', 'POST', { package: 'RUN-4', brief: 'docs/briefs/RUN-4-the-way-back.md' })).status, 201);
     assert.equal((await fx.api('/api/quests/RUN-4/assign', 'POST', { adventurer: 'codex-luna' })).status, 200);
     await tick(50);
-    assert.equal((await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'delivered', detail: 'done' })).status, 200);
+    assert.equal((await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'delivered', detail: 'done', ack: true })).status, 200);
 
     const before = (await fx.api('/api/quests')).body;
     assert.ok(before.reviewEligibility['RUN-4']['codex-luna'].reasons.some((r) => r.code === 'reviewer_coded_parent'));
@@ -43,7 +43,7 @@ describe('dropping a card on returned work', () => {
 
   it('keeps the delivered event already recorded when the same result is reported again (S2)', async () => {
     const before = fx.events().filter((event) => event.event === 'delivered').length;
-    const res = await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'delivered', detail: 'done' });
+    const res = await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'delivered', detail: 'done', ack: true });
 
     assert.equal(res.status, 200);
     assert.equal(res.body.quest.status, 'delivered');

@@ -23,10 +23,10 @@ export function serverUrl(args, config, env = process.env) {
   return option(args, '--url') || env.QUESTBOARD_URL || `http://127.0.0.1:${config.port}`;
 }
 
-export async function request(base, route, method = 'GET', body) {
+export async function request(base, route, method = 'GET', body, { source } = {}) {
   let response;
   try {
-    response = await fetch(base + route, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    response = await fetch(base + route, { method, headers: { 'content-type': 'application/json', ...(source ? { 'x-questboard-source': source } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
     throw new Error(`questboard server is not running at ${base}. Start it with: questboard serve`);
   }

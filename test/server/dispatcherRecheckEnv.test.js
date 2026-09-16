@@ -77,7 +77,7 @@ describe('dispatcher.assign queued-start recheck: environment changes', () => {
     store.post({ package: 'MOD-7', brief: 'docs/briefs/MOD-7-x.md', by: 'owner' });
     const dispatcher = createDispatcher({ config: realConfig, store, runners: okRunners });
     dispatcher.assign('MOD-7', card('oc-mimo'), 'owner');
-    store.setStatus('MOD-7', 'cancelled', { by: 'owner', detail: 'owner说不要了' });
+    store.setStatus('MOD-7', 'cancelled', { by: 'owner', detail: 'owner说不要了', source: 'ui', ack: true });
     await wait();
     const quest = store.get('MOD-7');
     assert.equal(quest.status, 'cancelled', 'the cancellation must not be overwritten by the blocked queued job');
@@ -250,7 +250,7 @@ describe('dispatcher.assign queued-start recheck: environment changes', () => {
       runners: {
         // The session step itself is where, in practice, the async gap before the run step opens up —
         // simulate the world changing (a cancel) right in that gap.
-        session: async () => { store.setStatus('MOD-9', 'cancelled', { by: 'owner', detail: '临时取消' }); return { code: 0 }; },
+        session: async () => { store.setStatus('MOD-9', 'cancelled', { by: 'owner', detail: '临时取消', source: 'ui', ack: true }); return { code: 0 }; },
         run: async (step) => { runCalls.push(step); return { code: 0 }; },
       },
     });

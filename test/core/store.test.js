@@ -11,6 +11,11 @@ import { makeProject, card } from '../helpers.js';
 let project;
 let store;
 const events = () => readJsonLines(project.config.paths.events);
+const collectorStatus = (id, status, options = {}) => store.setStatus(id, status, {
+  ...options,
+  source: 'collector',
+  evidence: { kind: 'collector', attemptId: store.get(id)?.assignee?.attemptId },
+});
 
 beforeEach(() => {
   project = makeProject();
@@ -79,11 +84,11 @@ describe('QuestStore', () => {
     const running = store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4', requestKey: 'k1' });
     assert.equal(running.revision, 2);
     assert.equal(running.assignee.requestKey, 'k1');
-    assert.equal(store.setStatus('RUN-4', 'delivered').revision, 3);
+    assert.equal(collectorStatus('RUN-4', 'delivered').revision, 3);
     assert.deepEqual(events().map((e) => e.seq), [1, 2, 3]);
     const reopened = new QuestStore(project.config);
     assert.equal(reopened.get('RUN-4').revision, 3);
-    reopened.setStatus('RUN-4', 'done');
+    reopened.setStatus('RUN-4', 'done', { source: 'collector', evidence: { kind: 'collector', attemptId: reopened.get('RUN-4').assignee?.attemptId } });
     assert.equal(events().at(-1).seq, 4);
   });
 
@@ -102,7 +107,7 @@ describe('QuestStore', () => {
     store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
     assert.throws(() => store.release('RUN-4', {}), /running/);
     assert.equal(store.setStatus('RUN-4', 'stalled', { detail: 'no output' }).assignee.name, 'run4');
-    const freed = store.release('RUN-4', { by: 'owner', detail: 'process gone' });
+    const freed = store.release('RUN-4', { by: 'owner', detail: 'process gone', source: 'ui', ack: true });
     assert.deepEqual([freed.assignee, freed.status], [null, 'stalled']);
     assert.deepEqual([events().at(-1).event, events().at(-1).name, events().at(-1).detail], ['released', 'run4', 'process gone']);
     assert.throws(() => store.release('RUN-4', {}), /no worker/);
@@ -112,7 +117,7 @@ describe('QuestStore', () => {
   it('keeps the assignee in the event when a status clears it, and replays after restart', () => {
     store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
     store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
-    assert.equal(store.setStatus('RUN-4', 'failed', { detail: 'exit 3' }).assignee, null);
+    assert.equal(collectorStatus('RUN-4', 'failed', { detail: 'exit 3' }).assignee, null);
     assert.equal(events().at(-1).model, 'gpt-5.6-luna');
     assert.throws(() => store.setStatus('RUN-4', 'exploded'));
     assert.equal(new QuestStore(project.config).get('RUN-4').status, 'failed');
@@ -159,27 +164,27 @@ describe('QuestStore', () => {
   it('does not re-emit a repeated terminal transition, but keeps a differing repeat as a note, and a new attempt delivers independently', () => {
     store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
     store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
-    const first = store.setStatus('RUN-4', 'delivered', { detail: 'report A' });
+    const first = collectorStatus('RUN-4', 'delivered', { detail: 'report A' });
     const countAfterFirst = events().length;
-    const exactRepeat = store.setStatus('RUN-4', 'delivered', { detail: 'report A' });
+    const exactRepeat = collectorStatus('RUN-4', 'delivered', { detail: 'report A' });
     assert.equal(events().length, countAfterFirst, 'an identical repeat is a full no-op, not a second event');
     assert.equal(exactRepeat.revision, first.revision);
 
-    const noted = store.setStatus('RUN-4', 'delivered', { detail: 'a later duplicate poll saw slightly different text' });
+    const noted = collectorStatus('RUN-4', 'delivered', { detail: 'a later duplicate poll saw slightly different text' });
     assert.equal(events().at(-1).event, 'status_note', 'new information from a repeat is kept, but not as a second delivered');
     assert.equal(noted.lastDetail, 'report A', 'the first terminal evidence is preserved untouched');
     assert.equal(events().filter((e) => e.event === 'delivered').length, 1, 'still only one delivered event so far');
 
     // A genuinely new attempt (a fresh assign) delivers its own, independent event once it completes.
     store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4_2' });
-    store.setStatus('RUN-4', 'delivered', { detail: 'report B' });
+    collectorStatus('RUN-4', 'delivered', { detail: 'report B' });
     assert.equal(events().filter((e) => e.event === 'delivered').length, 2, 'the second attempt emits its own delivered, independently');
   });
 
   it('applies the same dedup to a repeated failed/bounced, each independently of the others', () => {
     store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
     store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
-    store.setStatus('RUN-4', 'failed', { detail: 'exit 3' });
+    collectorStatus('RUN-4', 'failed', { detail: 'exit 3' });
     const before = events().length;
     store.setStatus('RUN-4', 'failed', { detail: 'exit 3' });
     assert.equal(events().length, before, 'an identical repeated failed is a no-op');
@@ -235,7 +240,7 @@ describe('QuestStore', () => {
     const backup = fs.readFileSync(questsPath);
     fs.rmSync(questsPath);
     fs.mkdirSync(questsPath); // appendJsonLine now throws EISDIR on the write-ahead
-    assert.throws(() => store.setStatus('RUN-9', 'failed', { detail: 'boom' }), /EISDIR/);
+    assert.throws(() => collectorStatus('RUN-9', 'failed', { detail: 'boom' }), /EISDIR/);
     assert.deepEqual(store.get('RUN-9'), before, 'in-memory state must not have moved ahead of what was actually persisted');
     fs.rmdirSync(questsPath);
     fs.writeFileSync(questsPath, backup);
@@ -347,7 +352,7 @@ describe('QuestStore', () => {
     it('rejects a privileged or unknown field with a per-field error, and leaves the quest exactly as it was', () => {
       store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
       store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
-      store.setStatus('RUN-4', 'delivered', { detail: 'd' });
+      collectorStatus('RUN-4', 'delivered', { detail: 'd' });
       const before = store.get('RUN-4');
       const beforeEvents = events().length;
       const r = store.updateMetadata('RUN-4', {
@@ -372,7 +377,7 @@ describe('QuestStore', () => {
       store.post({ package: 'RUN-6', brief: 'docs/briefs/RUN-6-x.md' });
       const luna = card('codex-luna');
       store.assign('RUN-4', { adventurer: luna, name: 'w' });
-      store.setStatus('RUN-4', 'delivered', { detail: 'd' });
+      collectorStatus('RUN-4', 'delivered', { detail: 'd' });
       store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', kind: 'review', parents: ['RUN-4'] });
       return luna;
     }

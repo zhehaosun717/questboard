@@ -275,7 +275,7 @@ describe('R1 (C1): a successful preserve retry must persist the known session id
     // never freed) — force it open the way an operator ruling would, then dispatch a fresh, independent
     // attempt that succeeds cleanly. 'failed' is an OPEN_STATUSES member, so it is dispatchable again exactly
     // like a fresh 'posted' quest — no re-post needed to reopen it.
-    store.setStatus('RTHREE-1', 'failed', { detail: 'operator override for this test', by: 'owner' });
+    store.setStatus('RTHREE-1', 'failed', { detail: 'operator override for this test', by: 'owner', source: 'ui', ack: true });
     const second = dispatcher.assign('RTHREE-1', card('oc-deepseek'), 'owner');
     const newAttemptId = second.body.quest.assignee.attemptId;
     assert.notEqual(newAttemptId, oldAttemptId);

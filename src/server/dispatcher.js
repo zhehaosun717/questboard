@@ -1,5 +1,6 @@
 // Turns owner picks into running workers and lane results into quest statuses.
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { canDispatch, OPEN_STATUSES } from '../core/rules.js';
 import { workerName, planDispatch, executePlan, preflight, workerEvidence, recordedNames } from '../core/dispatch.js';
 import { deriveTransitions } from '../core/sync.js';
@@ -7,8 +8,10 @@ import { withFileSets } from '../core/briefs.js';
 import { lockPresent, briefExists, briefUnusable } from '../core/snapshot.js';
 import { writeApiDelivery, TRANSIENT_DELIVERY_CODES } from '../core/deliveries.js';
 import { sameAttempt } from '../core/store.js';
+import { attemptEvidence } from '../core/cancellation.js';
 import { captureAttemptReport } from '../core/reportEvidence.js';
 import { createNonDurableBindings, sanitizeUnpersistedSession } from '../core/nonDurableBindings.js';
+import { createGenericWrapperAdapter } from './workerControlAdapters.js';
 
 const EVIDENCE_WAIT_MS = 10000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,6 +32,9 @@ function attemptKey({ attemptId, name, lane, at }) {
 export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer }) {
   const queues = new Map();
   const pendingDeliveries = new Set();
+  const controlHandles = new Map();
+  const dispatcherInstanceId = randomUUID();
+  const genericWrapper = createGenericWrapperAdapter({ config });
   // One instance per project/dispatcher, never a module-level singleton (requirement 5/R3): two projects'
   // dispatchers sharing a process (the desktop app, a shared MCP server) must never see or clear each
   // other's noted sessions just because both happen to run here.
@@ -114,9 +120,9 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     try { return captureAttemptReport({ config, quest }); } catch (error) { reportPersistenceFailure('captureAttemptReport', quest.id, error); return null; }
   }
 
-  function failIfStillOurs(questId, attempt, detail) {
+  function failIfStillOurs(questId, attempt, detail, evidence = { kind: 'never_started', attempt: attemptEvidence(attempt) }) {
     if (!stillOurs(questId, attempt)) return;
-    safeguard('failIfStillOurs', detail, () => store.setStatus(questId, 'failed', { detail, by: 'board' }));
+    safeguard('failIfStillOurs', detail, () => store.setStatus(questId, 'failed', { detail, by: 'board', source: 'dispatcher', evidence }));
   }
 
   // The enqueue chain's own generic top-level `.catch` (below, in assign()) is the last boundary before an
@@ -298,6 +304,8 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // as before this fix. A real resolver returning nothing means the roster no longer has this card — refuse
   // to start rather than silently reuse the stale captured card for a removed adventurer.
   function recheckOpen(questId, attempt, adventurer, planned) {
+    const current = store.get(questId);
+    if (current?.cancelRequest?.attemptId === attempt.attemptId) return { ok: false, detail: '该派遣已有取消请求，取消确认前不会启动新的效果' };
     if (!stillOurs(questId, attempt)) return { ok: false, detail: '排队等待期间任务被改派、释放或取消，这次派遣不会执行' };
     // withFileSets, same as the initial check: runningConflict (behind conflict_running) reads quest.files
     // and quest.conflictKeys. This attempt already holds its own slot (store.assign ran before it was
@@ -356,6 +364,8 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     }
     const running = store.assign(quest.id, { adventurer, name, by, requestKey });
     const attempt = { attemptId: running.assignee.attemptId, name, lane: running.assignee.lane, at: running.assignee.at };
+    const controlToken = config.lanes[adventurer.lane]?.control?.type === 'generic-wrapper' ? randomUUID() : null;
+    if (controlToken) controlHandles.set(attempt.attemptId, { token: controlToken, child: null, lane: attempt.lane, name: attempt.name });
     // Snapshot of exactly what the plan above was built from, immutable for the life of this attempt — every
     // recheck compares the fresh card against this, never against whatever the plan happened to capture on a
     // prior recheck, so a change is always judged against the one thing that is actually about to run.
@@ -381,11 +391,32 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         throw error;
       }
     };
-    enqueue(adventurer.lane, () => executePlan(config, plan, { name, runners, recheck, onPhase }))
+    const onChild = (child, step) => {
+      if (!controlToken || step.control?.type !== 'generic-wrapper') return;
+      const handle = controlHandles.get(attempt.attemptId);
+      if (handle) {
+        controlHandles.set(attempt.attemptId, { ...handle, child });
+        child.once?.('exit', () => { if (controlHandles.get(attempt.attemptId)?.child === child) controlHandles.delete(attempt.attemptId); });
+      }
+    };
+    if (controlToken) {
+      plan = plan.map((step) => step.kind === 'run'
+        ? { ...step, env: { ...step.env, QUESTBOARD_ATTEMPT_ID: attempt.attemptId, QUESTBOARD_CONTROL_TOKEN: controlToken } }
+        : step);
+    }
+    enqueue(adventurer.lane, () => executePlan(config, plan, { name, runners, recheck, onPhase, onChild }))
       .then((result) => {
         if (result.blocked) {
-          if (result.phase !== 'queued') preserveAmbiguous(quest.id, attempt, result);
-          else failIfStillOurs(quest.id, attempt, result.detail);
+          if (result.phase !== 'queued') {
+            const current = store.get(quest.id);
+            if (current?.cancelRequest?.attemptId === attempt.attemptId) {
+              safeguard('cancel queued ambiguity', result.detail, () => store.recordCancellationResult(quest.id, { requestId: current.cancelRequest.requestId, result: 'unknown', detail: result.detail, evidence: { kind: 'dispatcher', attempt: attemptEvidence(attempt), phase: result.phase } }));
+            }
+            preserveAmbiguous(quest.id, attempt, result);
+          } else if (store.get(quest.id)?.cancelRequest?.attemptId === attempt.attemptId) {
+            const request = store.get(quest.id).cancelRequest;
+            safeguard('cancel never_started', result.detail, () => store.recordCancellationResult(quest.id, { requestId: request.requestId, result: 'never_started', detail: result.detail, evidence: { kind: 'dispatcher', attempt: attemptEvidence(attempt), phase: 'queued', noEffect: true } }));
+          } else failIfStillOurs(quest.id, attempt, result.detail);
           return undefined;
         }
         if (result.ok) return announceStarted(quest.id, attempt);
@@ -432,13 +463,40 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   }
 
   // Frees a stalled quest after someone confirmed its worker is gone; refuses everything else.
-  function release(questId, by, detail) {
+  function release(questId, by, detail, { source = by, ack = false } = {}) {
     if (!store.get(questId)) return { status: 404, body: { error: 'quest not found' } };
     try {
-      return { status: 200, body: { quest: store.release(questId, { by, detail }) } };
+      return { status: 200, body: { quest: store.release(questId, { by: source, detail, source, ack }) } };
     } catch (error) {
       return { status: 409, body: { error: error.message } };
     }
+  }
+
+  async function cancel(questId, source, reason) {
+    const current = store.get(questId);
+    if (!current) return { status: 404, body: { error: 'quest not found' } };
+    let requested;
+    try { requested = store.requestCancellation(questId, { source, reason, instanceId: dispatcherInstanceId, deadlineAt: new Date(Date.now() + 5000).toISOString() }); }
+    catch (error) { return { status: 409, body: { error: 'refused', reasons: [{ code: error.code || 'cancel_refused', message: error.message }] } }; }
+    const request = requested.cancelRequest;
+    if (request.result !== 'pending') return { status: 200, body: { quest: requested, result: request.result, request } };
+    // A queued attempt is settled by executePlan's next write-ahead recheck. No adapter is needed and no
+    // control message is sent before the queue has proved that no effect happened.
+    if (requested.assignee?.phase === 'queued') return { status: 202, body: { quest: requested, result: 'pending', request } };
+    const lane = config.lanes[requested.assignee?.lane];
+    if (lane?.control?.type !== 'generic-wrapper') {
+      const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: '该 lane 没有可验证的 generic wrapper 控制，需要人工确认' });
+      return { status: 200, body: { quest: next, result: 'manual_required', request: next.cancelRequest } };
+    }
+    const result = await genericWrapper({ attempt: requested.assignee, request, handle: controlHandles.get(request.attemptId) });
+    const next = store.recordCancellationResult(questId, { requestId: request.requestId, ...result });
+    return { status: 202, body: { quest: next, result: result.result, request: next.cancelRequest } };
+  }
+
+  function resolve(questId, source, reason, ack) {
+    if (!store.get(questId)) return { status: 404, body: { error: 'quest not found' } };
+    try { return { status: 200, body: { quest: store.resolveManually(questId, { source, reason, ack }) } }; }
+    catch (error) { return { status: 409, body: { error: 'refused', reasons: [{ code: error.code || 'manual_ack_required', message: error.message }] } }; }
   }
 
   // A write failure (including an empty/no-report session) is never "delivered" — that would hide the
@@ -475,7 +533,10 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         // Capture before the status write so the reference lands in the same durable record as the
         // 'delivered' fact; a captured failure simply carries no reference.
         const report = captureReportFor(current);
-        safeguard('deliverFromApi setStatus delivered', detail, () => store.setStatus(quest.id, 'delivered', { detail, by: 'lanes', ...(report ? { report } : {}) }));
+        safeguard('deliverFromApi setStatus delivered', detail, () => store.setStatus(quest.id, 'delivered', {
+          detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
+          ...(report ? { report } : {}),
+        }));
       })
       .catch((error) => {
         const current = stillOurs(quest.id, attempt);
@@ -497,7 +558,10 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         // A failed delivery still binds whatever the attempt actually left on disk (a partial report or an
         // exit-file summary), so the failure is readable next to real evidence instead of only a message.
         const report = captureReportFor(current);
-        safeguard('deliverFromApi setStatus failed', error.message, () => store.setStatus(quest.id, 'failed', { detail: `交付文件没写成：${error.message}`, by: 'lanes', ...(report ? { report } : {}) }));
+        safeguard('deliverFromApi setStatus failed', error.message, () => store.setStatus(quest.id, 'failed', {
+          detail: `交付文件没写成：${error.message}`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
+          ...(report ? { report } : {}),
+        }));
       })
       .finally(() => pendingDeliveries.delete(key));
   }
@@ -508,13 +572,27 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // attempt, which is exactly what it is for.
   function applyLanes(lanes) {
     for (const transition of deriveTransitions(store.list(), lanes.packages)) {
-      const quest = store.get(transition.id);
-      if (quest.assignee && pendingDeliveries.has(attemptKey(quest.assignee))) continue;
-      const lane = quest.assignee && config.lanes[quest.assignee.lane];
-      if (transition.status === 'delivered' && lane && lane.api && lane.deliveryDir) { deliverFromApi(quest, transition); continue; }
-      // Only an ending binds a report reference; stalled/dispatched pass through untouched.
-      const report = quest.assignee && TERMINAL_STATUSES.has(transition.status) ? captureReportFor(quest) : null;
-      store.setStatus(transition.id, transition.status, { detail: transition.detail, by: 'lanes', ...(report ? { report } : {}) });
+      try {
+        const quest = store.get(transition.id);
+        if (!quest) continue;
+        if (quest.assignee && pendingDeliveries.has(attemptKey(quest.assignee))) continue;
+        const lane = quest.assignee && config.lanes[quest.assignee.lane];
+        if (transition.status === 'delivered' && lane && lane.api && lane.deliveryDir) { deliverFromApi(quest, transition); continue; }
+        // Only an ending binds a report reference; stalled/dispatched pass through untouched.
+        const current = store.get(transition.id);
+        if (transition.cancellationResult && current?.cancelRequest) {
+          store.recordCancellationResult(transition.id, { requestId: current.cancelRequest.requestId, result: transition.cancellationResult, detail: transition.detail, evidence: transition.evidence });
+        } else {
+          const report = current?.assignee && TERMINAL_STATUSES.has(transition.status) ? captureReportFor(current) : null;
+          store.setStatus(transition.id, transition.status, {
+            detail: transition.detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(current?.assignee) },
+            ...(report ? { report } : {}),
+          });
+        }
+      } catch (error) {
+        // A refusal or persistence fault for one quest must not abort the rest of this collector snapshot.
+        try { process.stderr.write(`questboard: lane transition skipped for ${transition.id}: ${error.message}\n`); } catch {}
+      }
     }
   }
 
@@ -525,5 +603,11 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     return sanitizeUnpersistedSession(nonDurable.getUnpersistedSession(questId, attemptId));
   }
 
-  return { assign, adopt, release, applyLanes, getUnpersistedSession };
+  // Test/diagnostic hook for the process handle this dispatcher itself spawned. It never discovers or
+  // reaches unrelated PIDs; callers only receive the current attempt's own in-memory wrapper handle.
+  function getControlHandle(attemptId) {
+    return controlHandles.get(attemptId) || null;
+  }
+
+  return { assign, adopt, release, cancel, resolve, applyLanes, getUnpersistedSession, getControlHandle };
 }

@@ -276,14 +276,15 @@ function closeOut() {
 // target on Windows), fall back to one full overwrite rather than leave no terminal evidence at all.
 function publishExit(code) {
   const tmpPath = `${exitPath}.${process.pid}.tmp`;
+  const content = `${code}\n${cancelRequestId && cancelAcknowledged ? JSON.stringify({ requestId: cancelRequestId, scope: 'direct-child' }) + '\n' : ''}`;
   try {
-    fs.writeFileSync(tmpPath, `${code}\n`, 'utf8');
+    fs.writeFileSync(tmpPath, content, 'utf8');
     try {
       fs.renameSync(tmpPath, exitPath);
       return;
     } catch (err) {
       try { fs.unlinkSync(tmpPath); } catch {}
-      fs.writeFileSync(exitPath, `${code}\n`, 'utf8');
+      fs.writeFileSync(exitPath, content, 'utf8');
     }
   } catch (err) {
     try { fs.unlinkSync(tmpPath); } catch {}
@@ -413,6 +414,24 @@ function stageReport() {
 }
 
 let child;
+const controlAttemptId = process.env.QUESTBOARD_ATTEMPT_ID || '';
+const controlToken = process.env.QUESTBOARD_CONTROL_TOKEN || '';
+let cancelRequestId = null;
+let cancelAcknowledged = false;
+
+// The board's cooperative stop boundary is intentionally narrow: verify the per-attempt IPC payload,
+// acknowledge that exact request, and kill only the direct child handle this wrapper created.
+function receiveControl(message) {
+  if (settled || !message || typeof message !== 'object' || message.type !== 'questboard-cancel') return;
+  const requestId = typeof message.requestId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(message.requestId) ? message.requestId : null;
+  if (!requestId || message.attemptId !== controlAttemptId || message.token !== controlToken || cancelRequestId) return;
+  cancelRequestId = requestId;
+  cancelAcknowledged = true;
+  try { if (typeof process.send === 'function') process.send({ type: 'questboard-cancel-ack', attemptId: controlAttemptId, requestId, scope: 'direct-child' }); } catch {}
+  try { child.kill(); } catch {}
+}
+
+if (controlAttemptId && controlToken) process.on('message', receiveControl);
 try {
   const fileArgs = viaShell
     // /v:off disables delayed expansion unconditionally, so an argument containing "!" always passes through
@@ -421,6 +440,14 @@ try {
     : cmdArgs;
   child = spawn(file, fileArgs, {
     cwd: process.cwd(),
+    // The wrapper needs these values for its own IPC boundary, but the agent does not. Keeping them out
+    // of the child environment reduces accidental disclosure without changing the wrapper protocol.
+    env: (() => {
+      const childEnv = { ...process.env };
+      delete childEnv.QUESTBOARD_ATTEMPT_ID;
+      delete childEnv.QUESTBOARD_CONTROL_TOKEN;
+      return childEnv;
+    })(),
     stdio: ['pipe', outFd, outFd],
     windowsVerbatimArguments: viaShell,
     windowsHide: true,

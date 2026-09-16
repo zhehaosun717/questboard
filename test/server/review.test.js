@@ -20,7 +20,7 @@ describe('model review of returned work', () => {
   it('writes the brief, posts a review quest, moves the work to reviewing and keeps its summary', async () => {
     assert.equal((await fx.api('/api/quests/RUN-4/assign', 'POST', { adventurer: 'codex-luna' })).status, 200);
     await tick(50);
-    assert.equal((await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'delivered', detail: 'the worker summary' })).status, 200);
+    assert.equal((await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'delivered', detail: 'the worker summary', ack: true })).status, 200);
 
     const requested = await fx.api('/api/quests/RUN-4/review', 'POST', { note: '重点看边界' });
     assert.equal(requested.status, 201, requested.text);

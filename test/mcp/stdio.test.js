@@ -97,7 +97,7 @@ describe('questboard mcp over stdio', () => {
     await call('questboard_post_quest', { package: 'RA-4', brief: 'docs/briefs/RA-4-x.md' });
     await call('questboard_post_quest', { package: 'RA-6', brief: 'docs/briefs/RA-6-x.md' });
     await fx.api('/api/quests/RA-4/assign', 'POST', { adventurer: 'codex-luna' });
-    await fx.api('/api/quests/RA-4/status', 'POST', { status: 'delivered', detail: 'd' });
+    await fx.api('/api/quests/RA-4/status', 'POST', { status: 'delivered', detail: 'd', ack: true }, { 'x-questboard-source': 'mcp' });
     await call('questboard_post_quest', { package: 'RA-5', kind: 'review', brief: 'docs/briefs/RA-5-x.md', parents: ['RA-4'] });
 
     const cleared = await call('questboard_update_metadata', { id: 'RA-5', parents: [] });
@@ -126,7 +126,7 @@ describe('questboard mcp over stdio', () => {
     await call('questboard_post_quest', { package: 'RB-5', brief: 'docs/briefs/RB-5-x.md' });
     await fx.api('/api/quests/RB-2/assign', 'POST', { adventurer: 'codex-luna' });
     await tick();
-    await fx.api('/api/quests/RB-2/status', 'POST', { status: 'delivered', detail: 'd' });
+    await fx.api('/api/quests/RB-2/status', 'POST', { status: 'delivered', detail: 'd', ack: true }, { 'x-questboard-source': 'mcp' });
     await call('questboard_post_quest', { package: 'RB-3', kind: 'review', brief: 'docs/briefs/RB-3-x.md', parents: ['RB-2'] });
 
     // RB-2 was posted with no parents of its own, so giving it one (not clearing, which would be a no-op) is
@@ -151,5 +151,18 @@ describe('questboard mcp over stdio', () => {
     const inbox = (await call('questboard_board_inbox')).value;
     assert.deepEqual(inbox.messages.map((m) => m.body), ['B']);
     assert.ok(inbox.nextCursor);
+  });
+
+  it('uses the MCP source and requires explicit acknowledgement to resolve a held cancellation', async () => {
+    fx.project.write('docs/briefs/MCP-CANCEL-1.md', 'MCP-CANCEL-1');
+    assert.equal((await call('questboard_post_quest', { package: 'MCP-CANCEL-1', brief: 'docs/briefs/MCP-CANCEL-1.md' })).value.status, 'posted');
+    assert.equal((await call('questboard_adopt', { id: 'MCP-CANCEL-1', adventurer: 'codex-luna', name: 'mcp_cancel_1' })).value.status, 'dispatched');
+    const requested = await call('questboard_cancel_worker', { id: 'MCP-CANCEL-1', reason: 'MCP owner requested a stop' });
+    assert.equal(requested.value.result, 'manual_required');
+    const missingAck = await call('questboard_resolve_worker', { id: 'MCP-CANCEL-1', reason: 'not yet confirmed', ack: false });
+    assert.equal(missingAck.error, true);
+    const resolved = await call('questboard_resolve_worker', { id: 'MCP-CANCEL-1', reason: 'MCP confirmed the worker is gone', ack: true });
+    assert.equal(resolved.value.status, 'cancelled');
+    assert.equal(resolved.value.manualResolution.actorSource, 'mcp');
   });
 });

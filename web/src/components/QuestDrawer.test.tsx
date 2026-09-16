@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { makeQuest, makeSnapshot } from '../lib/testFixtures';
-import { QuestDrawer } from './QuestDrawer';
+import { makeAssignee, makeQuest, makeSnapshot } from '../lib/testFixtures';
+import { cancelActionFor, cancelReasonPromptFor, QuestDrawer } from './QuestDrawer';
 
 const noop = () => undefined;
 
@@ -23,6 +23,19 @@ function render(quest: ReturnType<typeof makeQuest>, snap: ReturnType<typeof mak
 }
 
 describe('QuestDrawer 修改委托 hook-in', () => {
+  it('routes only dispatched attempts through the new cancellation request', () => {
+    expect(cancelActionFor('dispatched')).toBe('request');
+    expect(cancelActionFor('stalled')).toBe('held-status');
+    expect(cancelReasonPromptFor('request')).toBe('请写明取消原因');
+    expect(cancelReasonPromptFor('request')).not.toContain('停止');
+    expect(cancelReasonPromptFor('request')).not.toContain('释放');
+    expect(cancelReasonPromptFor('held-status')).toContain('如何确认这个冒险者已经停止');
+    expect(cancelReasonPromptFor('status')).toBeNull();
+    for (const status of ['posted', 'needs_owner', 'delivered', 'reviewing'] as const) {
+      expect(cancelActionFor(status)).toBe('status');
+    }
+  });
+
   it('shows a collapsed 修改委托 section, below 下一步/evidence and above 交回的东西 (RECEIPT)', () => {
     const quest = makeQuest({ id: 'A-1', status: 'delivered', lastDetail: 'owner 验收' });
     const snap = makeSnapshot({ quests: [quest] });
@@ -42,5 +55,20 @@ describe('QuestDrawer 修改委托 hook-in', () => {
     expect(html).not.toMatch(/<details[^>]*\bopen\b/);
     expect(html).not.toContain('标题');
     expect(html).not.toContain('前置委托');
+  });
+
+  it('shows a manual resolve control for scoped cancellation evidence while keeping the attempt visible', () => {
+    const quest = makeQuest({
+      id: 'A-1',
+      status: 'dispatched',
+      assignee: makeAssignee('card-1'),
+      cancelRequest: {
+        requestId: 'req-1', attemptId: 'attempt-1', at: '2026-09-13T00:00:00.000Z', bySource: 'ui',
+        reason: 'stop', result: 'stopped_by_wrapper', detail: 'direct child only',
+      },
+    });
+    const html = render(quest, makeSnapshot({ quests: [quest] }));
+    expect(html).toContain('确认已停止并人工释放');
+    expect(html).toContain('ON QUEST');
   });
 });

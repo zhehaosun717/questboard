@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { QuestStore } from '../../src/core/store.js';
+import { attemptEvidence } from '../../src/core/cancellation.js';
 import { appendJsonLine, readJsonLines } from '../../src/core/jsonl.js';
+import { createCollector } from '../../src/lanes/collector.js';
+import { createDispatcher } from '../../src/server/dispatcher.js';
 import { makeProject, card } from '../helpers.js';
 
 // Scenarios S1-S8 from the delivery-dedup review, kept as executable regression tests. A terminal
@@ -16,6 +19,11 @@ let store;
 const events = () => readJsonLines(project.config.paths.events);
 const deliveredCount = () => events().filter((event) => event.event === 'delivered').length;
 const questsPath = () => path.join(project.config.paths.data, 'quests.jsonl');
+const collectorStatus = (targetStore, id, status, options = {}) => targetStore.setStatus(id, status, {
+  ...options,
+  source: 'collector',
+  evidence: { kind: 'collector', attempt: attemptEvidence(targetStore.get(id)?.assignee) },
+});
 
 const assigned = () => {
   store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
@@ -30,9 +38,9 @@ beforeEach(() => {
 describe('terminal status dedup', () => {
   it('keeps one delivered event when a failed quest is re-delivered for the same attempt (S1)', () => {
     assigned();
-    store.setStatus('RUN-4', 'delivered', { detail: 'report A' });
-    store.setStatus('RUN-4', 'failed', { detail: 'owner killed it', by: 'owner' });
-    const back = store.setStatus('RUN-4', 'delivered', { detail: 'report A' });
+    collectorStatus(store, 'RUN-4', 'delivered', { detail: 'report A' });
+    collectorStatus(store, 'RUN-4', 'failed', { detail: 'owner killed it', by: 'owner' });
+    const back = collectorStatus(store, 'RUN-4', 'delivered', { detail: 'report A' });
 
     assert.equal(back.status, 'delivered');
     assert.equal(back.lastDetail, 'report A');
@@ -46,7 +54,7 @@ describe('terminal status dedup', () => {
 
     const before = events().length;
     const revision = reopened.get('RUN-4').revision;
-    const again = reopened.setStatus('RUN-4', 'delivered', { detail: 'report A' });
+    const again = collectorStatus(reopened, 'RUN-4', 'delivered', { detail: 'report A' });
     assert.equal(again.revision, revision);
     assert.equal(events().length, before);
     assert.equal(deliveredCount(), 1);
@@ -54,9 +62,9 @@ describe('terminal status dedup', () => {
 
   it('restores the first delivered detail when work comes back from reviewing (S2)', () => {
     assigned();
-    store.setStatus('RUN-4', 'delivered', { detail: 'report A' });
-    store.setStatus('RUN-4', 'reviewing', { detail: '' });
-    const back = store.setStatus('RUN-4', 'delivered', { detail: 'report A' });
+    collectorStatus(store, 'RUN-4', 'delivered', { detail: 'report A' });
+    collectorStatus(store, 'RUN-4', 'reviewing', { detail: '' });
+    const back = collectorStatus(store, 'RUN-4', 'delivered', { detail: 'report A' });
 
     assert.equal(back.lastDetail, 'report A');
     assert.equal(deliveredCount(), 1);
@@ -64,17 +72,17 @@ describe('terminal status dedup', () => {
 
     const reopened = new QuestStore(project.config);
     assert.equal(reopened.get('RUN-4').lastDetail, 'report A');
-    reopened.setStatus('RUN-4', 'reviewing', { detail: 'still checking' });
-    reopened.setStatus('RUN-4', 'delivered', { detail: 'report A' });
+    collectorStatus(reopened, 'RUN-4', 'reviewing', { detail: 'still checking' });
+    collectorStatus(reopened, 'RUN-4', 'delivered', { detail: 'report A' });
     assert.equal(reopened.get('RUN-4').lastDetail, 'report A');
     assert.equal(deliveredCount(), 1);
   });
 
   it('names the move back to a terminal status when no detail is given (S2b)', () => {
     assigned();
-    store.setStatus('RUN-4', 'delivered', { detail: 'report A' });
-    store.setStatus('RUN-4', 'reviewing', { detail: 'checking' });
-    store.setStatus('RUN-4', 'delivered', { detail: '' });
+    collectorStatus(store, 'RUN-4', 'delivered', { detail: 'report A' });
+    collectorStatus(store, 'RUN-4', 'reviewing', { detail: 'checking' });
+    collectorStatus(store, 'RUN-4', 'delivered', { detail: '' });
 
     assert.equal(deliveredCount(), 1);
     assert.equal(store.get('RUN-4').lastDetail, 'report A');
@@ -91,7 +99,7 @@ describe('terminal status dedup', () => {
     fs.mkdirSync(file);
 
     for (let i = 0; i < 3; i += 1) {
-      assert.throws(() => store.setStatus('RUN-4', 'delivered', { detail: 'done' }), /EISDIR/);
+      assert.throws(() => collectorStatus(store, 'RUN-4', 'delivered', { detail: 'done' }), /EISDIR/);
     }
     assert.equal(store.get('RUN-4').status, 'dispatched');
     assert.equal(deliveredCount(), 0);
@@ -99,7 +107,7 @@ describe('terminal status dedup', () => {
     fs.rmSync(file, { recursive: true });
     fs.writeFileSync(file, original);
 
-    const next = store.setStatus('RUN-4', 'delivered', { detail: 'done' });
+    const next = collectorStatus(store, 'RUN-4', 'delivered', { detail: 'done' });
     assert.equal(next.status, 'delivered');
     assert.equal(deliveredCount(), 1);
     assert.equal(new QuestStore(project.config).get('RUN-4').status, 'delivered');
@@ -112,7 +120,7 @@ describe('terminal status dedup', () => {
     fs.rmSync(file);
     fs.mkdirSync(file);
 
-    assert.throws(() => store.setStatus('RUN-4', 'delivered', { detail: 'done' }), /EISDIR/);
+    assert.throws(() => collectorStatus(store, 'RUN-4', 'delivered', { detail: 'done' }), /EISDIR/);
     const held = store.get('RUN-4');
     assert.equal(held.status, 'dispatched');
     assert.equal(held.terminalFact.eventPending.status, 'delivered');
@@ -122,7 +130,7 @@ describe('terminal status dedup', () => {
 
     const reopened = new QuestStore(project.config);
     assert.equal(reopened.get('RUN-4').terminalFact.eventPending.status, 'delivered');
-    const next = reopened.setStatus('RUN-4', 'delivered', { detail: 'done' });
+    const next = collectorStatus(reopened, 'RUN-4', 'delivered', { detail: 'done' });
     assert.equal(next.status, 'delivered');
     assert.equal(next.terminalFact.eventPending, undefined);
     assert.equal(deliveredCount(), 1);
@@ -146,7 +154,7 @@ describe('terminal status dedup', () => {
     };
     let next;
     try {
-      next = store.setStatus('RUN-4', 'delivered', { detail: 'done' });
+      next = collectorStatus(store, 'RUN-4', 'delivered', { detail: 'done' });
     } finally {
       process.stderr.write = original;
     }
@@ -156,7 +164,7 @@ describe('terminal status dedup', () => {
     assert.equal(deliveredCount(), 1);
     assert.match(chunks.join(''), /listener/);
 
-    const again = store.setStatus('RUN-4', 'delivered', { detail: 'done' });
+    const again = collectorStatus(store, 'RUN-4', 'delivered', { detail: 'done' });
     assert.equal(again.status, 'delivered');
     assert.equal(deliveredCount(), 1);
   });
@@ -173,14 +181,14 @@ describe('terminal status dedup', () => {
       return realSave(...args);
     };
 
-    assert.throws(() => store.setStatus('RUN-4', 'delivered', { detail: 'done' }), /disk full/);
+    assert.throws(() => collectorStatus(store, 'RUN-4', 'delivered', { detail: 'done' }), /disk full/);
     assert.equal(store.get('RUN-4').status, 'dispatched');
     assert.equal(store.get('RUN-4').terminalFact.eventPending.status, 'delivered');
     // The append already landed before the final save failed, so the retry re-sends it exactly once.
     assert.equal(deliveredCount(), 1);
 
     store.save = realSave;
-    const retried = store.setStatus('RUN-4', 'delivered', { detail: 'done' });
+    const retried = collectorStatus(store, 'RUN-4', 'delivered', { detail: 'done' });
     assert.equal(retried.status, 'delivered');
     assert.equal(retried.terminalFact.eventPending, undefined);
     assert.equal(deliveredCount(), 2);
@@ -198,7 +206,11 @@ describe('terminal status dedup', () => {
     });
 
     const legacy = new QuestStore(project.config);
-    legacy.setStatus('RUN-4', 'delivered', { detail: 'legacy done' });
+    // This deliberately remains a collector-path write. A legacy assignee has no attemptId, so it must be
+    // authorized by the same name+at identity as the exit-file collector, not by a fabricated manual ack.
+    legacy.setStatus('RUN-4', 'delivered', {
+      detail: 'legacy done', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(legacyAttempt) },
+    });
     assert.equal(legacy.get('RUN-4').terminalFact.attemptId, null);
 
     const fresh = { ...legacyAttempt, attemptId: 'fresh-uuid' };
@@ -212,10 +224,38 @@ describe('terminal status dedup', () => {
 
     const rebuilt = new QuestStore(project.config);
     const before = deliveredCount();
-    rebuilt.setStatus('RUN-4', 'reviewing', { detail: 'checking' });
-    rebuilt.setStatus('RUN-4', 'delivered', { detail: 'report B' });
+    collectorStatus(rebuilt, 'RUN-4', 'reviewing', { detail: 'checking' });
+    collectorStatus(rebuilt, 'RUN-4', 'delivered', { detail: 'report B' });
 
     assert.equal(deliveredCount() - before, 1);
     assert.equal(rebuilt.get('RUN-4').terminalFact.attemptId, 'fresh-uuid');
+  });
+
+  it('frees a legacy held row and the following normal row from their exit files without one blocking the other', async () => {
+    const legacyPosted = store.post({ package: 'LEG-1', brief: 'docs/briefs/LEG-1-x.md' });
+    const normalPosted = store.post({ package: 'NEW-1', brief: 'docs/briefs/NEW-1-x.md' });
+    const legacyAssigned = store.assign(legacyPosted.quest.id, { adventurer: card('codex-luna'), name: 'leg1' });
+    const normalAssigned = store.assign(normalPosted.quest.id, { adventurer: card('codex-astra'), name: 'new1' });
+    const legacyAttempt = { ...legacyAssigned.assignee };
+    delete legacyAttempt.attemptId;
+    appendJsonLine(questsPath(), {
+      ...store.get('LEG-1'), assignee: legacyAttempt, dispatches: [legacyAttempt], revision: store.get('LEG-1').revision + 1,
+    });
+
+    project.write('.work/codex/leg1.out', 'legacy worker output\n');
+    project.write('.work/codex/leg1.exit', '1\n');
+    project.write('.work/codex/new1.out', 'normal worker output\n');
+    project.write('.work/codex/new1.exit', '1\n');
+    appendJsonLine(project.config.paths.registry, { event: 'dispatch', package: 'LEG-1', lane: 'codex', model: legacyAttempt.model, name: legacyAttempt.name, at: legacyAttempt.at });
+    appendJsonLine(project.config.paths.registry, { event: 'dispatch', package: 'NEW-1', lane: 'codex', model: normalAssigned.assignee.model, name: normalAssigned.assignee.name, at: normalAssigned.assignee.at });
+
+    const rebuilt = new QuestStore(project.config);
+    const dispatcher = createDispatcher({ config: project.config, store: rebuilt });
+    dispatcher.applyLanes(await createCollector(project.config).collect());
+
+    assert.equal(rebuilt.get('LEG-1').status, 'failed');
+    assert.equal(rebuilt.get('LEG-1').assignee, null);
+    assert.equal(rebuilt.get('NEW-1').status, 'failed');
+    assert.equal(rebuilt.get('NEW-1').assignee, null);
   });
 });

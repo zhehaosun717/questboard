@@ -20,6 +20,8 @@ function questSummary(quest) {
     ...(quest.assignee ? { assignee: `${quest.assignee.model} (${quest.assignee.name})` } : {}),
     ...(quest.needsOwner ? { needsOwner: quest.needsOwner } : {}),
     ...(quest.parents.length ? { parents: quest.parents } : {}),
+    ...(quest.cancelRequest ? { cancelRequest: quest.cancelRequest } : {}),
+    ...(quest.manualResolution ? { manualResolution: quest.manualResolution } : {}),
   };
 }
 
@@ -35,7 +37,7 @@ function eligibilitySummary(verdicts) {
 }
 
 export function createTools({ config, base, author, home, request }) {
-  const api = (route, method, body) => request(base, route, method, body);
+  const api = (route, method, body) => request(base, route, method, body, { source: method && method !== 'GET' ? 'mcp' : undefined });
   const snapshot = () => api('/api/quests');
 
   return [
@@ -118,11 +120,11 @@ export function createTools({ config, base, author, home, request }) {
       name: 'questboard_set_quest_status',
       title: 'Set a quest status',
       description: 'Move a quest after verification or a decision: done, delivered, reviewing, needs_owner, owner_playtest, lane_limited, superseded, cancelled, failed. Dispatch itself only happens through assign or adopt.',
-      inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string', enum: MANUAL_STATUSES }, detail: { type: 'string' } }, required: ['id', 'status'] },
+      inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string', enum: MANUAL_STATUSES }, detail: { type: 'string' }, ack: { type: 'boolean' } }, required: ['id', 'status'] },
       annotations: write,
       handler: async (args) => {
         required(args, ['id', 'status']);
-        return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/status`, 'POST', { status: args.status, detail: args.detail || '', by: author })).quest);
+        return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/status`, 'POST', { status: args.status, detail: args.detail || '', ack: args.ack === true, by: author })).quest);
       },
     },
     {
@@ -168,7 +170,31 @@ export function createTools({ config, base, author, home, request }) {
       annotations: write,
       handler: async (args) => {
         required(args, ['id', 'detail']);
-        return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/release`, 'POST', { detail: args.detail, by: author })).quest);
+        return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/release`, 'POST', { detail: args.detail, ack: true, by: author })).quest);
+      },
+    },
+    {
+      name: 'questboard_cancel_worker',
+      title: 'Request worker cancellation',
+      description: 'Request one cooperative cancellation for the current attempt. The request is durable and keeps the slot until matching scoped evidence arrives; unsupported lanes return manual_required instead of pretending the worker stopped.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' }, reason: { type: 'string' } }, required: ['id', 'reason'] },
+      annotations: write,
+      handler: async (args) => {
+        required(args, ['id', 'reason']);
+        const body = await api(`/api/quests/${encodeURIComponent(args.id)}/cancel`, 'POST', { reason: args.reason });
+        return { ...questSummary(body.quest), result: body.result };
+      },
+    },
+    {
+      name: 'questboard_resolve_worker',
+      title: 'Resolve a worker manually',
+      description: 'Free a held worker only after an explicit acknowledgement and a non-empty reason. This records a durable manualResolution with the MCP source and current attempt.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' }, reason: { type: 'string' }, ack: { type: 'boolean' } }, required: ['id', 'reason', 'ack'] },
+      annotations: write,
+      handler: async (args) => {
+        required(args, ['id', 'reason', 'ack']);
+        if (args.ack !== true) throw new Error('ack must be true for manual resolution');
+        return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/resolve`, 'POST', { reason: args.reason, ack: true })).quest);
       },
     },
     {

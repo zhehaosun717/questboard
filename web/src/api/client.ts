@@ -25,7 +25,7 @@ export class ApiError extends Error {
 async function call<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(path, {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-questboard-source': 'ui' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const value = (await response.json().catch(() => ({}))) as {
@@ -48,7 +48,8 @@ export const api = {
   // With an adventurer the review is dispatched to that card in the same step, after the rules accept it.
   requestReview: (questId: string, note: string, adventurer?: string) =>
     call<{ review: Quest; quest: Quest }>(`${quest(questId)}/review`, 'POST', { note, by: 'owner', ...(adventurer ? { adventurer } : {}) }),
-  setQuestStatus: (questId: string, status: QuestStatus, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, by: 'owner' }),
+  setQuestStatus: (questId: string, status: QuestStatus, detail: string, ack = false) => call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, ack, by: 'owner' }),
+  cancelQuest: (questId: string, reason: string) => call<{ quest: Quest; result: string }>(`${quest(questId)}/cancel`, 'POST', { reason }),
   // Revision-guarded correction of title/brief/parents/conflicts/allowedLanes/needsOwner — never status,
   // assignee or dispatch history. Send only the fields actually changed (see lib/metadataForm.ts diffDraft);
   // a field left out is never touched. 409 stale (fields absent, reasons[0].code stale_revision, and
@@ -57,7 +58,8 @@ export const api = {
   updateMetadata: (questId: string, input: MetadataUpdateInput, ifRevision?: number) =>
     call<{ quest: Quest }>(`${quest(questId)}/metadata`, 'POST', { ...input, by: 'owner', ifRevision }),
   // Frees a stalled quest after the owner confirmed its worker is gone; refused (409) for anything else.
-  releaseWorker: (questId: string, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/release`, 'POST', { detail, by: 'owner' }),
+  releaseWorker: (questId: string, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/release`, 'POST', { detail, ack: true, by: 'owner' }),
+  resolveWorker: (questId: string, reason: string) => call<{ quest: Quest }>(`${quest(questId)}/resolve`, 'POST', { reason, ack: true }),
   setCardStatus: (cardId: string, status: CardStatus, reason: string) =>
     call<{ status: Pick<Card, 'status'> }>(`/api/roster/${encodeURIComponent(cardId)}/status`, 'POST', { status, reason, setBy: 'owner' }),
 

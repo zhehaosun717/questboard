@@ -28,6 +28,19 @@ export interface QuestDrawerProps {
   setDragging: (dragging: boolean) => void;
 }
 
+// A live dispatched attempt uses the cooperative cancellation request. A stalled attempt still owns its
+// reservation, so its fallback status path needs the same explicit warning and reason prompt as RELEASE.
+export function cancelActionFor(status: Quest['status']): 'request' | 'held-status' | 'status' {
+  if (status === 'stalled') return 'held-status';
+  return status === 'dispatched' ? 'request' : 'status';
+}
+
+export function cancelReasonPromptFor(action: ReturnType<typeof cancelActionFor>): string | null {
+  if (action === 'request') return '请写明取消原因';
+  if (action === 'held-status') return '请写明你如何确认这个冒险者已经停止；这会记录为人工释放理由';
+  return null;
+}
+
 // The dossier opens on 下一步 with that step's controls right under it, then the evidence and what came back.
 // Everything after that is record. Controls no longer depend on which section a state happened to add them to.
 export function QuestDrawer({
@@ -57,14 +70,36 @@ export function QuestDrawer({
   const archived = isArchived(quest);
 
   const handleCancel = async () => {
-    if (!window.confirm(`取消 ${quest.id}？已经在跑的冒险者不会被停止。`)) {
+    const action = cancelActionFor(quest.status);
+    const holdsWorker = Boolean(assignee && action !== 'status');
+    const warning = holdsWorker
+      ? `取消 ${quest.id}？这个冒险者可能仍在修改文件，取消请求不会自动证明它已经停止；请确认后再继续。`
+      : `取消 ${quest.id}？`;
+    if (!window.confirm(warning)) {
       return;
     }
     try {
-      await api.setQuestStatus(quest.id, 'cancelled', 'owner 在看板上取消');
+      const reasonPrompt = cancelReasonPromptFor(action);
+      const reason = reasonPrompt ? window.prompt(reasonPrompt)?.trim() : 'owner 在看板上请求取消';
+      if (!reason) return;
+      if (action === 'request') await api.cancelQuest(quest.id, reason);
+      else await api.setQuestStatus(quest.id, 'cancelled', reason, holdsWorker);
       refresh();
     } catch (err) {
       pushToast(`取消失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const canResolve = Boolean(assignee && quest.cancelRequest
+    && ['manual_required', 'stopped_by_wrapper', 'unknown'].includes(quest.cancelRequest.result));
+  const handleResolve = async () => {
+    const reason = window.prompt('请写明你如何确认这个冒险者已经停止；这会记录为人工释放理由')?.trim();
+    if (!reason) return;
+    try {
+      await api.resolveWorker(quest.id, reason);
+      refresh();
+    } catch (err) {
+      pushToast(`人工处理失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -104,6 +139,27 @@ export function QuestDrawer({
       </div>
 
       <NextStepPanel step={step} onOpenQuest={onSelectQuest} />
+
+      {quest.cancelRequest ? (
+        <DrawerSection en="CANCELLATION" zh="取消请求">
+          <div className="rec">
+            {quest.cancelRequest.result} · {quest.cancelRequest.bySource} · {quest.cancelRequest.reason}
+          </div>
+          {canResolve ? (
+            <div className="row end">
+              <button className="btn primary" type="button" onClick={handleResolve}>确认已停止并人工释放</button>
+            </div>
+          ) : null}
+        </DrawerSection>
+      ) : null}
+
+      {quest.manualResolution ? (
+        <DrawerSection en="RESOLUTION" zh="人工处理记录">
+          <div className="rec">
+            {quest.manualResolution.actorSource} · {quest.manualResolution.reason} · {quest.manualResolution.time}
+          </div>
+        </DrawerSection>
+      ) : null}
 
       {step.action === 'owner-task' ? (
         <OwnerTaskSection quest={quest} draft={draft} onDraftChange={onDraftChange} refresh={refresh} pushToast={pushToast} />

@@ -8,6 +8,9 @@ import { lastEventSeq } from './events.js';
 import { packageIdPattern, briefPathAllowed } from './patterns.js';
 import { holdsSlot } from './rules.js';
 import {
+  CANCELLATION_RESULTS, attemptEvidence, cancellationError, cancellationReason, cancellationSource, manualResolution, resolutionSource,
+} from './cancellation.js';
+import {
   validateMetadataUpdate, validateParents, sameList,
   reviewTargetLockedMessage, findReviewAncestorLock, reviewAncestorLockedMessage, kindLockReason,
 } from './metadataUpdate.js';
@@ -50,6 +53,21 @@ function factMatchesAttempt(fact, attempt) {
   if (!fact || !attempt) return false;
   if (Boolean(fact.attemptId) !== Boolean(attempt.attemptId)) return false;
   return sameAttempt(fact, attempt);
+}
+
+function evidenceMatchesAttempt(assignee, evidence) {
+  if (!assignee || !evidence) return false;
+  // New dispatcher evidence carries the complete identity. Keep accepting the existing attemptId-only
+  // shape for current-attempt callers: the id is the strongest identity when both sides have one. Legacy
+  // evidence must use sameAttempt's name+at fallback, never name alone.
+  const attempt = evidence.attempt || (evidence.name || evidence.at ? evidence : null);
+  if (attempt) return sameAttempt(assignee, attempt);
+  return Boolean(assignee.attemptId && evidence.attemptId) && assignee.attemptId === evidence.attemptId;
+}
+
+function sameCancellationEvidenceScope(left, right) {
+  return (left?.exitRequestId ?? null) === (right?.exitRequestId ?? null)
+    && (left?.scope ?? null) === (right?.scope ?? null);
 }
 
 const now = () => new Date().toISOString();
@@ -284,7 +302,7 @@ export class QuestStore extends EventEmitter {
       phase: adopted ? 'launching' : 'queued',
       ...(adopted ? { adopted: true } : {}), ...(requestKey ? { requestKey } : {}),
     };
-    const next = this.save({ ...quest, status: 'dispatched', assignee, dispatches: [...quest.dispatches, assignee], updatedAt: at });
+    const next = this.save({ ...quest, status: 'dispatched', assignee, cancelRequest: null, manualResolution: null, dispatches: [...quest.dispatches, assignee], updatedAt: at });
     this.emitEvent(next, event, { by, detail: detail || `${adventurer.name} 接了任务` });
     return next;
   }
@@ -307,20 +325,136 @@ export class QuestStore extends EventEmitter {
     return this.save({ ...quest, assignee, updatedAt: now() });
   }
 
-  setStatus(id, status, { detail = '', by = 'coordinator', report = null } = {}) {
+  setStatus(id, status, { detail = '', by = 'coordinator', report = null, source, ack = false, evidence } = {}) {
     if (!QUEST_STATUSES.has(status)) throw new Error(`status must be one of ${[...QUEST_STATUSES].join('|')}`);
     const quest = this.quests.get(id);
     if (!quest) return null;
+    let current = quest;
+    if (this.freesSlot(status) && holdsSlot(current)) current = this.authorizeFreeTransition(current, status, { detail, by, source, ack, evidence });
     // Terminal statuses go through setTerminalStatus, which owns the durable ordering (persist the fact,
     // then append the event, then confirm it) that keeps a crash between writes from losing or duplicating
     // the delivered/failed/bounced event. `report` rides along additively so the terminal write can also
     // bind the attempt's final-report reference; callers without one pass nothing and nothing changes.
-    if (TERMINAL_STATUSES.has(status)) return this.setTerminalStatus(quest, status, { detail, by, report });
+    if (TERMINAL_STATUSES.has(status)) return this.setTerminalStatus(current, status, { detail, by, report });
     // A stall is silence, not a confirmed exit: the worker keeps the quest (and its slot and file
     // reservations) until release() says the process is gone. failed/bounced come from exit files.
     const stillAssigned = ['dispatched', 'delivered', 'reviewing', 'stalled'].includes(status);
-    const next = this.save({ ...quest, status, assignee: stillAssigned ? quest.assignee : null, lastDetail: String(detail).slice(0, 2000), updatedAt: now() });
-    this.emitEvent(next, STATUS_EVENTS[status] || `status_${status}`, { by, detail, assignee: quest.assignee || {} });
+    const next = this.save({ ...current, status, assignee: stillAssigned ? current.assignee : null, lastDetail: String(detail).slice(0, 2000), updatedAt: now() });
+    this.emitEvent(next, STATUS_EVENTS[status] || `status_${status}`, { by, detail, assignee: current.assignee || {} });
+    return next;
+  }
+
+  freesSlot(status) {
+    return status !== 'dispatched' && status !== 'stalled';
+  }
+
+  authorizeFreeTransition(quest, status, { detail = '', by = 'coordinator', source, ack = false, evidence } = {}) {
+    // Missing, legacy, and unknown callers are deliberately not a compatibility bypass. They are
+    // anonymous evidence and may free the reservation only after the same explicit acknowledgement and
+    // reason as a named UI/CLI/MCP caller; the audit records that the source was unknown.
+    const operationSource = source === 'collector' || source === 'dispatcher'
+      ? source
+      : cancellationSource(source) || 'unknown';
+    const trustedEvidence = (operationSource === 'collector' || operationSource === 'dispatcher')
+      && evidenceMatchesAttempt(quest.assignee, evidence);
+    if (trustedEvidence) return quest;
+    if (!ack || !cancellationReason(detail)) {
+      throw cancellationError('manual_ack_required', `${quest.id} still owns a worker; freeing it requires an explicit acknowledgement and a non-empty reason`);
+    }
+    const audit = manualResolution(operationSource, quest.assignee, detail);
+    const audited = this.save({ ...quest, manualResolution: audit, updatedAt: now() });
+    try { this.emitEvent(audited, 'manual_resolution', { by: operationSource, detail, assignee: quest.assignee }); } catch (error) {
+      try { process.stderr.write(`questboard: manual resolution event append failed: ${error.message}\n`); } catch {}
+    }
+    return audited;
+  }
+
+  requestCancellation(id, { source, reason, instanceId = null, deadlineAt = null } = {}) {
+    const quest = this.quests.get(id);
+    if (!quest) return null;
+    const bySource = cancellationSource(source);
+    const why = cancellationReason(reason);
+    if (!bySource) throw cancellationError('invalid_source', 'cancellation source must be ui, cli or mcp');
+    if (!why) throw cancellationError('reason_required', 'cancellation reason is required');
+    if (!quest.assignee || !['dispatched', 'stalled'].includes(quest.status)) {
+      throw cancellationError('not_cancellable', `${id} has no unresolved running worker to cancel`);
+    }
+    const existing = quest.cancelRequest;
+    // Legacy rows may omit attemptId entirely while the current normalized request carries null. Treat
+    // both representations as the same attempt so a retry cannot create a request/event storm.
+    if (existing && (existing.attemptId ?? null) === (quest.assignee.attemptId ?? null)) return quest;
+    const request = {
+      requestId: randomUUID(), attemptId: quest.assignee.attemptId || null, at: now(), bySource, reason: why,
+      result: 'pending', ...(instanceId ? { instanceId } : {}), ...(deadlineAt ? { deadlineAt } : {}),
+    };
+    const next = this.save({ ...quest, cancelRequest: request, assignee: { ...quest.assignee, cancelRequest: request }, updatedAt: now() });
+    try { this.emitEvent(next, 'cancel_requested', { by: bySource, detail: why }); } catch (error) {
+      try { process.stderr.write(`questboard: cancellation event append failed: ${error.message}\n`); } catch {}
+    }
+    return next;
+  }
+
+  recordCancellationResult(id, { requestId, result, detail = '', evidence = null } = {}) {
+    const quest = this.quests.get(id);
+    if (!quest) return null;
+    const request = quest.cancelRequest;
+    if (!request || request.requestId !== requestId) return quest;
+    if (!CANCELLATION_RESULTS.has(result)) throw cancellationError('invalid_cancel_result', `unknown cancellation result ${result}`);
+    const safeEvidence = evidence ? Object.fromEntries(Object.entries(evidence).filter(([key, value]) => key !== 'token' && value !== undefined)) : null;
+    // Collector polls replay the same exit row. Once the result and its request-scoped evidence are already
+    // durable, the replay is a true no-op: no snapshot revision and no duplicate acknowledgement event.
+    if (request.result === result && sameCancellationEvidenceScope(request.evidence, safeEvidence)) return quest;
+    const sameAttempt = quest.assignee && (quest.assignee.attemptId ?? null) === (request.attemptId ?? null);
+    if (!sameAttempt || !holdsSlot(quest)) return quest;
+    const proof = evidenceMatchesAttempt(quest.assignee, evidence);
+    // Matching wrapper acknowledgement and exit metadata prove only that the wrapper acted on its direct
+    // child handle. Descendants may still be editing, so this evidence stays held for manual resolution
+    // (or a later independent collector terminal fact); it is never a free transition.
+    const canFree = result === 'never_started'
+      && proof && evidence.phase === 'queued' && evidence.noEffect === true;
+    const scopedWrapperEvidence = result === 'stopped_by_wrapper'
+      && proof && evidence.ack === true && evidence.exitRequestId === requestId && evidence.scope === 'direct-child';
+    const storedResult = canFree ? result
+      : scopedWrapperEvidence ? 'stopped_by_wrapper'
+        : (result === 'stopped_by_wrapper' || result === 'never_started' ? 'unknown' : result);
+    if (canFree) {
+      const resolvedAt = now();
+      const recorded = this.save({
+        ...quest,
+        cancelRequest: { ...request, result: storedResult, ...(detail ? { detail: String(detail).slice(0, 2000) } : {}), ...(safeEvidence ? { evidence: safeEvidence } : {}), resolvedAt },
+        assignee: { ...quest.assignee, cancelRequest: { ...request, result: storedResult, resolvedAt } },
+        updatedAt: now(),
+      });
+      const next = this.setStatus(id, 'cancelled', {
+        detail: detail || `cancellation ${result}`, by: 'board', source: 'dispatcher',
+        evidence: { kind: 'dispatcher', attempt: attemptEvidence(quest.assignee) },
+      });
+      try { this.emitEvent(next, 'cancel_acknowledged', { by: 'board', detail: result }); } catch (error) {
+        try { process.stderr.write(`questboard: cancellation acknowledgement append failed: ${error.message}\n`); } catch {}
+      }
+      return next || recorded;
+    }
+    const nextRequest = { ...request, result: storedResult, ...(detail ? { detail: String(detail).slice(0, 2000) } : {}), ...(safeEvidence ? { evidence: safeEvidence } : {}) };
+    const next = this.save({ ...quest, cancelRequest: nextRequest, assignee: { ...quest.assignee, cancelRequest: nextRequest }, updatedAt: now() });
+    try { this.emitEvent(next, 'cancel_acknowledged', { by: 'board', detail: result }); } catch (error) {
+      try { process.stderr.write(`questboard: cancellation acknowledgement append failed: ${error.message}\n`); } catch {}
+    }
+    return next;
+  }
+
+  resolveManually(id, { source, reason, ack = false } = {}) {
+    const quest = this.quests.get(id);
+    if (!quest) return null;
+    const bySource = resolutionSource(source);
+    const why = cancellationReason(reason);
+    if (!ack || !why) throw cancellationError('manual_ack_required', 'manual resolution requires --ack and a non-empty reason');
+    if (!quest.assignee || !holdsSlot(quest)) throw cancellationError('not_cancellable', `${id} has no held worker to resolve`);
+    const audit = manualResolution(bySource, quest.assignee, why);
+    const audited = this.save({ ...quest, manualResolution: audit, updatedAt: now() });
+    const next = this.save({ ...audited, status: audited.status === 'stalled' ? 'stalled' : 'cancelled', assignee: null, lastDetail: why, updatedAt: now() });
+    try { this.emitEvent(next, 'manual_resolution', { by: bySource, detail: why, assignee: quest.assignee }); } catch (error) {
+      try { process.stderr.write(`questboard: manual resolution event append failed: ${error.message}\n`); } catch {}
+    }
     return next;
   }
 
@@ -420,12 +554,13 @@ export class QuestStore extends EventEmitter {
   }
 
   // Frees a stalled quest once someone has confirmed its worker is gone. A running quest is cancelled, not released.
-  release(id, { by = 'owner', detail = '' } = {}) {
+  release(id, { by = 'owner', detail = '', source, ack = false } = {}) {
     const quest = this.quests.get(id);
     if (!quest) return null;
     if (!quest.assignee) throw new Error(`${id} has no worker to release`);
     if (quest.status !== 'stalled') throw new Error(`${id} is ${quest.status === 'dispatched' ? 'running; cancel it instead of releasing it' : `${quest.status}; only a stalled quest is released`}`);
-    const next = this.save({ ...quest, assignee: null, lastDetail: String(detail).slice(0, 2000), updatedAt: now() });
+    const audited = this.authorizeFreeTransition(quest, 'stalled', { detail, by, source, ack });
+    const next = this.save({ ...audited, assignee: null, lastDetail: String(detail).slice(0, 2000), updatedAt: now() });
     this.emitEvent(next, 'released', { by, detail: detail || `worker ${quest.assignee.name} 已确认停止，释放`, assignee: quest.assignee });
     return next;
   }

@@ -64,7 +64,7 @@ describe('dispatcher.assign: durable write-ahead phase and worker naming', () =>
     const dispatcher = createDispatcher({ config: realConfig, store, runners: { session: async () => ({ code: 0 }), run: async () => ({ code: 0 }) } });
     const first = dispatcher.assign('AB-CD-4', card('oc-mimo'), 'owner');
     assert.equal(first.body.quest.assignee.name, 'abcd4');
-    store.setStatus('AB-CD-4', 'delivered', { detail: 'done', by: 'lanes' }); // finished; no longer holds a slot
+    store.setStatus('AB-CD-4', 'delivered', { detail: 'done', by: 'lanes', source: 'collector', evidence: { kind: 'collector', attemptId: store.get('AB-CD-4').assignee.attemptId } }); // finished; no longer holds a slot
 
     store.post({ package: 'ABCD-4', brief: 'docs/briefs/ABCD-4-x.md', by: 'owner' });
     const second = dispatcher.assign('ABCD-4', card('oc-mimo'), 'owner');
@@ -114,7 +114,7 @@ describe('dispatcher.assign: durable write-ahead phase and worker naming', () =>
     store.post({ package: 'RUN-5', brief: 'docs/briefs/RUN-5-x.md', by: 'owner' });
     const dispatcher = createDispatcher({ config: realConfig, store });
     dispatcher.adopt('RUN-5', card('codex-luna'), 'run5', 'owner');
-    store.setStatus('RUN-5', 'failed', { detail: 'old attempt exited' });
+    store.setStatus('RUN-5', 'failed', { detail: 'old attempt exited', source: 'collector', evidence: { kind: 'collector', attemptId: store.get('RUN-5').assignee.attemptId } });
     const before = store.get('RUN-5');
 
     const readopt = dispatcher.adopt('RUN-5', card('codex-luna'), 'run5', 'owner');

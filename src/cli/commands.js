@@ -199,7 +199,7 @@ export const commands = {
   async status(args) {
     const { base } = context(args);
     const [id, status] = args;
-    const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/status`, 'POST', { status, detail: option(args, '--detail'), by: option(args, '--by') || 'coordinator' });
+    const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/status`, 'POST', { status, detail: option(args, '--detail'), by: option(args, '--by') || 'coordinator' }, { source: 'cli' });
     out(questLine(quest));
   },
 
@@ -267,7 +267,27 @@ export const commands = {
     // A "--detail" whose value is the next flag (release X --detail --by x) carried no evidence;
     // prose in the middle of a sentence is untouched, only a leading flag token is refused.
     if (detail.startsWith('--')) throw new Error(`release 的 --detail 后面跟的是选项 "${detail}"，不是证据；请用 --detail "怎么确认 worker 已经停了" 写清理由`);
-    const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/release`, 'POST', { detail, by: option(args, '--by') || 'coordinator' });
+    const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/release`, 'POST', { detail, ack: true, by: option(args, '--by') || 'coordinator' }, { source: 'cli' });
+    out(questLine(quest));
+  },
+
+  async cancel(args) {
+    const { base } = context(args);
+    const id = positional(args, ['--project', '--url', '--reason']);
+    const reason = String(option(args, '--reason') || '').trim();
+    if (!id) throw new Error('usage: questboard cancel <id> --reason "why cancel"');
+    if (!reason || reason.startsWith('--')) throw new Error('cancel requires a non-empty --reason');
+    const result = await request(base, `/api/quests/${encodeURIComponent(id)}/cancel`, 'POST', { reason }, { source: 'cli' });
+    out(`${questLine(result.quest)}  cancellation=${result.result}`);
+  },
+
+  async resolve(args) {
+    const { base } = context(args);
+    const id = positional(args, ['--project', '--url', '--reason']);
+    const reason = String(option(args, '--reason') || '').trim();
+    if (!id || !args.includes('--ack')) throw new Error('usage: questboard resolve <id> --reason "manual evidence" --ack');
+    if (!reason || reason.startsWith('--')) throw new Error('resolve requires a non-empty --reason');
+    const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/resolve`, 'POST', { reason, ack: true }, { source: 'cli' });
     out(questLine(quest));
   },
 
