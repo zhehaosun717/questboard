@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
-import { fillTemplate } from './config.js';
+import { fillTemplate, fillOptionalArgs } from './config.js';
 import { readJsonLines } from './jsonl.js';
 
 const GIT_BASH_CANDIDATES = ['D:/Program Files/Git/bin/bash.exe', 'C:/Program Files/Git/bin/bash.exe', 'C:/Program Files (x86)/Git/bin/bash.exe'];
@@ -61,7 +61,10 @@ export function planDispatch(config, quest, adventurer, name) {
   if (lane.session) {
     steps.push({ kind: 'session', command: fillTemplate(lane.session.run, values, `${field}.session.run`), saveTo: fillTemplate([lane.session.saveTo], values, `${field}.session.saveTo`)[0], env });
   }
-  steps.push({ kind: 'run', command: fillTemplate(lane.run, values, `${field}.run`), env });
+  // A lane without optionalArgs gets its exact run array back from fillOptionalArgs unchanged, so this
+  // stays byte-for-byte the same dispatch every existing lane already produces.
+  const runTemplate = fillOptionalArgs(lane.run, lane.optionalArgs, values);
+  steps.push({ kind: 'run', command: fillTemplate(runTemplate, values, `${field}.run`), env });
   return steps;
 }
 

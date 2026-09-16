@@ -10,6 +10,20 @@ const PLACEHOLDER = /\{([a-z]+)\}/g;
 const PLACEHOLDERS = new Set(['name', 'brief', 'model', 'variant', 'agent', 'package']);
 const LANE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const EDIT_COUNTERS = new Set(['patch', 'stream-json', 'none']);
+// name/brief/model/package are always required and can never be dropped; only these two may control an
+// optional argument group (lanes.<id>.optionalArgs — see validateOptionalArgs and fillOptionalArgs below).
+const OPTIONAL_ARGS_WHEN = new Set(['variant', 'agent']);
+const OPTIONAL_ARGS_GROUP_KEYS = new Set(['when', 'args', 'omitWhen', 'insertAt']);
+// Generous but finite ceilings on the parts of optionalArgs a human writes by hand. No real lane declares
+// more than a few flags per group or a few omitWhen markers; these stay far above any legitimate use while
+// stopping a hand-edited (or scripted) config from turning one dispatch into thousands of spliced argv
+// elements — the settings page's 1 MB HTTP body cap (http.js) does not apply to a file edited outside it.
+const MAX_OPTIONAL_ARGS_GROUPS = 20;
+const MAX_ARGS_PER_GROUP = 20;
+const MAX_OMIT_WHEN = 20;
+// Comfortably longer than any real flag value (a path, a model name, a short id) yet far short of Windows'
+// ~32K total command-line length, so one oversized argument can never by itself blow past that OS limit.
+const MAX_ARG_LENGTH = 4096;
 
 function fail(message) {
   throw new Error(`questboard config: ${message}`);
@@ -52,6 +66,70 @@ function checkTemplate(args, field) {
     }
   }
   return args;
+}
+
+// A lane's optional argument groups: each one is a flag(+value) block that is appended (or inserted) to
+// `run` only when its controlling placeholder (variant or agent) actually has a value on the card doing the
+// dispatch — dropped as a whole, never partially, when that value is absent or explicitly listed in
+// omitWhen. Lanes that omit optionalArgs entirely are unaffected: fillOptionalArgs is a no-op for them, so
+// every existing lane keeps behaving byte-for-byte as before this field existed.
+function validateOptionalArgs(optionalArgs, run, field) {
+  if (!Array.isArray(optionalArgs)) fail(`${field} must be an array`);
+  if (optionalArgs.length > MAX_OPTIONAL_ARGS_GROUPS) fail(`${field} must have at most ${MAX_OPTIONAL_ARGS_GROUPS} groups`);
+  return optionalArgs.map((group, index) => {
+    const gf = `${field}[${index}]`;
+    if (!group || typeof group !== 'object' || Array.isArray(group)) fail(`${gf} must be an object`);
+    // Unlike the config file's own top-level fields (preserved verbatim by saveProjectConfig even when
+    // resolveConfig does not recognize them), a group here exists only to control argv — a misspelled key
+    // such as `omitwhen` would silently do nothing while looking configured, so it is refused, not ignored.
+    for (const key of Object.keys(group)) {
+      if (!OPTIONAL_ARGS_GROUP_KEYS.has(key)) fail(`${gf} has unknown field ${key}; allowed: ${[...OPTIONAL_ARGS_GROUP_KEYS].join(', ')}`);
+    }
+    if (!OPTIONAL_ARGS_WHEN.has(group.when)) fail(`${gf}.when must be one of ${[...OPTIONAL_ARGS_WHEN].join('|')}`);
+    const args = checkTemplate(group.args, `${gf}.args`);
+    if (args.length > MAX_ARGS_PER_GROUP) fail(`${gf}.args must have at most ${MAX_ARGS_PER_GROUP} elements`);
+    for (const arg of args) {
+      if (arg.length > MAX_ARG_LENGTH) fail(`${gf}.args elements must be at most ${MAX_ARG_LENGTH} characters`);
+    }
+    if (!args.some((arg) => arg.includes(`{${group.when}}`))) fail(`${gf}.args must use {${group.when}} somewhere, or the group could never tell whether it was supplied`);
+    // stringList already refuses a whitespace-only entry (a real, non-empty argv value must never be
+    // silently trimmed down to something that could accidentally collide with one) so an ambiguous
+    // omitWhen marker like `" "` fails loudly here instead of quietly matching nothing, or everything.
+    const omitWhen = group.omitWhen === undefined ? [] : stringList(group.omitWhen, `${gf}.omitWhen`, []);
+    if (omitWhen.length > MAX_OMIT_WHEN) fail(`${gf}.omitWhen must have at most ${MAX_OMIT_WHEN} entries`);
+    for (const value of omitWhen) {
+      if (value.length > MAX_ARG_LENGTH) fail(`${gf}.omitWhen entries must be at most ${MAX_ARG_LENGTH} characters`);
+    }
+    if (new Set(omitWhen).size !== omitWhen.length) fail(`${gf}.omitWhen must not repeat a value`);
+    const insertAt = group.insertAt === undefined ? run.length : group.insertAt;
+    // Position 0 of `run` is always the lane's own script/binary (dispatch.js's resolveCommand reads
+    // command[0] as the executable unconditionally) — inserting before it would silently turn a flag into
+    // the program questboard tries to spawn, so the lowest legal position is 1, not 0. For a `node` lane,
+    // resolveCommand also reads command[1] unconditionally as the script to hand to this Node binary, so
+    // insertAt 1 would push that script to position 2 and hand Node a flag as its script instead — the
+    // lowest legal position there is 2.
+    const minInsertAt = run[0] === 'node' ? 2 : 1;
+    if (!Number.isInteger(insertAt) || insertAt < minInsertAt || insertAt > run.length) {
+      const why = run[0] === 'node' ? `position 0 is always node, position 1 is always its script` : `position 0 is always the lane's own command`;
+      fail(`${gf}.insertAt must be an integer between ${minInsertAt} and ${run.length} (${why})`);
+    }
+    return { when: group.when, args, omitWhen, insertAt };
+  });
+}
+
+// T5 in the audit: a placeholder cannot be required in one template surface and optional in another — the
+// meaning would be contradictory (fillTemplate would refuse the very same dispatch that fillOptionalArgs
+// just decided to skip supplying a value for). Checked once, against every surface the lane actually has.
+function checkOptionalOverlap(id, field, optionalArgs, result) {
+  const surfaces = [[`lanes.${id}.run`, result.run]];
+  if (result.session) surfaces.push([`lanes.${id}.session.run`, result.session.run], [`lanes.${id}.session.saveTo`, [result.session.saveTo]]);
+  if (result.env) surfaces.push([`lanes.${id}.env`, Object.values(result.env)]);
+  for (const group of optionalArgs) {
+    const placeholder = `{${group.when}}`;
+    for (const [surfaceField, strings] of surfaces) {
+      if (strings.some((s) => s.includes(placeholder))) fail(`${field} makes ${placeholder} optional, but ${surfaceField} still requires it — a placeholder cannot be both required and optional`);
+    }
+  }
 }
 
 function validateLane(id, lane) {
@@ -114,6 +192,10 @@ function validateLane(id, lane) {
   if (!Number.isInteger(result.spacingMs) || result.spacingMs < 0) fail(`${field}.spacingMs must be a non-negative integer`);
   result.editCounter = lane.editCounter === undefined ? 'patch' : lane.editCounter;
   if (!EDIT_COUNTERS.has(result.editCounter)) fail(`${field}.editCounter must be one of ${[...EDIT_COUNTERS].join('|')}`);
+  if (lane.optionalArgs !== undefined) {
+    result.optionalArgs = validateOptionalArgs(lane.optionalArgs, result.run, `${field}.optionalArgs`);
+    checkOptionalOverlap(id, `${field}.optionalArgs`, result.optionalArgs, result);
+  }
   return result;
 }
 
@@ -217,4 +299,28 @@ export function fillTemplate(args, values, field = 'template') {
     if (value === undefined || value === null || value === '') fail(`${field} needs {${key}} but it has no value`);
     return String(value);
   }));
+}
+
+// Splices a lane's optionalArgs groups into its (still unfilled) run template, in insertAt order — groups
+// sharing an insertAt keep the order they were declared in, each landing right after the previous one. A
+// group is dropped as a whole (never partially) when its controlling value is exactly absent (undefined,
+// null or '', the same emptiness fillTemplate itself treats as "no value") or exactly matches one of its
+// own omitWhen entries — a real value is never trimmed or otherwise guessed at (a whitespace-only variant,
+// for instance, is a real, if unusual, value and passes through untouched, not treated as absent). Kept
+// groups stay as raw placeholder strings; the caller's own fillTemplate call substitutes them along with the
+// rest of the array, so a group's non-{when} placeholders (e.g. {name}) stay exactly as strictly required as
+// they already were, with one shared, already-tested error message shape.
+export function fillOptionalArgs(run, optionalArgs, values) {
+  if (!optionalArgs || !optionalArgs.length) return run;
+  const ordered = optionalArgs.map((group, order) => ({ group, order })).sort((a, b) => (a.group.insertAt - b.group.insertAt) || (a.order - b.order));
+  const result = [...run];
+  let offset = 0;
+  for (const { group } of ordered) {
+    const value = values[group.when];
+    const absent = value === undefined || value === null || value === '';
+    if (absent || group.omitWhen.includes(value)) continue;
+    result.splice(group.insertAt + offset, 0, ...group.args);
+    offset += group.args.length;
+  }
+  return result;
 }
