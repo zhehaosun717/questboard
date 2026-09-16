@@ -190,7 +190,9 @@ export function App() {
                 pushToast={pushToast}
               />
             )}
-            {route.tab === 'usage' && <UsageView />}
+            {route.tab === 'usage' && (
+              <UsageView scope={snap ? { loaded: true, projectId: snap.project.id ?? null } : { loaded: false }} />
+            )}
             {route.tab === 'settings' && <SettingsView roster={snap?.roster ?? []} />}
           </main>
         </div>

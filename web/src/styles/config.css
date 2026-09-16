@@ -96,34 +96,8 @@
 .omo-save-msg { padding: 8px 12px; border-radius: 2px; font-size: 12px; margin-bottom: 12px; }
 .omo-save-msg.ok { background: rgba(79, 138, 75, 0.15); border: 1px solid var(--pcb); color: var(--ready-lt); }
 
-/* ── usage view ──────────────────────────────────────────── */
-.usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-.usage-card {
-  padding: 16px 18px; border: 1px solid var(--hall-edge); border-radius: 3px;
-  background: linear-gradient(180deg, var(--soil2), var(--soil)); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
-  display: flex; flex-direction: column; gap: 12px;
-}
-.usage-card.unconfigured { opacity: 0.55; filter: grayscale(0.6); }
-.usage-card-header { border-bottom: 1px solid var(--oak-deep); padding-bottom: 8px; }
-.usage-card-title-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.usage-provider-name { margin: 0; font: 400 20px/1.2 var(--han); color: var(--tag); }
-.source-tag { font-size: 10px; padding: 2px 6px; background: var(--soil); border: 1px solid var(--steel); border-radius: 2px; color: var(--dim); }
-.key-from-line { font-size: 11px; color: var(--dim); margin-top: 4px; }
-.usage-windows-list { display: flex; flex-direction: column; gap: 10px; }
-.window-header { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; color: var(--cable); }
-.window-percent { font-weight: 700; font-family: var(--mono); }
-.window-reset { color: var(--dim); }
-.usage-bar-track { width: 100%; height: 8px; background: var(--hall-edge); border: 1px solid var(--oak-deep); border-radius: 2px; overflow: hidden; }
-.usage-bar-fill { height: 100%; transition: width 0.3s ease; }
-.usage-bar-fill.green { background: var(--pcb); }
-.usage-bar-fill.amber { background: var(--amber); }
-.usage-bar-fill.red { background: var(--blood); }
-.usage-bar-fill.unknown { background: var(--grey); }
-.usage-balances-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
-.balance-title { color: var(--dim); }
-.balance-chip { font-family: var(--mono); font-weight: 700; color: var(--amber); }
-.usage-dim-details { display: flex; flex-direction: column; gap: 2px; border-top: 1px dashed var(--oak-deep); padding-top: 8px; }
-.usage-dim-line { margin: 0; font-size: 11px; color: var(--dim); }
+/* Usage-card-specific rules moved to web/src/styles/usage.css (imported by UsageView.tsx); the shared
+   .usage-view-header rule above stays here since roster/settings share it. */
 
 /* ── settings view ───────────────────────────────────────── */
 .settings-section { display: flex; flex-direction: column; gap: 8px; }

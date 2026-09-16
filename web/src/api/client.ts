@@ -62,8 +62,16 @@ export const api = {
   pinThread: (id: string, pinned: boolean) => call<Thread>(`${thread(id)}/pin`, 'POST', { pinned }),
   closeThread: (id: string, closed: boolean) => call<Thread>(`${thread(id)}/close`, 'POST', { closed }),
 
-  // Quota and balance per provider; refresh skips the server's 60 s cache.
-  usage: (refresh = false) => call<UsageReport>(refresh ? '/api/usage?refresh=1' : '/api/usage'),
+  // Quota and balance per provider; refresh skips the server's cache. providerId narrows a manual refresh
+  // to one known source (backend rejects an unrecognized id with a safe 400 message) instead of re-reading
+  // every provider for a single click.
+  usage: (opts: { refresh?: boolean; providerId?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.refresh) params.set('refresh', '1');
+    if (opts.providerId) params.set('provider', opts.providerId);
+    const qs = params.toString();
+    return call<UsageReport>(qs ? `/api/usage?${qs}` : '/api/usage');
+  },
 
   // Adds or replaces a card (roster facts only). Server refusals arrive as ApiError messages.
   saveCard: (adventurer: AdventurerInput) => call<{ adventurer: AdventurerInput }>('/api/roster', 'POST', { adventurer }),
