@@ -702,4 +702,42 @@ describe('settingsForm validateDrafts rules', () => {
     expect(laneAt(reloaded, 0).formKey).not.toBe(keyA);
     expect(laneAt(reloaded, 1).formKey).not.toBe(keyB);
   });
+
+  it('rule 19: blank optional args and omitWhen values produce save-blocking field errors', () => {
+    const raw = {
+      ...exampleConfig,
+      lanes: {
+        opt: {
+          run: ['node', 'worker.js'],
+          outputDir: 'out',
+          optionalArgs: [{ when: 'variant', args: ['--effort', '{variant}', ''], omitWhen: ['   '], insertAt: 2 }],
+        },
+      },
+    };
+    const drafts = toDrafts(raw);
+    const errors = validateDrafts(drafts);
+    expect(errors['lanes.0.optionalArgs[0].args']).toMatch(/不能为空|空白/);
+    expect(errors['lanes.0.optionalArgs[0].omitWhen']).toMatch(/不能为空|空白/);
+    expect(Object.keys(errors).some((key) => key.startsWith('lanes.0.optionalArgs[0]'))).toBe(true);
+  });
+
+  it('rule 20: malformed and partial optional groups stay raw and are never coerced on load', () => {
+    const partial = { when: 'variant', args: ['--effort', '{variant}'] };
+    const malformed = { when: 'model', args: ['--effort', '{variant}'], insertAt: '3', futureFlag: true };
+    const raw = {
+      ...exampleConfig,
+      lanes: { opt: { run: ['node', 'worker.js'], outputDir: 'out', optionalArgs: [partial, malformed, 'not-an-object'] } },
+    };
+    const drafts = toDrafts(raw);
+    const lane = laneAt(drafts, 0);
+    const first = lane.optionalArgs?.[0];
+    const second = lane.optionalArgs?.[1];
+    const third = lane.optionalArgs?.[2];
+    expect(first?.insertAt).toBeUndefined();
+    expect(second?.when).toBe('model');
+    expect(second?.parseError).toContain('无法解析，已原样保留');
+    expect(third?.parseError).toContain('无法解析，已原样保留');
+    expect(validateDrafts(drafts)['lanes.0.optionalArgs[1].parse']).toContain('无法解析，已原样保留');
+    expect(toRaw(raw, drafts)).toEqual(raw);
+  });
 });

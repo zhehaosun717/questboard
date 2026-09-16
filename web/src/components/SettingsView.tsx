@@ -185,6 +185,7 @@ export function SettingsView({ roster }: SettingsViewProps) {
             lanes={drafts.lanes}
             errors={errors}
             onChange={updateLanes}
+            roster={roster}
           />
         );
       case 'policy':

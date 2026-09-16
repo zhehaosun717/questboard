@@ -1,22 +1,24 @@
 // The only module that talks to the board server. Errors carry the server's refusal reasons.
 import type {
-  AdventurerInput, Card, CardStatus, LaneServerStatus, LanesReport, Message, MetadataUpdateInput, OmoChange, OmoConfig, Quest, QuestEvent,
+  AdventurerInput, Card, CardStatus, LanePreviewRequest, LanePreviewResponse, LaneServerStatus, LanesReport, Message, MetadataUpdateInput, OmoChange, OmoConfig, Quest, QuestEvent,
   QuestStatus, Reason, SettingsReport, Snapshot, Thread, ThreadDetail, ThreadStatusFilter, UsageReport,
 } from './types';
 
 export class ApiError extends Error {
   readonly reasons: Reason[];
   readonly fields: Record<string, string>;
+  readonly status: number;
   // Only ever set by the metadata 409 stale-revision response (questRoutes.js): the quest's current
   // revision, so a caller can offer "reload" without a second round trip just to learn it.
   readonly revision?: number;
 
-  constructor(message: string, reasons: Reason[] = [], fields: Record<string, string> = {}, revision?: number) {
+  constructor(message: string, reasons: Reason[] = [], fields: Record<string, string> = {}, revision?: number, status = 0) {
     super(message);
     this.name = 'ApiError';
     this.reasons = reasons;
     this.fields = fields;
     this.revision = revision;
+    this.status = status;
   }
 }
 
@@ -29,7 +31,7 @@ async function call<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: unkn
   const value = (await response.json().catch(() => ({}))) as {
     error?: string; reasons?: Reason[]; fields?: Record<string, string>; revision?: number;
   };
-  if (!response.ok) throw new ApiError(value.error || `HTTP ${response.status}`, value.reasons, value.fields, value.revision);
+  if (!response.ok) throw new ApiError(value.error || `HTTP ${response.status}`, value.reasons, value.fields, value.revision, response.status);
   return value as T;
 }
 
@@ -106,6 +108,9 @@ export const api = {
   // Starts a lane's server from its configured serve command; resolves once it answers, throws with the reason.
   startLaneServer: (laneId: string) =>
     call<{ up: boolean; started: boolean }>(`/api/settings/lanes/${encodeURIComponent(laneId)}/start`, 'POST', {}),
+  // Simulates command execution with optionalArgs; returns argv, omitted groups, and warnings.
+  lanePreview: (request: LanePreviewRequest) =>
+    call<LanePreviewResponse>('/api/settings/lanes/preview', 'POST', request),
 };
 
 // Live events. Returns a function that closes the stream.

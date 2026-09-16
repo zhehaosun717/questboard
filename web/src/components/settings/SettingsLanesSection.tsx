@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api/client';
-import type { LaneServerStatus } from '../../api/types';
+import type { Card, LaneServerStatus } from '../../api/types';
 import { createLaneFormKey, type LaneDraft } from '../../lib/settingsForm';
 import { LaneCard } from './LaneCard';
 import type { LaneServerMessage } from './LaneServerPanel';
@@ -9,6 +9,7 @@ interface SettingsLanesSectionProps {
   lanes: LaneDraft[];
   errors: Record<string, string>;
   onChange: (lanes: LaneDraft[]) => void;
+  roster?: readonly Card[];
 }
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -17,6 +18,7 @@ export function SettingsLanesSection({
   lanes,
   errors,
   onChange,
+  roster,
 }: SettingsLanesSectionProps) {
   // The running board's lanes, by id: the start button acts on the saved, loaded config, not on the draft.
   const [servers, setServers] = useState<Record<string, LaneServerStatus>>({});
@@ -83,6 +85,7 @@ export function SettingsLanesSection({
         sessionSaveTo: '',
         healthPath: '',
         healthJson: '',
+        optionalArgs: [],
       },
     ]);
   };
@@ -110,6 +113,7 @@ export function SettingsLanesSection({
             onStartServer={() => void startServer(lane.id)}
             onUpdate={(patch) => updateLane(idx, patch)}
             onRemove={() => removeLane(idx)}
+            roster={roster}
           />
         ))}
       </div>

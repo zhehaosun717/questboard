@@ -35,6 +35,21 @@ export interface LaneDraft {
    * working path (repair) or unchecks the box (explicit disable, which clears this alongside the two fields
    * above). `undefined` means the file's `health` (if any) already parsed into `healthPath`/`healthJson`. */
   healthMalformed?: unknown;
+  /** Optional argument groups spliced into run when variant/agent conditions match. */
+  optionalArgs?: OptionalArgGroupDraft[];
+  /** A non-array optionalArgs value from a hand-edited file, retained until it is explicitly removed. */
+  optionalArgsMalformed?: unknown;
+}
+
+export interface OptionalArgGroupDraft {
+  when: string;
+  args: string[];
+  omitWhen: string[];
+  insertAt?: number;
+  /** Present only when the group could not be mapped to editable fields. */
+  parseError?: string;
+  rawOptionalArg?: unknown;
+  [key: string]: unknown;
 }
 
 export interface ProjectDraft {
@@ -81,6 +96,52 @@ const HEALTH_PATH_PATTERN = /^\/(?!\/)[^\s\\]*$/;
 const str = (v: unknown): string => (typeof v === 'string' ? v : v !== undefined && v !== null ? String(v) : '');
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const OPTIONAL_ARG_WHEN = new Set(['variant', 'agent']);
+const OPTIONAL_ARG_KEYS = new Set(['when', 'args', 'omitWhen', 'insertAt']);
+
+export function parseLaneEnv(text: string): { env: Record<string, string>; error: string | null } {
+  return parseCardEnv(text);
+}
+
+function malformedOptionalArg(raw: unknown, reason: string): OptionalArgGroupDraft {
+  const value = isPlainObject(raw) ? raw : {};
+  const args = Array.isArray(value.args) && value.args.every((arg) => typeof arg === 'string') ? [...value.args] : [];
+  const omitWhen = Array.isArray(value.omitWhen) && value.omitWhen.every((item) => typeof item === 'string') ? [...value.omitWhen] : [];
+  const draft: OptionalArgGroupDraft = {
+    when: typeof value.when === 'string' ? value.when : '',
+    args,
+    omitWhen,
+    ...(typeof value.insertAt === 'number' && Number.isInteger(value.insertAt) ? { insertAt: value.insertAt } : {}),
+    parseError: `可选参数组无法解析，已原样保留：${reason}`,
+    rawOptionalArg: raw,
+  };
+  for (const [key, entry] of Object.entries(value)) {
+    if (!OPTIONAL_ARG_KEYS.has(key) && key !== 'parseError' && key !== 'rawOptionalArg') draft[key] = entry;
+  }
+  return draft;
+}
+
+function parseOptionalArg(raw: unknown): OptionalArgGroupDraft {
+  if (!isPlainObject(raw)) return malformedOptionalArg(raw, '必须是对象');
+  if (typeof raw.when !== 'string' || !OPTIONAL_ARG_WHEN.has(raw.when)) return malformedOptionalArg(raw, 'when 必须是 variant 或 agent');
+  if (!Array.isArray(raw.args) || raw.args.length === 0 || raw.args.some((arg) => typeof arg !== 'string')) {
+    return malformedOptionalArg(raw, 'args 必须是非空字符串列表');
+  }
+  if (raw.omitWhen !== undefined && (!Array.isArray(raw.omitWhen) || raw.omitWhen.some((item) => typeof item !== 'string'))) {
+    return malformedOptionalArg(raw, 'omitWhen 必须是字符串列表');
+  }
+  if (raw.insertAt !== undefined && (typeof raw.insertAt !== 'number' || !Number.isInteger(raw.insertAt))) {
+    return malformedOptionalArg(raw, 'insertAt 必须是整数');
+  }
+  const { args, omitWhen, insertAt, ...unknownFields } = raw;
+  return {
+    ...unknownFields,
+    when: raw.when,
+    args: [...args],
+    omitWhen: omitWhen === undefined ? [] : [...omitWhen],
+    ...(insertAt === undefined ? {} : { insertAt }),
+  };
+}
 
 // Names what is wrong with a hand-edited `health` value that has no usable string `path`, for the message
 // shown next to the checkbox — matches config.js's own order of complaints (must be an object, then path).
@@ -208,6 +269,9 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
           healthMalformed = rawHealth;
         }
       }
+      const optionalArgsMalformed = 'optionalArgs' in lane && !Array.isArray(lane.optionalArgs) ? lane.optionalArgs : undefined;
+      const rawOptionalArgs = Array.isArray(lane.optionalArgs) ? lane.optionalArgs : [];
+      const optionalArgs = rawOptionalArgs.map(parseOptionalArg);
       lanes.push({
         id,
         formKey: createLaneFormKey(),
@@ -227,6 +291,8 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
         healthPath,
         healthJson: healthJsonText,
         healthMalformed,
+        optionalArgs,
+        optionalArgsMalformed,
       });
     }
   }
@@ -347,6 +413,29 @@ export function toRaw(raw: Record<string, unknown> | null | undefined, drafts: S
       laneObj.health = lane.healthMalformed;
     } else delete laneObj.health;
 
+    if (lane.optionalArgsMalformed !== undefined) {
+      laneObj.optionalArgs = lane.optionalArgsMalformed;
+    } else if (lane.optionalArgs && lane.optionalArgs.length > 0) {
+      laneObj.optionalArgs = lane.optionalArgs.map((group) => {
+        if (group.parseError && Object.prototype.hasOwnProperty.call(group, 'rawOptionalArg')) return group.rawOptionalArg;
+        const { when, args, omitWhen, insertAt, ...unknownFields } = group;
+        const g: Record<string, unknown> = {
+          ...unknownFields,
+          when,
+          args: [...args],
+        };
+        if (omitWhen && omitWhen.length > 0) {
+          g.omitWhen = [...omitWhen];
+        }
+        if (typeof insertAt === 'number') {
+          g.insertAt = insertAt;
+        }
+        return g;
+      });
+    } else {
+      delete laneObj.optionalArgs;
+    }
+
     newLanes[lane.id] = laneObj;
   }
   next.lanes = newLanes;
@@ -401,6 +490,46 @@ export function validateDrafts(drafts: SettingsDrafts): Record<string, string> {
       errors[`lanes.${i}.run`] = '执行命令不能为空'; if (laneId) errors[`lanes.${laneId}.run`] = '执行命令不能为空';
     } else if (lane.run.some((arg) => typeof arg !== 'string' || !arg.trim())) {
       errors[`lanes.${i}.run`] = '执行命令参数不能为空白'; if (laneId) errors[`lanes.${laneId}.run`] = '执行命令参数不能为空白';
+    }
+
+    const addOptionalArgError = (groupIndex: number, field: string, message: string) => {
+      const indexBase = `lanes.${i}.optionalArgs[${groupIndex}]`;
+      errors[`${indexBase}.${field}`] = message;
+      if (laneId) errors[`lanes.${laneId}.optionalArgs[${groupIndex}].${field}`] = message;
+    };
+    if (lane.optionalArgsMalformed !== undefined) {
+      const message = '可选参数组无法解析，已原样保留；请删除或修复后再保存';
+      errors[`lanes.${i}.optionalArgs`] = message;
+      if (laneId) errors[`lanes.${laneId}.optionalArgs`] = message;
+    }
+    for (const [groupIndex, group] of (lane.optionalArgs || []).entries()) {
+      if (group.parseError) {
+        addOptionalArgError(groupIndex, 'parse', group.parseError);
+        continue;
+      }
+      if (!OPTIONAL_ARG_WHEN.has(group.when)) addOptionalArgError(groupIndex, 'when', 'when 只能是 variant 或 agent');
+      if (!Array.isArray(group.args) || group.args.length === 0) {
+        addOptionalArgError(groupIndex, 'args', 'args 不能为空');
+      } else {
+        if (group.args.some((arg) => typeof arg !== 'string' || !arg.trim())) {
+          addOptionalArgError(groupIndex, 'args', '参数不能为空或仅为空白字符');
+        }
+        if (!group.args.some((arg) => typeof arg === 'string' && arg.includes(`{${group.when}}`))) {
+          addOptionalArgError(groupIndex, 'args', `args 中需要包含 {${group.when}} 占位符`);
+        }
+      }
+      if (group.omitWhen?.some((value) => typeof value !== 'string' || !value.trim())) {
+        addOptionalArgError(groupIndex, 'omitWhen', '省略值不能为空或仅为空白字符');
+      }
+      if (group.omitWhen && new Set(group.omitWhen).size !== group.omitWhen.length) {
+        addOptionalArgError(groupIndex, 'omitWhen', '省略值不能重复');
+      }
+      if (group.insertAt !== undefined) {
+        const minInsertAt = lane.run[0] === 'node' ? 2 : 1;
+        if (!Number.isInteger(group.insertAt) || group.insertAt < minInsertAt || group.insertAt > lane.run.length) {
+          addOptionalArgError(groupIndex, 'insertAt', `插入位置必须在 ${minInsertAt} 到 ${lane.run.length} 之间`);
+        }
+      }
     }
 
     if (lane.serve.length > 0) {

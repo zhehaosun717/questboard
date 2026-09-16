@@ -445,7 +445,7 @@ export interface SettingsReport {
     paths: { data: string; events: string; registry: string; lock: string };
     briefs: { dispatchDirs: string[]; ownerDirs: string[]; recentDays: number };
     reviewPagesDir: string | null;
-    lanes: Array<{ id: string; run: string[]; outputDir: string | null; api: string | null; serve: string[] | null; serialize: boolean; defaultModel: string | null }>;
+    lanes: Array<{ id: string; run: string[]; outputDir: string | null; api: string | null; serve: string[] | null; serialize: boolean; defaultModel: string | null; optionalArgs?: OptionalArgGroup[] }>;
     policy: { bannedModelPatterns: string[]; bannedAgents: string[] };
   };
   // questboard.config.json exactly as written — what the settings page edits. `project` above is the resolved
@@ -480,4 +480,42 @@ export interface QuestEvent {
   // older one, which is how the web side knows it cannot deduplicate and keeps notifications switched off
   // (see lib/notifications).
   seq?: number;
+}
+
+// Optional argument group for lanes (src/core/config.js).
+export interface OptionalArgGroup {
+  when: 'variant' | 'agent';
+  args: string[];
+  omitWhen?: string[];
+  insertAt?: number;
+  [key: string]: unknown;
+}
+
+export interface LanePreviewCard {
+  model?: string;
+  variant?: string;
+  agent?: string;
+}
+
+export interface LanePreviewSample {
+  name?: string;
+  brief?: string;
+  package?: string;
+}
+
+export interface LanePreviewRequest {
+  lane: Record<string, unknown>;
+  card?: LanePreviewCard;
+  sample?: LanePreviewSample;
+}
+
+export interface LanePreviewOmitted {
+  when: string;
+  reason: string;
+}
+
+export interface LanePreviewResponse {
+  argv: string[];
+  omitted: LanePreviewOmitted[];
+  warnings: string[];
 }

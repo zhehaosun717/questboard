@@ -171,4 +171,34 @@ describe('LaneCard health block (real JSX)', () => {
       expect(html).not.toContain(pathInputId);
     });
   });
+
+  describe('LaneCard optionalArgs collapsed section', () => {
+    it('renders the collapsed 可选参数 summary section with empty state when unconfigured', () => {
+      const lane = draftLane({});
+      const html = render(lane, {});
+      expect(html).toContain('可选参数 (Optional Arguments)');
+      expect(html).toContain('未配置');
+      expect(html).toContain('lane-optional-args-section');
+      expect(html).toContain('命令预览 (Argv Preview)');
+    });
+
+    it('shows group count badge when optionalArgs are configured', () => {
+      const lane: LaneDraft = {
+        ...draftLane({}),
+        optionalArgs: [
+          { when: 'variant', args: ['--effort', '{variant}'], omitWhen: ['none'], insertAt: 2 },
+        ],
+      };
+      const html = render(lane, {});
+      expect(html).toContain('已配置 1 组');
+      expect(html).toContain('当卡片填了 variant 时，在第 3 个位置插入 --effort {variant}；值为 none 时整组省略');
+    });
+
+    it('automatically opens details section when an error exists on optionalArgs', () => {
+      const lane = draftLane({});
+      const errors = { 'lanes.0.optionalArgs[0].args': '参数不能为空白' };
+      const html = render(lane, errors);
+      expect(html).toContain('<details class="lane-optional-args-section" open=""');
+    });
+  });
 });

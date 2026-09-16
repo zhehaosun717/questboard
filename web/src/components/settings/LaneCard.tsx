@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import type { LaneServerStatus } from '../../api/types';
+import type { Card, LaneServerStatus } from '../../api/types';
 import { describeMalformedHealth, OPENCODE_HEALTH_PRESET, type LaneDraft } from '../../lib/settingsForm';
 import { LaneServerPanel, type LaneServerMessage } from './LaneServerPanel';
+import { OptionalArgsEditor } from './OptionalArgsEditor';
+import { ArgvPreview } from './ArgvPreview';
 
 interface LaneCardProps {
   lane: LaneDraft;
@@ -13,6 +15,7 @@ interface LaneCardProps {
   onStartServer: () => void;
   onUpdate: (patch: Partial<LaneDraft>) => void;
   onRemove: () => void;
+  roster?: readonly Card[];
 }
 
 export function LaneCard({
@@ -25,6 +28,7 @@ export function LaneCard({
   onStartServer,
   onUpdate,
   onRemove,
+  roster,
 }: LaneCardProps) {
   const serveErr = errors[`lanes.${index}.serve`] || errors[`lanes.${lane.id}.serve`];
   const idErr = errors[`lanes.${index}.id`] || errors[`lanes.${lane.id}.id`];
@@ -35,6 +39,12 @@ export function LaneCard({
   const apiErr = errors[`lanes.${index}.api`] || errors[`lanes.${lane.id}.api`];
   const healthPathErr = errors[`lanes.${index}.healthPath`] || errors[`lanes.${lane.id}.healthPath`];
   const healthJsonErr = errors[`lanes.${index}.healthJson`] || errors[`lanes.${lane.id}.healthJson`];
+  const hasOptionalArgsErr = Object.keys(errors).some(
+    (k) =>
+      k.startsWith(`lanes.${index}.optionalArgs`) ||
+      k.startsWith(`lanes.${lane.id}.optionalArgs`) ||
+      k.startsWith('optionalArgs'),
+  );
 
   // "Opened, not filled yet": lets a freshly checked box keep showing its (still empty) fields. Deliberately
   // NOT combined with `errors` below — those come from the last save attempt, are keyed by index/id, and do
@@ -145,6 +155,32 @@ export function LaneCard({
           </div>
         </div>
       </div>
+
+      <details
+        className="lane-optional-args-section"
+        open={hasOptionalArgsErr ? true : undefined}
+      >
+        <summary className="lane-optional-args-summary">
+          <span className="optional-args-summary-title">可选参数 (Optional Arguments)</span>
+          {lane.optionalArgs && lane.optionalArgs.length > 0 ? (
+            <span className="optional-args-count-badge">已配置 {lane.optionalArgs.length} 组</span>
+          ) : (
+            <span className="optional-args-empty-badge">未配置</span>
+          )}
+        </summary>
+        <div className="lane-optional-args-content">
+          <OptionalArgsEditor
+            laneId={lane.id}
+            laneIndex={index}
+            run={lane.run}
+            optionalArgs={lane.optionalArgs || []}
+            malformed={lane.optionalArgsMalformed}
+            onChange={(optionalArgs) => onUpdate({ optionalArgs, optionalArgsMalformed: undefined })}
+            errors={errors}
+          />
+          <ArgvPreview lane={lane} roster={roster} />
+        </div>
+      </details>
 
       <div className="form-grid-2">
         <div className="form-field">
