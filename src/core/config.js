@@ -199,6 +199,21 @@ function validateLane(id, lane) {
   return result;
 }
 
+// A folder that lexically escapes the project root can never be safely scanned or written into (its
+// contents would go to a third-party model, or a write would land outside the project) — refused loudly
+// here, at config-validation time, rather than silently discovered later as an empty/broken folder. This
+// only catches what pure path arithmetic can see (a literal ".." or an absolute path elsewhere); a folder
+// that only resolves outside via a symlink or junction still passes here and is caught at read/dispatch
+// time instead (patterns.js briefPathAllowed, briefs.js discoverBriefs/fileSetFor) — the per-folder "项目外"
+// diagnostic those report is expected even for an otherwise-valid config, and is not a config error itself.
+function checkBriefDirs(base, dirs, field) {
+  for (const dir of dirs) {
+    const issue = lexicalContainmentIssue(base, dir);
+    if (issue) fail(`${field} 的 ${dir} 不合法：${issue}`);
+  }
+  return dirs;
+}
+
 export function resolveConfig(root, raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('the file must hold a JSON object');
   const base = path.resolve(root);
@@ -221,8 +236,8 @@ export function resolveConfig(root, raw) {
       lock: abs(raw.lockFile === undefined ? path.join(dataDir, 'dispatch.lock') : raw.lockFile, 'lockFile'),
     },
     briefs: {
-      dispatchDirs: stringList(briefs.dispatchDirs, 'briefs.dispatchDirs', ['docs/briefs']),
-      ownerDirs: stringList(briefs.ownerDirs, 'briefs.ownerDirs', stringList(briefs.dispatchDirs, 'briefs.dispatchDirs', ['docs/briefs'])),
+      dispatchDirs: checkBriefDirs(base, stringList(briefs.dispatchDirs, 'briefs.dispatchDirs', ['docs/briefs']), 'briefs.dispatchDirs'),
+      ownerDirs: checkBriefDirs(base, stringList(briefs.ownerDirs, 'briefs.ownerDirs', stringList(briefs.dispatchDirs, 'briefs.dispatchDirs', ['docs/briefs'])), 'briefs.ownerDirs'),
       packagePattern: regex(briefs.packagePattern || '^[A-Z]+(?:-[A-Z]+)*-\\d+[A-Z]?', 'briefs.packagePattern'),
       fileListHeading: regex(briefs.fileListHeading || '^#{1,6}\\s*files you may (edit|touch)', 'briefs.fileListHeading', 'i'),
       recentDays: briefs.recentDays === undefined ? 7 : briefs.recentDays,
@@ -277,6 +292,56 @@ export function findProjectRoot(start = process.cwd()) {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+// A configured brief folder must stay inside the project root, checked two different ways at two different
+// times. This one is pure path arithmetic (no filesystem access), so it can run even before the folder
+// exists — at POST time (briefPathAllowed) a brief a few lines away from being written should not need to
+// already be on disk to be validated, and resolveConfig itself runs long before any of a project's briefs
+// folders may have been created. It catches a literal ".." or an absolute path pointing outside root.
+export function lexicalContainmentIssue(root, dir) {
+  const base = path.resolve(root);
+  const resolved = path.resolve(base, dir);
+  const same = process.platform === 'win32' ? resolved.toLowerCase() === base.toLowerCase() : resolved === base;
+  const inside = process.platform === 'win32'
+    ? resolved.toLowerCase().startsWith(`${base.toLowerCase()}${path.sep}`)
+    : resolved.startsWith(`${base}${path.sep}`);
+  return same || inside ? null : `配置目录在项目外（相对路径逃逸）：${dir}`;
+}
+
+// The filesystem-backed half: realpath the root and the nearest EXISTING ancestor of the target, then
+// rejoin whatever suffix of the path does not exist yet (a folder about to be scanned or written into may
+// not exist at all, or may exist only partway down). Only this half catches a symlink or Windows junction
+// that resolves outside the project — lexicalContainmentIssue alone cannot, since the string alone looks
+// contained. Re-run at read and dispatch time, not only once at post time, because the target on disk (a
+// junction's destination, a folder that gets created later) can change after the first check ever ran.
+export function realpathContainmentIssue(root, absoluteTarget) {
+  let realRoot;
+  try {
+    realRoot = fs.realpathSync(root);
+  } catch {
+    return '项目根目录不可读';
+  }
+  let current = path.resolve(absoluteTarget);
+  const suffix = [];
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) { suffix.length = 0; current = path.resolve(absoluteTarget); break; }
+    suffix.unshift(path.basename(current));
+    current = parent;
+  }
+  let realAncestor;
+  try {
+    realAncestor = fs.realpathSync(current);
+  } catch (err) {
+    return `目录不可读（${err.code || err.message}）`;
+  }
+  const realTarget = suffix.length ? path.join(realAncestor, ...suffix) : realAncestor;
+  const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
+  const rootN = norm(realRoot);
+  const targetN = norm(realTarget);
+  if (targetN === rootN || targetN.startsWith(`${rootN}${path.sep}`)) return null;
+  return '目录在项目外（符号链接或联接点逃逸）';
 }
 
 export function loadProjectConfig(root) {

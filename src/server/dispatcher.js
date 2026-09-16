@@ -4,7 +4,7 @@ import { canDispatch, OPEN_STATUSES } from '../core/rules.js';
 import { workerName, planDispatch, executePlan, preflight, workerEvidence, recordedNames } from '../core/dispatch.js';
 import { deriveTransitions } from '../core/sync.js';
 import { withFileSets } from '../core/briefs.js';
-import { lockPresent, briefExists } from '../core/snapshot.js';
+import { lockPresent, briefExists, briefUnusable } from '../core/snapshot.js';
 import { writeApiDelivery, TRANSIENT_DELIVERY_CODES } from '../core/deliveries.js';
 import { sameAttempt } from '../core/store.js';
 import { createNonDurableBindings, sanitizeUnpersistedSession } from '../core/nonDurableBindings.js';
@@ -265,7 +265,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // Builds the env canDispatch needs, fresh each time it's called — once at drop time and again, from a
   // fresh read, for every queued recheck.
   function dispatchEnv(quest) {
-    return { treeLocked: lockPresent(config), briefExists: briefExists(config, quest), laneIds: new Set(Object.keys(config.lanes)), ...(getDownLanes() ? { downLanes: getDownLanes() } : {}) };
+    return { treeLocked: lockPresent(config), briefExists: briefExists(config, quest), briefUnusable: briefUnusable(config, quest), laneIds: new Set(Object.keys(config.lanes)), ...(getDownLanes() ? { downLanes: getDownLanes() } : {}) };
   }
 
   // Re-read the quest and re-run canDispatch in full right before this attempt actually spawns something —
@@ -285,8 +285,12 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // to start rather than silently reuse the stale captured card for a removed adventurer.
   function recheckOpen(questId, attempt, adventurer, planned) {
     if (!stillOurs(questId, attempt)) return { ok: false, detail: '排队等待期间任务被改派、释放或取消，这次派遣不会执行' };
-    // withFileSets, same as the initial check: runningConflict (behind conflict_running) reads quest.files.
-    const quests = withFileSets(config, store.list());
+    // withFileSets, same as the initial check: runningConflict (behind conflict_running) reads quest.files
+    // and quest.conflictKeys. This attempt already holds its own slot (store.assign ran before it was
+    // enqueued), so without recheckingId it would be treated as an already-settled occupant and only ever
+    // receive its own conflict key back — never another held quest's — masking exactly the conflict this
+    // recheck exists to catch (B1). Passing questId here judges it as the fresh candidate it actually is.
+    const quests = withFileSets(config, store.list(), { recheckingId: questId });
     const quest = quests.find((q) => q.id === questId);
     let fresh = adventurer;
     if (getAdventurer) {

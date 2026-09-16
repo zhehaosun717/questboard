@@ -23,14 +23,22 @@ const MESSAGES = {
   reviewer_coded_parent: (quest, adventurer, detail) => `同一模型写过被审核的 ${detail}，不能自己审自己`,
   // Most packages in a design round share a partial, so a conflict reads as a queue, not an error.
   // A declared conflict holds even when the two file lists are disjoint, so the message must not claim
-  // they touch the same files; only an overlap names the shared file.
-  conflict_running: (quest, adventurer, detail) => detail.declared
-    ? `排队：${detail.id} 与本任务声明了冲突，一次一个`
-    : `排队：${detail.id} 正在改同一批文件（${detail.file.split('/').filter(Boolean).pop() || detail.file}），一次一个`,
+  // they touch the same files; only a real overlap names the shared file, and an unknown-brief conflict
+  // (detail.unknown, from briefs.js's conflictKeys) must not claim to know that either — it says plainly
+  // that the held quest's brief could not be confirmed, never "正在改同一批文件".
+  conflict_running: (quest, adventurer, detail) => {
+    if (detail.declared) return `排队：${detail.id} 与本任务声明了冲突，一次一个`;
+    if (detail.unknown) return `排队：${detail.id} 的 brief 目前无法确认（${detail.reason}），保守判定为冲突`;
+    return `排队：${detail.id} 正在改同一批文件（${detail.file.split('/').filter(Boolean).pop() || detail.file}），一次一个`;
+  },
   needs_artist: () => '美术委托只派给会画图的模型（strengths 含 art）',
   worker_unconfirmed: (quest) => `上一个 worker（${quest.assignee.name}）只是没动静，可能还在跑：确认它停了，先在档案里释放，再派`,
   tree_locked: () => 'coordinator 正在跑验证（锁文件存在），暂停派遣',
   brief_missing: (quest) => `找不到 brief 文件：${quest.brief || '（未填写）'}`,
+  // Distinct from brief_missing: the file is there, but cannot be trusted right now (too large, a read
+  // error, or it now resolves outside the project) — see briefs.js's briefUnusableInfo. Naming the file and
+  // the actual cause instead of claiming it is missing.
+  brief_unusable: (quest, adventurer, detail) => `brief 文件读不了：${quest.brief}（${detail.reason}）`,
 };
 
 function reason(code, quest, adventurer, detail) {
@@ -90,16 +98,20 @@ function authoredAncestor(quest, adventurer, byId) {
   return null;
 }
 
-// Declared conflicts in either direction, or an overlap between the briefs' file lists. A declared
-// conflict binds even when the file lists are disjoint, so the result says which kind it is.
+// Declared conflicts in either direction, a real overlap between the briefs' file lists, or a shared
+// unknown-brief conflict key (briefs.js's conflictKeys — never mixed into files itself, see withFileSets).
+// A declared conflict binds even when the file lists are disjoint, so the result says which kind it is.
 function runningConflict(quest, quests) {
   const own = new Set(quest.conflicts || []);
   const files = new Set(quest.files || []);
+  const conflictKeys = new Set(quest.conflictKeys || []);
   for (const other of quests) {
     if (other.id === quest.id || !holdsSlot(other)) continue;
     if (own.has(other.id) || (other.conflicts || []).includes(quest.id)) return { id: other.id, file: null, declared: true };
     const shared = (other.files || []).find((file) => files.has(file));
     if (shared) return { id: other.id, file: shared, declared: false };
+    const sharedKey = (other.conflictKeys || []).find((key) => conflictKeys.has(key));
+    if (sharedKey) return { id: other.id, declared: false, unknown: true, reason: other.briefUnknownReason || '文件列表未知' };
   }
   return null;
 }
@@ -137,7 +149,8 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
   const conflict = runningConflict(quest, quests);
   if (conflict) reasons.push(reason('conflict_running', quest, adventurer, conflict));
   if (env && env.treeLocked) reasons.push(reason('tree_locked', quest, adventurer));
-  if (env && env.briefExists === false) reasons.push(reason('brief_missing', quest, adventurer));
+  if (env && env.briefUnusable) reasons.push(reason('brief_unusable', quest, adventurer, env.briefUnusable));
+  else if (env && env.briefExists === false) reasons.push(reason('brief_missing', quest, adventurer));
   return { ok: reasons.length === 0, reasons };
 }
 

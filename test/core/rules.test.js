@@ -138,6 +138,16 @@ describe('canDispatch', () => {
     assert.ok(codes(check(quest(), luna, [quest()], { ...env, briefExists: false })).includes('brief_missing'));
   });
 
+  it('uses the distinct brief_unusable reason, not brief_missing, when the brief exists but cannot be trusted (revision 4)', () => {
+    const unusableEnv = { ...env, briefExists: false, briefUnusable: { reason: '文件过大（2.0MB，上限 2MB）' } };
+    const result = check(quest(), luna, [quest()], unusableEnv);
+    assert.ok(codes(result).includes('brief_unusable'));
+    assert.ok(!codes(result).includes('brief_missing'), 'brief_unusable must take priority so the message never claims a present file is missing');
+    const reasonObj = result.reasons.find((r) => r.code === 'brief_unusable');
+    assert.match(reasonObj.message, /docs\/briefs\/RUN-4-x\.md/, 'must name the actual brief file');
+    assert.match(reasonObj.message, /文件过大/, 'must pass the real cause through');
+  });
+
   it('gives every reason a Chinese message', () => {
     const q = quest({ status: 'dispatched', needsOwner: 'x', allowedLanes: ['agy'] });
     const result = check(q, card('codex-luna', { status: 'broke', model: 'gpt-5.5' }), [q], { ...env, treeLocked: true, briefExists: false });

@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { eligibility } from './rules.js';
 import { liveByName } from './sync.js';
 import { effectiveRoster } from './overlay.js';
-import { withFileSets, unpostedBriefs } from './briefs.js';
+import { withFileSets, discoverBriefs, briefUsable, briefUnusableInfo } from './briefs.js';
 import { isReviewable, reviewEligibility } from './reviewRequest.js';
 import { recentFailuresByCard } from './failureContext.js';
 
@@ -18,9 +18,23 @@ export function lockPresent(config) {
   return fs.existsSync(config.paths.lock);
 }
 
+// True only when this quest's brief can actually be read and trusted right now, not just when the path
+// exists: an oversized brief, one that fails to read, or one that has started resolving outside the project
+// (see briefUsable/fileStatusFor in briefs.js) is exactly as unusable as a missing one, and must block
+// dispatch through the same brief_missing reason rules.js already raises for env.briefExists === false —
+// every caller of this function (the eligibility loop below, the dispatcher's assign/recheck, review
+// requests) gets the fix for free, without any of them changing.
 export function briefExists(config, quest) {
   if (quest.kind === 'owner' && !quest.brief) return true;
-  return Boolean(quest.brief) && fs.existsSync(path.join(config.root, quest.brief));
+  return Boolean(quest.brief) && briefUsable(config, quest.brief);
+}
+
+// Non-null only when a brief is physically present but cannot be trusted right now (too large, a read
+// error, or outside the project) — the distinct cause rules.js's brief_unusable reason names, as opposed to
+// brief_missing's "there is no brief to read at all". See briefs.js's briefUnusableInfo.
+export function briefUnusable(config, quest) {
+  if (quest.kind === 'owner' && !quest.brief) return null;
+  return briefUnusableInfo(config, quest.brief);
 }
 
 function walk(directory, pattern, found = []) {
@@ -94,7 +108,7 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
   const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), ...(downLanes ? { downLanes } : {}) };
   const byQuest = {};
   for (const quest of quests) {
-    byQuest[quest.id] = eligibility({ quest, roster, quests, policy: config.policy, env: { ...env, briefExists: briefExists(config, quest) } });
+    byQuest[quest.id] = eligibility({ quest, roster, quests, policy: config.policy, env: { ...env, briefExists: briefExists(config, quest), briefUnusable: briefUnusable(config, quest) } });
   }
   // Dropping a card on returned work sends it to review that work, so those drops are judged as reviews.
   const forReview = {};
@@ -102,10 +116,16 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
     if (isReviewable(quest)) forReview[quest.id] = reviewEligibility({ parent: quest, roster, quests, policy: config.policy, env });
   }
   const laneRows = (lanes && lanes.packages) || [];
+  const briefScan = discoverBriefs(config, { postedIds: new Set(quests.map((q) => q.id)), dispatchedIds: new Set(laneRows.map((row) => row.package)) });
+  // withFileSets' internal-only fields (the unknown-brief conflict key rules.js's runningConflict reads, and
+  // the reason text it resolves to) exist purely to drive that one check — never sent to a client. A public
+  // quest keeps its real .files only; conflictKeys/briefUnknownReason are never public, whatever kind of
+  // request asks (the board, the CLI's `show`, or the MCP quest tool — all read this same snapshot).
+  const publicQuests = quests.map(({ conflictKeys, briefUnknownReason, ...quest }) => quest);
   return {
     generatedAt: new Date().toISOString(),
     project: { name: config.name, id: projectId(config.root), lanes: Object.keys(config.lanes) },
-    quests,
+    quests: publicQuests,
     ...(Object.keys(recentFailures).length ? { recentFailures } : {}),
     roster,
     eligibility: byQuest,
@@ -114,9 +134,25 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
     live: liveByName(laneRows, quests),
     threads: threadsByPackage(boardStore, quests.map((q) => q.id)),
     reviewPages: reviewPages(config),
-    unpostedBriefs: unpostedBriefs(config, { postedIds: new Set(quests.map((q) => q.id)), dispatchedIds: new Set(laneRows.map((row) => row.package)) }),
+    unpostedBriefs: briefScan.items,
     verification: (lanes && lanes.verification) || null,
     laneLimits: (lanes && lanes.laneLimits) || {},
     openQuestions: boardStore ? boardStore.listThreads({ status: 'open', tag: 'question' }).length : 0,
+    // Diagnostics behind unpostedBriefs, so an empty shelf reads as "nothing new", never as "discovery is
+    // broken": when it last scanned, which folders and recency window applied, why every skipped file was
+    // skipped (capped at MAX_EXCLUDED rows), and — computed from every exclusion, never just that capped
+    // slice — how many fall in each kind, so a folder with more than the cap never reads as "nothing was
+    // old/dispatched/duplicate" just because none of those rows happened to survive it.
+    briefDiscovery: {
+      scannedAt: briefScan.scannedAt,
+      folders: briefScan.folders,
+      recentDays: briefScan.recentDays,
+      excluded: briefScan.excluded,
+      excludedTotal: briefScan.excludedTotal,
+      excludedTruncated: briefScan.excludedTruncated,
+      byKind: briefScan.byKind,
+      errors: briefScan.errors,
+      truncated: briefScan.truncated,
+    },
   };
 }
