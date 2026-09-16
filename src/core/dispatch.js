@@ -47,10 +47,12 @@ export function workerName(quest, usedNames = new Set()) {
   return name;
 }
 
-export function planDispatch(config, quest, adventurer, name) {
+export function planDispatch(config, quest, adventurer, name, effectiveBrief = quest.brief) {
   const lane = config.lanes[adventurer.lane];
   if (!lane) throw new Error(`this project has no lane ${adventurer.lane}`);
-  const values = { name, brief: quest.brief, model: adventurer.model, variant: adventurer.variant, agent: adventurer.agent, package: quest.id };
+  // The optional fifth value is only the immutable brief path for an art attempt whose snapshot was written.
+  // It is intentionally string-only: no alternate object-shaped template input is part of this contract.
+  const values = { name, brief: effectiveBrief, model: adventurer.model, variant: adventurer.variant, agent: adventurer.agent, package: quest.id };
   const field = `lanes.${adventurer.lane}`;
   const laneEnv = lane.env ? Object.fromEntries(Object.entries(lane.env).map(([k, v]) => [k, fillTemplate([v], values, `${field}.env.${k}`)[0]])) : {};
   // A card's own values win over the lane's, so one generic lane can serve several providers (a different

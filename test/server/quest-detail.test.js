@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { startFixture, tick } from './fixture.js';
 import { captureAttemptReport } from '../../src/core/reportEvidence.js';
+import { appendJsonLine } from '../../src/core/jsonl.js';
 
 let fx;
 before(async () => { fx = await startFixture(); });
@@ -56,6 +57,22 @@ describe('GET /api/quests/:id', () => {
     assert.equal(released.status, 200, released.text);
     assert.equal(released.body.quest.assignee, null);
     assert.equal(fx.events().at(-1).event, 'released');
+  });
+
+  it('exposes the current annotation snapshot and keeps it on the dispatch history', async () => {
+    const brief = 'docs/briefs/QD-39-art.md';
+    fx.project.write(brief, '# QD-39 art');
+    appendJsonLine(path.join(fx.project.config.paths.data, 'annotations', 'robot8.jsonl'), {
+      page: 'robot8', items: [{ id: 'detail', verdict: 'pass', note: 'detail note' }], savedAt: new Date().toISOString(),
+    });
+    const posted = await fx.api('/api/quests', 'POST', { package: 'QD-39', kind: 'art', reviewPage: 'robot8', brief });
+    assert.equal(posted.status, 201, posted.text);
+    const assigned = await fx.api('/api/quests/QD-39/assign', 'POST', { adventurer: 'codex-astra' });
+    assert.equal(assigned.status, 200, assigned.text);
+    const metadata = assigned.body.quest.assignee.annotationSnapshot;
+    const detail = (await fx.api('/api/quests/QD-39')).body.quest;
+    assert.deepEqual(detail.annotationSnapshot, metadata);
+    assert.deepEqual(detail.dispatches[0].annotationSnapshot, metadata);
   });
 });
 

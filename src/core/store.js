@@ -3,6 +3,7 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { realpathContainmentIssue } from './config.js';
 import { appendJsonLine, readJsonLines } from './jsonl.js';
 import { lastEventSeq } from './events.js';
 import { packageIdPattern, briefPathAllowed } from './patterns.js';
@@ -23,6 +24,8 @@ const STATUS_EVENTS = { delivered: 'delivered', failed: 'failed', bounced: 'boun
 // twice (a duplicate poll, a retried callback), not a second real transition.
 const TERMINAL_STATUSES = new Set(['delivered', 'failed', 'bounced']);
 const MAX_TEXT = 300;
+const ANNOTATION_PAGE_PATTERN = /^[a-z0-9_-]{1,64}$/;
+const ANNOTATION_DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 
 // Identity for one dispatch attempt. requestKey stays the caller's idempotency key for a single API call;
 // attemptId is the attempt itself, so a callback can tell "this exact assignment" apart from a same-named
@@ -76,6 +79,34 @@ function splitList(value) {
   if (value === undefined || value === null || value === '') return [];
   const list = Array.isArray(value) ? value : String(value).split(',');
   return [...new Set(list.map((v) => String(v).trim()).filter(Boolean))];
+}
+
+function pathInside(root, target) {
+  const base = path.resolve(root);
+  const resolved = path.resolve(target);
+  const normalize = (value) => process.platform === 'win32' ? value.toLowerCase() : value;
+  const baseN = normalize(base);
+  const targetN = normalize(resolved);
+  return targetN === baseN || targetN.startsWith(`${baseN}${path.sep}`);
+}
+
+// The snapshot reference is plain, non-secret metadata. It is validated at the persistence boundary as well
+// as when it is created, so a malformed caller cannot turn the detail route into a path or digest oracle.
+export function validateAnnotationSnapshot(config, questId, value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('annotationSnapshot must be an object');
+  if (typeof value.page !== 'string' || !ANNOTATION_PAGE_PATTERN.test(value.page)) throw new Error('annotationSnapshot.page has an invalid page id');
+  if (typeof value.title !== 'string' || value.title.length > 1000) throw new Error('annotationSnapshot.title must be a string of at most 1000 characters');
+  if (!Number.isSafeInteger(value.count) || value.count < 0) throw new Error('annotationSnapshot.count must be a non-negative integer');
+  if (typeof value.capturedAt !== 'string' || !Number.isFinite(Date.parse(value.capturedAt))) throw new Error('annotationSnapshot.capturedAt must be a valid date string');
+  if (typeof value.digest !== 'string' || !ANNOTATION_DIGEST_PATTERN.test(value.digest)) throw new Error('annotationSnapshot.digest must be a SHA-256 hex digest');
+  if (typeof value.path !== 'string' || !value.path.trim() || value.path.includes('\0') || path.isAbsolute(value.path)) throw new Error('annotationSnapshot.path must be a relative path');
+  const absolutePath = path.resolve(config.root, value.path);
+  if (!pathInside(config.root, absolutePath)) throw new Error('annotationSnapshot.path must stay under the project root');
+  const projectIssue = realpathContainmentIssue(config.root, absolutePath);
+  if (projectIssue) throw new Error('annotationSnapshot.path must stay under the project root');
+  const expected = path.join(config.paths.data, 'dispatch-briefs', questId);
+  if (!pathInside(expected, absolutePath)) throw new Error('annotationSnapshot.path must stay under the quest dispatch-brief directory');
+  return { page: value.page, title: value.title, count: value.count, capturedAt: value.capturedAt, digest: value.digest, path: value.path };
 }
 
 export function validatePost(config, payload, quests = []) {
@@ -196,6 +227,10 @@ export class QuestStore extends EventEmitter {
       // this attempt produced ({source, ref, digest, capturedAt, ...}). Omitted entirely otherwise, so every
       // existing event's own shape on disk stays byte-identical to before this was added.
       ...(fields.report ? { report: fields.report } : {}),
+      // Annotation provenance belongs only to the dispatched event for an art attempt. Omit both keys when
+      // callers do not pass them, preserving every unaffected event's serialized shape.
+      ...(fields.annotationCount !== undefined ? { annotationCount: fields.annotationCount } : {}),
+      ...(fields.annotationPage !== undefined ? { annotationPage: fields.annotationPage } : {}),
     };
     appendJsonLine(this.eventsFile, record);
     if (notify) this.notify(record);
@@ -323,6 +358,20 @@ export class QuestStore extends EventEmitter {
     if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(`${id} 的这次派遣已经不是当前记录了，阶段没法登记`);
     const assignee = { ...quest.assignee, ...(phase !== undefined ? { phase } : {}), ...(session !== undefined ? { session } : {}), ...(unresolved !== undefined ? { unresolved } : {}) };
     return this.save({ ...quest, assignee, updatedAt: now() });
+  }
+
+  // Writes the immutable annotation reference after assign() has minted the attempt id and before the
+  // dispatcher queues any child effect. The matching dispatch history row is updated too, so a later detail
+  // read still has the provenance after this attempt no longer holds the current assignee slot.
+  recordAnnotationSnapshot(id, attempt, annotationSnapshot) {
+    const quest = this.quests.get(id);
+    if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(`${id} 的这次派遣已经不是当前记录了，批注快照没法登记`);
+    const value = validateAnnotationSnapshot(this.config, id, annotationSnapshot);
+    if (quest.assignee.annotationSnapshot) throw new Error(`${id} 的这次派遣已经登记过批注快照了`);
+    const assignee = { ...quest.assignee, annotationSnapshot: value };
+    const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt)
+      ? { ...dispatch, annotationSnapshot: value } : dispatch);
+    return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
   }
 
   setStatus(id, status, { detail = '', by = 'coordinator', report = null, source, ack = false, evidence } = {}) {

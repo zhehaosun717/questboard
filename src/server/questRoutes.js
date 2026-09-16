@@ -238,6 +238,9 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
         if (!quest) { sendJson(response, 404, { error: 'quest not found' }); return true; }
         sendJson(response, 200, { quest: {
           ...quest,
+          // Additive provenance for feedback 39: the current attempt's immutable review annotation capture.
+          // Historical captures remain on their dispatches entries; legacy and non-art attempts answer null.
+          annotationSnapshot: quest.assignee?.annotationSnapshot || null,
           live: quest.assignee ? snap.live[quest.assignee.name] || null : null,
           threads: snap.threads[quest.id] || [],
           eligibility: eligibilitySummary(snap.eligibility[quest.id]),

@@ -11,6 +11,7 @@ import { sameAttempt } from '../core/store.js';
 import { attemptEvidence } from '../core/cancellation.js';
 import { captureAttemptReport } from '../core/reportEvidence.js';
 import { createNonDurableBindings, sanitizeUnpersistedSession } from '../core/nonDurableBindings.js';
+import { prepareAnnotationSnapshot, writeAnnotationSnapshot } from '../core/annotationSnapshot.js';
 import { createGenericWrapperAdapter } from './workerControlAdapters.js';
 
 const EVIDENCE_WAIT_MS = 10000;
@@ -86,7 +87,11 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   function announceStarted(questId, attempt, detail = `脚本已启动，worker ${attempt.name}`) {
     const current = stillOurs(questId, attempt);
     if (!current) return;
-    safeguard('announceStarted', detail, () => store.emitEvent(current, 'dispatched', { by: 'board', detail }));
+    const annotation = attempt.annotationSnapshot;
+    safeguard('announceStarted', detail, () => store.emitEvent(current, 'dispatched', {
+      by: 'board', detail,
+      ...(annotation ? { annotationCount: annotation.count, annotationPage: annotation.page } : {}),
+    }));
   }
 
   // A bounded, guarded diagnostic sink for a persistence op that failed inside one of the settle/preserve
@@ -282,6 +287,10 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       && (planned.agent || '') === (fresh.agent || '') && sameEnv(planned.env, fresh.env);
   }
 
+  function samePlan(left, right) {
+    return JSON.stringify(left) === JSON.stringify(right);
+  }
+
   // Builds the env canDispatch needs, fresh each time it's called — once at drop time and again, from a
   // fresh read, for every queued recheck.
   function dispatchEnv(quest) {
@@ -351,6 +360,16 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     if (stale) return stale;
     const verdict = canDispatch({ quest, adventurer, quests, policy: config.policy, env: dispatchEnv(quest) });
     if (!verdict.ok) return { status: 409, body: { error: 'refused', reasons: verdict.reasons } };
+    let annotationPreparation = null;
+    if (quest.kind === 'art' && String(quest.reviewPage || '').trim()) {
+      try {
+        // This reads and folds only; no directory or snapshot file is created until after store.assign has
+        // minted the attempt id. Every refusal here therefore leaves the quest and its events untouched.
+        annotationPreparation = prepareAnnotationSnapshot({ config, quest });
+      } catch (error) {
+        return { status: 409, body: { error: 'refused', reasons: [{ code: error.code || 'annotation_snapshot', message: error.message }] } };
+      }
+    }
     // Every name this project has ever recorded, not just currently-held ones: a finished quest's name is
     // still its report/session/output file on disk, and package-id normalization can land two different
     // quests (one now finished) on the same base name.
@@ -362,8 +381,39 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     } catch (error) {
       return { status: 409, body: { error: 'refused', reasons: [{ code: 'preflight', message: error.message }] } };
     }
-    const running = store.assign(quest.id, { adventurer, name, by, requestKey });
-    const attempt = { attemptId: running.assignee.attemptId, name, lane: running.assignee.lane, at: running.assignee.at };
+    let running = store.assign(quest.id, { adventurer, name, by, requestKey });
+    const assignedAttempt = { attemptId: running.assignee.attemptId, name: running.assignee.name, lane: running.assignee.lane, at: running.assignee.at };
+    let annotationSnapshot = null;
+    if (annotationPreparation) {
+      try {
+        annotationSnapshot = writeAnnotationSnapshot({
+          config, packageId: quest.id, attemptId: assignedAttempt.attemptId,
+          briefText: annotationPreparation.briefText, page: annotationPreparation.page,
+          title: annotationPreparation.title, capturedAt: annotationPreparation.capturedAt,
+          items: annotationPreparation.items, content: annotationPreparation.content,
+        });
+        running = store.recordAnnotationSnapshot(quest.id, assignedAttempt, annotationSnapshot);
+        const rebuiltPlan = planDispatch(config, quest, adventurer, name, annotationSnapshot.path);
+        if (!runners && !samePlan(plan, rebuiltPlan)) preflight(config, rebuiltPlan);
+        plan = rebuiltPlan;
+      } catch (error) {
+        // Assignment is already durable, but no child effect has started. Settle this verified
+        // never-started attempt through the normal failed transition so a 409 cannot hide a held slot.
+        const detail = `snapshot write failed for attempt ${assignedAttempt.attemptId}; no child was started: ${error.message}`;
+        try {
+          store.setStatus(quest.id, 'failed', {
+            detail, by: 'board', source: 'dispatcher',
+            evidence: { kind: 'dispatcher', attempt: attemptEvidence(assignedAttempt) },
+          });
+          return { status: 503, body: { error: 'snapshot_failed_after_assign', attemptId: assignedAttempt.attemptId, settled: true, reasons: [{ code: error.code || 'annotation_snapshot', message: error.message }] } };
+        } catch (settleError) {
+          // If the failure transition itself cannot be persisted, name the still-visible attempt explicitly;
+          // callers must not misread this as an ordinary pre-assign refusal.
+          return { status: 503, body: { error: 'snapshot_failed_after_assign', attemptId: assignedAttempt.attemptId, settled: false, reasons: [{ code: error.code || 'annotation_snapshot', message: error.message }, { code: 'settlement_failed', message: settleError.message }] } };
+        }
+      }
+    }
+    const attempt = { ...assignedAttempt, ...(annotationSnapshot ? { annotationSnapshot } : {}) };
     const controlToken = config.lanes[adventurer.lane]?.control?.type === 'generic-wrapper' ? randomUUID() : null;
     if (controlToken) controlHandles.set(attempt.attemptId, { token: controlToken, child: null, lane: attempt.lane, name: attempt.name });
     // Snapshot of exactly what the plan above was built from, immutable for the life of this attempt — every
