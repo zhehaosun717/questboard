@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, subscribe } from '../api/client';
 import type { Snapshot } from '../api/types';
 import { describeEvent } from '../lib/labels';
+import { observeBoard, observeBoardEvent } from '../lib/notifications';
 
 export interface Toast {
   id: number;
@@ -79,7 +80,7 @@ export function useBoard(): BoardState {
     const close = subscribe({
       onOpen: () => { setConnected(true); refresh(); },
       onError: () => setConnected(false),
-      onEvent: (event) => { pushToast(describeEvent(event)); refresh(); },
+      onEvent: (event) => { observeBoardEvent(event); pushToast(describeEvent(event)); refresh(); },
     });
     const poll = setInterval(() => { void load(); }, POLL_MS);
     return () => {
@@ -91,6 +92,12 @@ export function useBoard(): BoardState {
       pendingToasts.clear();
     };
   }, [load, refresh, pushToast]);
+
+  // The notification center follows the same snapshot the board renders: the project scope picks the stored
+  // preference and the seq baseline, and the quest list is what its notifications are titled from.
+  useEffect(() => {
+    observeBoard(snap);
+  }, [snap]);
 
   const setDragging = useCallback((value: boolean) => {
     dragging.current = value;

@@ -18,6 +18,7 @@ import { UsageView } from './components/UsageView';
 import { WorkOrderModal } from './components/WorkOrderModal';
 import { useBoard } from './hooks/useBoard';
 import { failureForCard, failureQuestExists } from './api/failureTypes';
+import { setNotificationQuestOpener } from './lib/notifications';
 import { formatRoute, parseRoute, type Route, type Tab } from './lib/route';
 import './styles/tabs.css';
 import './styles/config.css';
@@ -53,6 +54,12 @@ export function App() {
       document.title = `${snap.project.name} 委托板`;
     }
   }, [snap?.project?.name]);
+
+  // A click on a desktop notification opens that quest in the drawer, wherever the owner is on the page.
+  useEffect(() => {
+    setNotificationQuestOpener((questId) => setSelectedQuestId(questId));
+    return () => setNotificationQuestOpener(null);
+  }, []);
 
   useEffect(() => {
     const isPicking =

@@ -1,0 +1,45 @@
+/* Settings › 本机 › 桌面通知. Scoped to notifications-* names; the section/card/title chrome comes from
+   config.css. */
+.notifications-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notifications-line {
+  margin: 0;
+}
+
+.notifications-permission {
+  color: var(--tag);
+}
+
+.notifications-actions {
+  display: flex;
+}
+
+.notifications-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The app-wide `textarea, select, input { width: 100%; padding: … }` rule (board.css) also reaches these
+   checkboxes: stretched full width they shove 启用桌面通知 against the card edge and wrap the five event
+   labels one character per line. A checkbox is sized by the browser, not by the field layout. */
+.notifications-toggle input {
+  width: auto;
+  flex: none;
+  padding: 0;
+  margin: 0;
+}
+
+.notifications-events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.notifications-toggle input:disabled {
+  cursor: not-allowed;
+}

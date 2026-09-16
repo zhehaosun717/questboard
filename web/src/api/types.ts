@@ -405,4 +405,8 @@ export interface QuestEvent {
   name: string | null;
   by: string;
   detail: string;
+  // The ordered event id from the events file. Present on every event a current server sends; missing on an
+  // older one, which is how the web side knows it cannot deduplicate and keeps notifications switched off
+  // (see lib/notifications).
+  seq?: number;
 }
