@@ -1,0 +1,56 @@
+/* Scoped to the drawer's 修改委托 (correct metadata) section — QuestDrawer/MetadataSection only. */
+.meta-details { cursor: default; }
+.meta-details > summary { cursor: pointer; list-style: none; }
+.meta-details > summary::-webkit-details-marker { display: none; }
+.meta-details > summary::before { content: "▸ "; color: var(--rust); }
+.meta-details[open] > summary::before { content: "▾ "; }
+
+.meta-body { margin-top: 10px; display: flex; flex-direction: column; gap: 14px; }
+
+.meta-field { display: flex; flex-direction: column; gap: 4px; }
+.meta-field > span:first-child { font: 700 12px var(--body); color: var(--cable); }
+
+.meta-hint { margin: 0; font-size: 12px; color: var(--dim); }
+.meta-err { margin: 2px 0 0; font-size: 12px; color: var(--wax-lt); }
+
+.meta-banner { padding: 8px 10px; border-radius: 2px; font-size: 12px; }
+.meta-banner p { margin: 0 0 6px; }
+.meta-banner-block { color: var(--ink); background: repeating-linear-gradient(-45deg, var(--brass-lt) 0 12px, var(--amber) 12px 24px); font-weight: 700; }
+.meta-banner-stale { color: var(--tag); background: var(--soil2); border: 1px solid var(--rust-dk); }
+
+.meta-locked { padding: 6px 8px; background: var(--soil2); border: 1px solid var(--steel); border-radius: 2px; }
+
+.meta-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; padding: 0; list-style: none; }
+.meta-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 9px; font-size: 12px; color: var(--cream);
+  background: var(--steel2); border: 1px solid var(--hall-edge); border-radius: 12px; max-width: 100%;
+}
+.meta-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta-chip-readonly { background: var(--soil2); color: var(--dim); }
+.meta-chip-remove {
+  flex: none; width: 18px; height: 18px; padding: 0; font-size: 11px; line-height: 1; color: var(--dim);
+  background: transparent; border: none; border-radius: 50%;
+}
+.meta-chip-remove:hover { color: var(--wax-lt); background: var(--hall-edge); }
+
+.meta-picker { display: flex; flex-direction: column; gap: 6px; position: relative; }
+.meta-picker-input { display: flex; gap: 6px; }
+.meta-picker-input input { flex: 1; }
+.meta-picker-add { flex: none; padding: 4px 10px; font-size: 12px; }
+
+.meta-suggest {
+  margin: 0; padding: 4px; list-style: none; display: flex; flex-direction: column; gap: 2px;
+  background: var(--hall-edge); border: 1px solid var(--steel); border-radius: 2px; max-height: 180px; overflow-y: auto;
+}
+.meta-suggest button {
+  display: block; width: 100%; padding: 5px 7px; text-align: left; font-size: 12px; color: var(--cream);
+  background: transparent; border: none; border-radius: 2px; box-shadow: none;
+}
+.meta-suggest button.active, .meta-suggest button:hover { background: var(--steel2); }
+
+.meta-actions { margin-top: 4px; }
+
+@media (max-width: 520px) {
+  .meta-picker-input { flex-direction: column; }
+  .meta-picker-add { align-self: flex-end; }
+}

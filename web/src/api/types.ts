@@ -53,6 +53,17 @@ export interface Quest {
   updatedAt: string;
 }
 
+// Owner-driven correction of a posted quest's own descriptive fields (POST /api/quests/:id/metadata,
+// src/core/metadataUpdate.js METADATA_FIELDS). A field left out is never touched by the server.
+export interface MetadataUpdateInput {
+  title?: string;
+  brief?: string;
+  parents?: string[];
+  conflicts?: string[];
+  allowedLanes?: string[];
+  needsOwner?: string;
+}
+
 export interface Card {
   id: string;
   name: string;

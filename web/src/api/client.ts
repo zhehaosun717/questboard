@@ -1,18 +1,22 @@
 // The only module that talks to the board server. Errors carry the server's refusal reasons.
 import type {
-  AdventurerInput, Card, CardStatus, LaneServerStatus, LanesReport, Message, OmoChange, OmoConfig, Quest, QuestEvent, QuestStatus, Reason,
-  SettingsReport, Snapshot, Thread, ThreadDetail, ThreadStatusFilter, UsageReport,
+  AdventurerInput, Card, CardStatus, LaneServerStatus, LanesReport, Message, MetadataUpdateInput, OmoChange, OmoConfig, Quest, QuestEvent,
+  QuestStatus, Reason, SettingsReport, Snapshot, Thread, ThreadDetail, ThreadStatusFilter, UsageReport,
 } from './types';
 
 export class ApiError extends Error {
   readonly reasons: Reason[];
   readonly fields: Record<string, string>;
+  // Only ever set by the metadata 409 stale-revision response (questRoutes.js): the quest's current
+  // revision, so a caller can offer "reload" without a second round trip just to learn it.
+  readonly revision?: number;
 
-  constructor(message: string, reasons: Reason[] = [], fields: Record<string, string> = {}) {
+  constructor(message: string, reasons: Reason[] = [], fields: Record<string, string> = {}, revision?: number) {
     super(message);
     this.name = 'ApiError';
     this.reasons = reasons;
     this.fields = fields;
+    this.revision = revision;
   }
 }
 
@@ -22,8 +26,10 @@ async function call<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: unkn
     headers: { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const value = (await response.json().catch(() => ({}))) as { error?: string; reasons?: Reason[]; fields?: Record<string, string> };
-  if (!response.ok) throw new ApiError(value.error || `HTTP ${response.status}`, value.reasons, value.fields);
+  const value = (await response.json().catch(() => ({}))) as {
+    error?: string; reasons?: Reason[]; fields?: Record<string, string>; revision?: number;
+  };
+  if (!response.ok) throw new ApiError(value.error || `HTTP ${response.status}`, value.reasons, value.fields, value.revision);
   return value as T;
 }
 
@@ -41,6 +47,13 @@ export const api = {
   requestReview: (questId: string, note: string, adventurer?: string) =>
     call<{ review: Quest; quest: Quest }>(`${quest(questId)}/review`, 'POST', { note, by: 'owner', ...(adventurer ? { adventurer } : {}) }),
   setQuestStatus: (questId: string, status: QuestStatus, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, by: 'owner' }),
+  // Revision-guarded correction of title/brief/parents/conflicts/allowedLanes/needsOwner — never status,
+  // assignee or dispatch history. Send only the fields actually changed (see lib/metadataForm.ts diffDraft);
+  // a field left out is never touched. 409 stale (fields absent, reasons[0].code stale_revision, and
+  // ApiError.revision set) means the quest changed since ifRevision was read; 409 holds_slot means a worker
+  // still occupies the quest's slot — release it first.
+  updateMetadata: (questId: string, input: MetadataUpdateInput, ifRevision?: number) =>
+    call<{ quest: Quest }>(`${quest(questId)}/metadata`, 'POST', { ...input, by: 'owner', ifRevision }),
   // Frees a stalled quest after the owner confirmed its worker is gone; refused (409) for anything else.
   releaseWorker: (questId: string, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/release`, 'POST', { detail, by: 'owner' }),
   setCardStatus: (cardId: string, status: CardStatus, reason: string) =>

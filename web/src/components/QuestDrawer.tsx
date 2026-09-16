@@ -9,6 +9,7 @@ import { AssignSection } from './quest/AssignSection';
 import { DrawerSection } from './quest/DrawerSection';
 import { EvidenceLadder } from './quest/EvidenceLadder';
 import { NextStepPanel } from './quest/NextStepPanel';
+import { MetadataSection } from './quest/MetadataSection';
 import { OwnerTaskSection } from './quest/OwnerTaskSection';
 import { QuestReceipt } from './quest/QuestReceipt';
 import { ReviewSection } from './quest/ReviewSection';
@@ -141,6 +142,8 @@ export function QuestDrawer({
           <EvidenceLadder rungs={rungs} />
         </DrawerSection>
       ) : null}
+
+      <MetadataSection key={`${snap.project.id ?? ''}:${quest.id}`} quest={quest} snap={snap} refresh={refresh} pushToast={pushToast} />
 
       <DrawerSection en="RECEIPT" zh="交回的东西">
         <QuestReceipt quest={quest} snap={snap} />
