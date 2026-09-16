@@ -61,7 +61,9 @@ export function crossSiteRefusal(request) {
   if (origin !== undefined) {
     let parsed = null;
     try { parsed = new URL(origin); } catch { parsed = null; }
-    if (!parsed || !LOCAL_HOSTS.has(parsed.hostname) || (parsed.port || '80') !== (port || '80')) return `origin ${origin} refused`;
+    // Fixed text only: the request's own Origin is never echoed back into the response body — that would
+    // hand a cross-site caller (or anything reading this response) whatever it put in the header.
+    if (!parsed || !LOCAL_HOSTS.has(parsed.hostname) || (parsed.port || '80') !== (port || '80')) return 'origin refused';
   }
   return null;
 }

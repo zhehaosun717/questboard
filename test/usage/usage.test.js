@@ -92,12 +92,20 @@ describe('usage providers', () => {
     assert.ok(!JSON.stringify(v).includes('secret-name'));
   });
 
-  it('turns an arkcli error into what to do, not a false "not subscribed"', async () => {
+  it('turns an arkcli error into what to do, not a false "not subscribed" — and never echoes arkcli\'s own login name', async () => {
     const output = '{"items":[{"product":"coding-plan","edition":"personal","subscribed":false,"error":"GetCodingPlanUsage requires Volcengine Ark SSO STS, please run `arkcli auth login volc-sso`: identity"}]}';
     const [v] = (await createUsageService({ homedir: fakeHome(), env: {}, exec: async () => output, providers: [volcano] }).report()).providers;
     assert.equal(v.ok, false);
     assert.equal(v.plan, '');
-    assert.equal(v.error, 'arkcli 需要先登录：在终端运行 arkcli auth login volc-sso');
+    assert.equal(v.error, '请先登录对应的账号');
+    assert.ok(!JSON.stringify(v).includes('volc-sso'), 'the SSO name arkcli reported is never copied into the displayed text');
+  });
+
+  it('falls back to the query-failed message when arkcli\'s error text does not look like a login prompt', async () => {
+    const output = '{"items":[{"product":"coding-plan","edition":"personal","subscribed":false,"error":"internal error, retry later"}]}';
+    const [v] = (await createUsageService({ homedir: fakeHome(), env: {}, exec: async () => output, providers: [volcano] }).report()).providers;
+    assert.equal(v.ok, false);
+    assert.equal(v.error, 'arkcli 没能查到套餐（运行 arkcli usage plan 看原因）');
   });
 
   it('caches for a minute unless asked to refresh', async () => {
@@ -200,9 +208,9 @@ describe('usage route', () => {
     assert.equal((await request('/api/usage', { host: 'evil.example:6097' })).status, 403);
   });
 
-  it('lets another site read the cached report but not force a refresh', async () => {
+  it('refuses every cross-site read: even a plain GET calls providers on a cache miss', async () => {
     const crossSite = { 'sec-fetch-site': 'cross-site', origin: 'http://evil.example' };
-    assert.equal((await request('/api/usage', crossSite)).status, 200);
+    assert.equal((await request('/api/usage', crossSite)).status, 403);
     assert.equal((await request('/api/usage?refresh=1', crossSite)).status, 403);
   });
 });

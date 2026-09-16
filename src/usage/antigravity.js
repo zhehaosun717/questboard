@@ -48,19 +48,19 @@ export function postLocalJson(port, body, headers, { timeoutMs = 4000 } = {}) {
       let text = '';
       response.on('data', (chunk) => { text += chunk; });
       response.on('end', () => {
-        if (response.statusCode !== 200) { reject(new UsageError(`本机 Antigravity 服务返回 HTTP ${response.statusCode}`)); return; }
-        try { resolve(JSON.parse(text)); } catch { reject(new UsageError('本机 Antigravity 服务返回的不是 JSON')); }
+        if (response.statusCode !== 200) { reject(new UsageError('local_http_status', { status: response.statusCode })); return; }
+        try { resolve(JSON.parse(text)); } catch { reject(new UsageError('local_not_json')); }
       });
     });
-    request.on('timeout', () => request.destroy(new UsageError('本机 Antigravity 服务超时没有回应')));
-    request.on('error', (error) => reject(error instanceof UsageError ? error : new UsageError('连不上本机 Antigravity 服务')));
+    request.on('timeout', () => request.destroy(new UsageError('local_timeout')));
+    request.on('error', (error) => reject(error instanceof UsageError ? error : new UsageError('local_unreachable')));
     request.end(data);
   });
 }
 
 export function decodeUserStatus(body) {
   const status = body && body.userStatus;
-  if (!status || typeof status !== 'object') throw new UsageError('Antigravity 返回的数据里没有账户状态');
+  if (!status || typeof status !== 'object') throw new UsageError('no_account_status');
   const configs = status.cascadeModelConfigData && Array.isArray(status.cascadeModelConfigData.clientModelConfigs) ? status.cascadeModelConfigData.clientModelConfigs : [];
   const windows = [];
   for (const model of configs) {
@@ -83,21 +83,21 @@ export function createAntigravityProvider({ post = postLocalJson, platform = pro
     name: 'Antigravity（agy）',
     source: 'local-app',
     async fetch({ exec }) {
-      if (platform !== 'win32') return { ok: false, configured: false, error: '目前只在 Windows 上读 Antigravity（用 PowerShell 找进程）' };
+      if (platform !== 'win32') return { ok: false, configured: false, code: 'windows_only' };
       const found = findLanguageServer(await exec('powershell', LIST_PROCESSES, { timeoutMs: 20000 }));
-      if (!found) return { ok: false, configured: false, error: '没找到 Antigravity 的语言服务进程（agy 或 Antigravity 没在跑）' };
+      if (!found) return { ok: false, configured: false, code: 'process_not_found' };
       const ports = parsePorts(await exec('powershell', listPorts(found.pid), { timeoutMs: 20000 }));
-      if (!ports.length) throw new UsageError('Antigravity 的语言服务没有在监听端口');
+      if (!ports.length) throw new UsageError('no_listening_port');
       let lastError = null;
       for (const port of ports) {
         try {
           const body = await post(port, { metadata: { ideName: 'antigravity', extensionName: 'antigravity', locale: 'en' } }, { 'x-codeium-csrf-token': found.token });
           return decodeUserStatus(body);
         } catch (error) {
-          lastError = error instanceof UsageError ? error : new UsageError('连不上本机 Antigravity 服务');
+          lastError = error instanceof UsageError ? error : new UsageError('local_unreachable');
         }
       }
-      throw lastError || new UsageError('连不上本机 Antigravity 服务');
+      throw lastError || new UsageError('local_unreachable');
     },
   };
 }

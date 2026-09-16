@@ -15,7 +15,7 @@ export const codex = {
   source: 'local-log',
   async fetch({ homedir, env }) {
     const root = path.join(env.CODEX_HOME ? path.resolve(env.CODEX_HOME) : path.join(homedir, '.codex'), 'sessions');
-    if (!fs.existsSync(root)) return { ok: false, configured: false, error: '没有找到 Codex 会话记录（~/.codex/sessions）' };
+    if (!fs.existsSync(root)) return { ok: false, configured: false, code: 'no_sessions_dir' };
     const files = walk(root)
       .filter((file) => /rollout-.*\.jsonl$/.test(path.basename(file)))
       .map((file) => ({ file, mtime: fs.statSync(file).mtimeMs }))
@@ -37,7 +37,7 @@ export const codex = {
         return { windows, asOf: isoOrNull(record.timestamp), note: '来自最近一次 Codex 会话，之后没用过就不会变' };
       }
     }
-    return { ok: false, configured: true, error: 'Codex 会话记录里还没有额度信息' };
+    return { ok: false, configured: true, code: 'no_rate_limit_data' };
   },
 };
 
@@ -64,7 +64,7 @@ export const kimi = {
     const usage = body.usage || {};
     const used = percent(toNumber(usage.used), toNumber(usage.limit));
     if (used !== null) windows.push({ label: '本期总额度', usedPercent: used, resetsAt: isoOrNull(usage.resetTime) });
-    if (!windows.length) throw new UsageError('Kimi 返回的数据里没有额度');
+    if (!windows.length) throw new UsageError('no_quota_data', { provider: 'Kimi' });
     return { windows };
   },
 };
@@ -79,7 +79,7 @@ export const deepseek = {
     const balances = (Array.isArray(body.balance_infos) ? body.balance_infos : [])
       .filter((b) => b && safeLabel(b.currency, CURRENCY_PATTERN) && toNumber(b.total_balance) !== null)
       .map((b) => ({ currency: b.currency, amount: toNumber(b.total_balance) }));
-    if (!balances.length) throw new UsageError('DeepSeek 返回的数据里没有余额');
+    if (!balances.length) throw new UsageError('no_balance_data', { provider: 'DeepSeek' });
     return { balances, note: body.is_available === false ? '余额不足，现在不能调用' : '' };
   },
 };
@@ -93,7 +93,7 @@ export const openrouter = {
     const body = await getJson(fetchImpl, 'https://openrouter.ai/api/v1/credits', key);
     const credits = toNumber(body && body.data && body.data.total_credits);
     const usage = toNumber(body && body.data && body.data.total_usage);
-    if (credits === null || usage === null) throw new UsageError('OpenRouter 返回的数据里没有余额');
+    if (credits === null || usage === null) throw new UsageError('no_balance_data', { provider: 'OpenRouter' });
     return { balances: [{ currency: 'USD', amount: Math.round((credits - usage) * 100) / 100 }] };
   },
 };
@@ -108,12 +108,14 @@ export const volcano = {
     const docs = parseJsonDocuments(await exec('arkcli', ['usage', 'plan', '--product', 'coding-plan', '--format', 'json']));
     const items = docs.flatMap((doc) => (doc && Array.isArray(doc.items) ? doc.items : []));
     const item = items.find((i) => i && i.product === 'coding-plan') || items[0];
-    if (!item) throw new UsageError('arkcli 没有返回套餐信息');
+    if (!item) throw new UsageError('no_plan_info');
     // With an error the subscribed flag is not an answer (arkcli reports false when it could not ask), so say
     // what arkcli needs instead of "not subscribed".
     if (typeof item.error === 'string' && item.error.trim()) {
-      const login = item.error.match(/arkcli auth login [\w-]+/);
-      throw new UsageError(login ? `arkcli 需要先登录：在终端运行 ${login[0]}` : 'arkcli 没能查到套餐（运行 arkcli usage plan 看原因）');
+      // arkcli's own error text is external, at best format-checked data — it is never copied into the
+      // UsageError, even bounded: only whether it looks like a login prompt decides which fixed code fires.
+      const needsLogin = /arkcli auth login [\w-]+/.test(item.error);
+      throw new UsageError(needsLogin ? 'login_required' : 'plan_query_failed');
     }
     return { plan: `${safeLabel(item.edition) || '未知版本'} · ${item.subscribed === true ? '已订阅' : '未订阅'}`, note: 'arkcli 只给订阅状态，不给用量数字' };
   },
