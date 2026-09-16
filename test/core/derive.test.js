@@ -165,17 +165,60 @@ describe('overlay', () => {
   ];
 
   it('greys a card during a current bounce and heals afterwards', () => {
-    const lanes = { packages: [{ package: 'RUN-3', lane: 'opencode', model: 'xiaomi/mimo-v2.5-pro', state: 'bounced', bounceUntil: '1:54 PM', dispatchedAt: '2026-09-13T10:00:00.000Z' }] };
-    assert.match(effectiveRoster(roster, lanes, now)[0].derived.reason, /RUN-3 限额退回，1:54 PM 恢复/);
-    assert.equal(effectiveRoster(roster, lanes, now + 6 * 3600 * 1000)[0].status, 'available');
+    const lanes = { packages: [{ package: 'RUN-3', lane: 'opencode', model: 'xiaomi/mimo-v2.5-pro', adventurerId: 'oc-mimo', state: 'bounced', bounceUntil: '1:54 PM', observedAt: '2026-09-13T10:00:00.000Z', dispatchedAt: '2026-09-13T10:00:00.000Z' }] };
+    const during = effectiveRoster(roster, lanes, now)[0];
+    assert.match(during.derived.reason, /RUN-3 限额退回，1:54 PM 恢复/);
+    assert.equal(during.baseStatus, 'available');
+    assert.equal(during.baseReason, '');
+    assert.equal(during.derived.at, '2026-09-13T10:00:00.000Z');
+    assert.equal(during.derived.resetsAt, '2026-09-13T20:54:00.000Z');
+    const after = effectiveRoster(roster, lanes, now + 12 * 3600 * 1000)[0];
+    assert.equal(after.status, 'available');
+    assert.equal(after.derived.reason, '限额窗口已过，尚未验证可用');
+    assert.equal(after.derived.resetsAt, '2026-09-13T20:54:00.000Z');
   });
 
-  it('greys every card of a limited file lane but keeps manual statuses', () => {
-    const result = effectiveRoster(roster, { packages: [], laneLimits: { codex: { since: '2026-09-13T11:05:00.000Z', until: '13:54' } } }, now);
+  it('scopes file-lane evidence to its exact card and keeps manual statuses', () => {
+    const result = effectiveRoster(roster, { packages: [], laneLimits: { codex: { since: '2026-09-13T11:05:00.000Z', at: '2026-09-13T11:05:00.000Z', until: '13:54', adventurerId: 'codex-luna' } } }, now);
     assert.equal(result[1].status, 'limited');
     assert.match(result[1].derived.reason, /codex 限额中，13:54 恢复/);
     assert.equal(result[2].status, 'paused');
     assert.equal(result[0].status, 'available');
-    assert.deepEqual(effectiveRoster(roster, null, now), roster);
+    assert.equal(result[1].baseStatus, 'available');
+    assert.equal(result[2].baseStatus, 'paused');
+    assert.equal(effectiveRoster(roster, null, now)[0].baseStatus, 'available');
+  });
+
+  it('does not apply ambiguous lane evidence to any card, but gives matching cards a diagnostic', () => {
+    const result = effectiveRoster(roster, { packages: [], laneLimits: { codex: { since: '2026-09-13T11:05:00.000Z', until: null } } }, now);
+    assert.equal(result[1].status, 'available');
+    assert.equal(result[2].status, 'paused');
+    assert.equal(result[1].laneDiagnostics[0].code, 'quota_identity_unknown');
+    assert.equal(result[1].laneDiagnostics[0].adventurerId, undefined);
+  });
+
+  it('keeps an old dispatch-time row limited when the bounce was observed now', () => {
+    const row = { package: 'P-7', lane: 'agy', model: 'g', adventurerId: 'agy-gemini', state: 'bounced', bounceUntil: null, dispatchedAt: new Date(now - 6 * 3600 * 1000).toISOString() };
+    assert.equal(effectiveRoster([{ ...roster[0], id: 'agy-gemini', lane: 'agy', model: 'g' }], { packages: [row], laneLimits: {} }, now)[0].status, 'limited');
+  });
+
+  it('clears only for a later success with the same exact card identity', () => {
+    const bounced = { package: 'P-bounce', lane: 'codex', model: 'gpt-5.6-luna', adventurerId: 'codex-luna', state: 'bounced', observedAt: '2026-09-13T10:00:00.000Z' };
+    const sameCard = { package: 'P-success', lane: 'codex', model: 'gpt-5.6-luna', adventurerId: 'codex-luna', state: 'delivered', observedAt: '2026-09-13T10:01:00.000Z' };
+    const otherCard = { ...sameCard, package: 'P-other', adventurerId: 'codex-astra' };
+    const card = [roster[1]];
+    assert.equal(effectiveRoster(card, { packages: [bounced, sameCard], laneLimits: {} }, now)[0].status, 'available');
+    assert.equal(effectiveRoster(card, { packages: [bounced, otherCard], laneLimits: {} }, now)[0].status, 'limited');
+  });
+
+  it('preserves manual limited, paused and disabled records and carries their reasons as base data', () => {
+    const manual = [
+      { id: 'limited', lane: 'codex', model: 'm', status: 'limited', statusReason: 'manual check' },
+      { id: 'paused', lane: 'codex', model: 'm', status: 'paused', statusReason: 'cost' },
+      { id: 'disabled', lane: 'codex', model: 'm', status: 'disabled', statusReason: 'retired' },
+    ];
+    const lanes = { packages: [{ package: 'P', lane: 'codex', model: 'm', adventurerId: 'limited', state: 'bounced' }], laneLimits: { codex: { until: null } } };
+    const result = effectiveRoster(manual, lanes, now);
+    assert.deepEqual(result.map((card) => [card.status, card.baseStatus, card.baseReason]), [['limited', 'limited', 'manual check'], ['paused', 'paused', 'cost'], ['disabled', 'disabled', 'retired']]);
   });
 });

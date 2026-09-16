@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createCollector } from '../../src/lanes/collector.js';
-import { laneLimit, workerState, countEdits } from '../../src/lanes/workers.js';
+import { laneLimit, laneEvidence, workerState, countEdits, bounceTimeMs } from '../../src/lanes/workers.js';
 import { parseProgress, latestProgress } from '../../src/lanes/progress.js';
 import { sessionModel } from '../../src/lanes/opencode.js';
 import { appendJsonLine } from '../../src/core/jsonl.js';
@@ -50,6 +50,7 @@ describe('collector', () => {
 
   it('reports lane limits and the verification strip', async () => {
     const { config, write } = makeProject({ verification: { progressDirs: ['.work/full'] } });
+    dispatch(config, { package: 'LIMIT-1', lane: 'codex', model: 'gpt-5.6-luna', name: 'old', adventurerId: 'codex-luna' });
     write('.work/codex/old.out', "You've hit your usage limit.");
     write('.work/codex/old.exit', '1');
     write('.work/full/progress.txt', 'compile exit 0\nedit exit 0\nDONE\n');
@@ -119,6 +120,25 @@ describe('workers', () => {
     assert.equal(workerState(base('f'), now).state, 'failed', 'a nonzero exit with no quota evidence stays a plain failure');
   });
 
+  it('recognizes the documented Codex quota prefix and trailing reset sentence', () => {
+    const { root, write } = makeProject();
+    const base = (name) => path.join(root, '.work', 'codex', name);
+    const now = Date.now();
+    const fixtures = [
+      ['real-a', "ERROR: You've hit your usage limit ... try again at 1:54 PM", '1:54 PM'],
+      ['real-b', "ERROR: usage limit ... try again at 1:54 PM", '1:54 PM'],
+      ['real-c', "You've hit your usage limit. Try again at 1:54 PM.", '1:54 PM'],
+      ['real-d', 'RESOURCE_EXHAUSTED', null],
+    ];
+    for (const [name, line, reset] of fixtures) {
+      write(`.work/codex/${name}.out`, line);
+      write(`.work/codex/${name}.exit`, '1');
+      const result = workerState(base(name), now);
+      assert.equal(result.state, 'bounced', line);
+      assert.equal(result.bounceUntil, reset, line);
+    }
+  });
+
   it('requires real evidence of a report before calling a wrapper success delivered', () => {
     const { root, write } = makeProject();
     const base = (name) => path.join(root, '.work', name);
@@ -168,14 +188,94 @@ describe('workers', () => {
     assert.equal(laneLimit(path.join(root, '.work', 'codex')), null, 'an unreadable exit code is not authoritative evidence of a bounce');
   });
 
-  it('clears a lane limit after a later success', () => {
+  it('clears a lane limit only after a later success for the same verified card', () => {
     const { root, write } = makeProject();
     const bounced = write('.work/codex/a.out', 'usage limit');
-    write('.work/codex/a.exit', '1');
+    const bounceExit = write('.work/codex/a.exit', '1');
     const past = new Date(Date.now() - 60 * 1000);
     fs.utimesSync(bounced, past, past);
-    write('.work/codex/b.out', 'ok'); write('.work/codex/b.exit', '0');
-    assert.equal(laneLimit(path.join(root, '.work', 'codex')), null);
+    fs.utimesSync(bounceExit, past, past);
+    const success = write('.work/codex/b.out', 'ok'); const successExit = write('.work/codex/b.exit', '0');
+    fs.utimesSync(success, new Date(), new Date()); fs.utimesSync(successExit, new Date(), new Date());
+    const ids = { a: 'card-a', b: 'card-b' };
+    assert.ok(laneLimit(path.join(root, '.work', 'codex'), Date.now(), { identityByName: (name) => ids[name] }), 'a different card cannot clear the bounce');
+    assert.equal(laneLimit(path.join(root, '.work', 'codex'), Date.now(), { identityByName: (name) => name === 'a' || name === 'b' ? 'card-a' : null }), null, 'the same card clears it');
+  });
+
+  it('keeps the newest bounce for every card and retains a newer unidentified advisory separately', () => {
+    const { root, write } = makeProject();
+    const at = Date.now() - 5000;
+    const put = (name, text, code, time) => {
+      const out = write(`.work/codex/${name}.out`, text);
+      const exit = write(`.work/codex/${name}.exit`, String(code));
+      fs.utimesSync(out, new Date(time), new Date(time));
+      fs.utimesSync(exit, new Date(time), new Date(time));
+    };
+    put('a1', "You've hit your usage limit.", 1, at);
+    put('b1', "You've hit your usage limit.", 1, at + 1000);
+    put('leftover', "You've hit your usage limit.", 1, at + 2000);
+    const options = { identityByName: (name) => ({ a1: 'card-a', b1: 'card-b' }[name] || null) };
+    const limit = laneLimit(path.join(root, '.work', 'codex'), at + 3000, options);
+    const evidence = laneEvidence(path.join(root, '.work', 'codex'), at + 3000, options);
+    assert.deepEqual(Object.keys(limit.cards).sort(), ['card-a', 'card-b']);
+    assert.equal(limit.cards['card-a'].name, 'a1');
+    assert.equal(limit.cards['card-b'].name, 'b1');
+    assert.equal(limit.unidentified, undefined, 'unidentified evidence is not exposed to lane-wide chips');
+    assert.deepEqual(evidence.unidentified.map((entry) => entry.name), ['leftover']);
+  });
+
+  it('emits only active identified limits and keeps expired or unidentified evidence in laneEvidence', async () => {
+    const { config, write } = makeProject();
+    const now = Date.parse('2026-09-16T12:00:00.000Z');
+    const put = (name, text, code, time) => {
+      const out = write(`.work/codex/${name}.out`, text);
+      const exit = write(`.work/codex/${name}.exit`, String(code));
+      fs.utimesSync(out, new Date(time), new Date(time));
+      fs.utimesSync(exit, new Date(time), new Date(time));
+    };
+    dispatch(config, { package: 'EXPIRED-1', lane: 'codex', model: 'gpt-5.6-luna', name: 'expired', adventurerId: 'codex-luna' });
+    put('expired', 'usage limit reached, try again at 2026-09-15T12:00:00Z', 1, Date.parse('2026-09-16T10:00:00Z'));
+    put('legacy', "You've hit your usage limit.", 1, Date.parse('2026-09-16T11:30:00Z'));
+
+    let result = await createCollector(config).collect({ now });
+    assert.equal(result.laneLimits.codex, undefined, 'expired-only and unidentified-only evidence cannot create a lane chip');
+    assert.equal(result.laneEvidence.codex.cards['codex-luna'].name, 'expired');
+    assert.deepEqual(result.laneEvidence.codex.unidentified.map((entry) => entry.name), ['legacy']);
+
+    dispatch(config, { package: 'ACTIVE-1', lane: 'codex', model: 'gpt-6-astra', name: 'active', adventurerId: 'codex-astra' });
+    const activeAt = Date.parse('2026-09-16T09:00:00Z');
+    put('active', 'usage limit reached, try again at 2026-09-17T12:00:00Z', 1, activeAt);
+    result = await createCollector(config).collect({ now });
+    const limit = result.laneLimits.codex;
+    assert.equal(limit.adventurerId, 'codex-astra');
+    assert.equal(limit.at, new Date(activeAt).toISOString(), 'the top level comes from the newest active card');
+    assert.equal(limit.until, '2026-09-17T12:00:00Z');
+    assert.equal(result.laneEvidence.codex.cards['codex-luna'].name, 'expired');
+    assert.deepEqual(result.laneEvidence.codex.unidentified.map((entry) => entry.name), ['legacy']);
+  });
+
+  it('rolls a time-only reset across midnight and never invents an unknown-duration expiry', () => {
+    const late = new Date('2026-09-13T23:30:00');
+    const reset = bounceTimeMs('1:00 AM', late.getTime());
+    assert.ok(reset > late.getTime(), 'the reset is after the bounce');
+    assert.equal(new Date(reset).getDate(), late.getDate() + 1, 'the time-only reset rolls to tomorrow');
+    const { root, write } = makeProject();
+    const out = write('.work/codex/unknown.out', "You've hit your usage limit.");
+    const exit = write('.work/codex/unknown.exit', '1');
+    const bounceAt = Date.now() - 60 * 1000;
+    fs.utimesSync(out, new Date(bounceAt), new Date(bounceAt)); fs.utimesSync(exit, new Date(bounceAt), new Date(bounceAt));
+    assert.ok(laneLimit(path.join(root, '.work', 'codex'), bounceAt + 5 * 3600 * 1000, { identityByName: () => 'card-unknown' }), 'an identified unknown-duration bounce remains limited after five hours');
+  });
+
+  it('rejects bare 402 and try-again text as quota evidence', () => {
+    const { root, write } = makeProject();
+    const now = Date.now();
+    for (const [name, text] of [['plain402', 'npm test\n# fail 402 of 900 assertions'], ['http503', 'fetch error: server said please try again at 3:00 PM (HTTP 503)']]) {
+      const out = write(`.work/codex/${name}.out`, text); const exit = write(`.work/codex/${name}.exit`, '1');
+      fs.utimesSync(out, new Date(now), new Date(now)); fs.utimesSync(exit, new Date(now), new Date(now));
+      assert.notEqual(workerState(path.join(root, '.work', 'codex', name), now).state, 'bounced');
+    }
+    assert.equal(laneLimit(path.join(root, '.work', 'codex'), now), null);
   });
 
   it('does not poison a whole lane from a still-running worker, even when its last line is quota wording', () => {

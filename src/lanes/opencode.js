@@ -1,5 +1,5 @@
 // Server-API workers (OpenCode): state comes from the session's messages over HTTP.
-import { USAGE_RE, STALE_MS } from './workers.js';
+import { resetAt, STALE_MS } from './workers.js';
 
 export async function fetchJson(url, { fetchImpl = fetch, timeout = 3000 } = {}) {
   try {
@@ -25,6 +25,25 @@ export function sessionModel(messages) {
   return null;
 }
 
+const QUOTA_FIELD_RE = /^(?:rate[_ -]?limit(?:[_ -]?exceeded)?|quota(?:[_ -]?(?:exceeded|limit))?|usage[_ -]?limit|resource[_ -]?exhausted|insufficient[_ -]?balance)(?:error)?$/i;
+
+function structuredQuotaError(error) {
+  if (!error || typeof error !== 'object') return false;
+  const data = error.data && typeof error.data === 'object' ? error.data : null;
+  return [error.code, error.type, error.name, data && data.code, data && data.type, data && data.name]
+    .some((value) => typeof value === 'string' && QUOTA_FIELD_RE.test(value.trim()));
+}
+
+function structuredResetText(error) {
+  const data = error && error.data && typeof error.data === 'object' ? error.data : null;
+  const explicit = [error && error.resetAt, error && error.resetsAt, error && error.retryAt, data && data.resetAt, data && data.resetsAt, data && data.retryAt, data && data.retry_at, data && data.reset_at]
+    .find((value) => typeof value === 'string' && value.trim());
+  if (explicit) return explicit.trim();
+  const message = data && typeof data.message === 'string' ? data.message : '';
+  const match = message.match(/try again at\s+(.+?)\s*[.!]?\s*$/i);
+  return match ? match[1].trim() : null;
+}
+
 export function sessionState(messages, now = Date.now()) {
   const assistant = messages.filter((m) => m.info && m.info.role === 'assistant');
   if (!assistant.length) return { state: 'unknown', reason: 'no assistant messages' };
@@ -42,12 +61,19 @@ export function sessionState(messages, now = Date.now()) {
   // there is while it is still running. Without this a stale completed tool-calls turn stayed "running"
   // forever instead of ever going "stalled".
   const lastActivityMs = info.time ? info.time.completed || info.time.created || 0 : 0;
-  // A structured error on the message itself (info.error) is the only bounce evidence. Text inside a
-  // tool's own state — its input, a shell error it is still handling, a file it read — is not: the words
-  // could be quoting something unrelated, and the session could still produce more messages after it. Same
-  // rule workers.js already enforces for file lanes: only a terminal fact, never live output, calls a
-  // bounce.
-  if (USAGE_RE.test(errorDetail)) return { state: 'bounced', reason: 'usage limit', toolCounts, lastText, edits };
+  // A structured quota code/type/name on the message itself is the only OpenCode bounce evidence. The free
+  // text message is retained for an ordinary failure but is never regex-tested for 402 or quota wording.
+  if (structuredQuotaError(info.error)) {
+    const bounceUntil = structuredResetText(info.error);
+    const observedAt = lastActivityMs || now;
+    const parsedReset = bounceUntil ? resetAt(bounceUntil, observedAt) : null;
+    return {
+      state: 'bounced', reason: 'usage limit', toolCounts, lastText, edits,
+      ...(bounceUntil ? { bounceUntil } : {}),
+      ...(parsedReset ? { resetsAt: new Date(parsedReset).toISOString() } : {}),
+      ...(lastActivityMs ? { lastActivityMs } : {}),
+    };
+  }
   // An explicit structured error is terminal whenever it appears (N13): OpenCode leaves `time.completed`
   // unset on some aborts and keeps an earlier `finish` value on others, so checking completion or
   // tool-calls first hid the failure and kept the slot for a worker that will never speak again. Only the

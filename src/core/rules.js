@@ -10,7 +10,7 @@ const MESSAGES = {
   needs_owner: (quest) => `等你先裁决：${quest.needsOwner}`,
   parent_missing: (quest, adventurer, detail) => `父任务 ${detail} 不在板上，先让 coordinator 发布它`,
   lane_missing: (quest, adventurer) => `这个项目没有配置 ${adventurer.lane} 通道`,
-  adventurer_limited: () => '这个模型限额中',
+  adventurer_limited: (quest, adventurer, detail) => detail ? `这个模型限额中：${detail}` : '这个模型限额中',
   adventurer_broke: () => '这个供应商余额不足',
   adventurer_paused: () => '这个模型被暂停使用',
   adventurer_disabled: () => '这个模型已停用',
@@ -122,7 +122,10 @@ function adventurerReasons(quest, adventurer, policy, env) {
   if (env && env.downLanes && env.downLanes.has(adventurer.lane)) reasons.push(reason('lane_server_down', quest, adventurer, env.downLanes.get(adventurer.lane)));
   if (adventurer.status && adventurer.status !== 'available') {
     const code = MESSAGES[`adventurer_${adventurer.status}`] ? `adventurer_${adventurer.status}` : 'adventurer_disabled';
-    reasons.push(reason(code, quest, adventurer));
+    const detail = code === 'adventurer_limited'
+      ? (adventurer.derived && adventurer.derived.reason) || adventurer.baseReason || adventurer.statusReason || ''
+      : undefined;
+    reasons.push(reason(code, quest, adventurer, detail));
   }
   if (matchesAny(adventurer.model, policy && policy.bannedModelPatterns)) reasons.push(reason('model_banned', quest, adventurer));
   if (matchesAny(adventurer.agent, policy && policy.bannedAgents)) reasons.push(reason('agent_banned', quest, adventurer));

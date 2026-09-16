@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { eligibility } from './rules.js';
 import { liveByName } from './sync.js';
-import { effectiveRoster } from './overlay.js';
+import { effectiveRoster, visibleLaneLimits } from './overlay.js';
 import { withFileSets, discoverBriefs, briefUsable, briefUnusableInfo } from './briefs.js';
 import { isReviewable, reviewEligibility } from './reviewRequest.js';
 import { recentFailuresByCard } from './failureContext.js';
@@ -105,6 +105,9 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
   // Historical context only: the latest failed or bounced attempt per exact card id, omitted when empty.
   const recentFailures = recentFailuresByCard(quests);
   const roster = effectiveRoster(adventurers, lanes);
+  // B5: the lane header must agree with the roster below it — a limit whose card is no longer limited
+  // (owner acknowledged, paused/disabled, or removed) survives only as cleared evidence, never as a chip.
+  const visibleLimits = visibleLaneLimits((lanes && lanes.laneLimits) || {}, roster, (lanes && lanes.laneEvidence) || {});
   const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), ...(downLanes ? { downLanes } : {}) };
   const byQuest = {};
   for (const quest of quests) {
@@ -136,7 +139,8 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
     reviewPages: reviewPages(config),
     unpostedBriefs: briefScan.items,
     verification: (lanes && lanes.verification) || null,
-    laneLimits: (lanes && lanes.laneLimits) || {},
+    laneLimits: visibleLimits.laneLimits,
+    laneEvidence: visibleLimits.laneEvidence,
     openQuestions: boardStore ? boardStore.listThreads({ status: 'open', tag: 'question' }).length : 0,
     // Diagnostics behind unpostedBriefs, so an empty shelf reads as "nothing new", never as "discovery is
     // broken": when it last scanned, which folders and recency window applied, why every skipped file was

@@ -4,7 +4,7 @@ import { sendJson, readJsonBody, writeRefusal } from './http.js';
 import { buildSnapshot } from '../core/snapshot.js';
 import { loadRoster, loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.js';
 import { applyStatuses, STATUSES } from '../core/status.js';
-import { effectiveRoster } from '../core/overlay.js';
+import { effectiveRoster, visibleLaneLimits } from '../core/overlay.js';
 import { QUEST_STATUSES } from '../core/store.js';
 import { createDispatcher } from './dispatcher.js';
 import { eventsAfter } from '../core/events.js';
@@ -226,7 +226,9 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
         sendJson(response, 200, { adventurers: effectiveRoster(adventurers(), getLanes()) });
       } else if (url.pathname === '/api/lanes' && request.method === 'GET') {
         const lanes = getLanes() || { packages: [], laneLimits: {}, verification: null };
-        sendJson(response, 200, { ...lanes, board: { openQuestions: boardStore ? boardStore.listThreads({ status: 'open', tag: 'question' }).length : 0 } });
+        // B5: the history tab reads this route, so it must hide the same cleared limits the snapshot hides.
+        const laneLimits = visibleLaneLimits(lanes.laneLimits, effectiveRoster(adventurers(), lanes)).laneLimits;
+        sendJson(response, 200, { ...lanes, laneLimits, board: { openQuestions: boardStore ? boardStore.listThreads({ status: 'open', tag: 'question' }).length : 0 } });
       } else if (request.method === 'POST') {
         const refusal = writeRefusal(request);
         if (refusal) sendJson(response, 403, { error: refusal }); else await post(request, response, parts);

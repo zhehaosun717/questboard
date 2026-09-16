@@ -2,7 +2,7 @@
 // Read-only and never throws for a single bad worker — that worker gets state 'unknown' with the reason.
 import path from 'node:path';
 import { readJsonLines } from '../core/jsonl.js';
-import { workerState, countEdits, readText, laneLimit } from './workers.js';
+import { workerState, countEdits, readText, laneLimit, laneEvidence as readLaneEvidence, mtime, resetAt } from './workers.js';
 import { fetchJson, sessionModel, sessionState } from './opencode.js';
 import { latestProgress } from './progress.js';
 import { tailText } from '../core/sync.js';
@@ -22,7 +22,27 @@ function groupRegistry(rows) {
   return packages;
 }
 
-function baseEntry(pkg, dispatch, data, now) {
+function currentQuestRows(config) {
+  const latest = new Map();
+  for (const row of readJsonLines(path.join(config.paths.data, 'quests.jsonl'))) if (row && row.id) latest.set(row.id, row);
+  return latest;
+}
+
+function rememberIdentity(identitiesByName, name, adventurerId) {
+  if (!name || !adventurerId) return;
+  const key = String(name);
+  const id = String(adventurerId);
+  if (!identitiesByName.has(key)) identitiesByName.set(key, id);
+  else if (identitiesByName.get(key) !== id) identitiesByName.set(key, null);
+}
+
+function packageIdentity(quest, dispatch, identitiesByName) {
+  if (identitiesByName.has(dispatch.name)) return identitiesByName.get(dispatch.name);
+  if (quest && quest.assignee && quest.assignee.name === dispatch.name && quest.assignee.adventurerId) return String(quest.assignee.adventurerId);
+  return dispatch.adventurerId ? String(dispatch.adventurerId) : null;
+}
+
+function baseEntry(pkg, dispatch, data, now, adventurerId) {
   const history = [
     ...data.dispatches.map((d) => ({ at: d.at, lane: d.lane, model: d.model, event: 'dispatch' })),
     ...data.notes.map((n) => ({ at: n.at, event: 'note', text: n.text })),
@@ -31,6 +51,7 @@ function baseEntry(pkg, dispatch, data, now) {
     package: pkg, lane: dispatch.lane, model: dispatch.model, variant: dispatch.variant || '', name: dispatch.name,
     session: dispatch.session || null, dispatchedAt: dispatch.at, elapsed: Math.max(0, now - Date.parse(dispatch.at)),
     state: 'unknown', reason: '', stale: false, edits: 0, tokens: null, lastText: '', bounceUntil: null, history,
+    ...(adventurerId ? { adventurerId } : {}),
   };
 }
 
@@ -50,6 +71,16 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
   function fileWorker(entry, lane, now) {
     const basePath = path.join(config.root, lane.outputDir, entry.name);
     Object.assign(entry, workerState(basePath, now, { editCounter: lane.editCounter }));
+    if (['bounced', 'delivered', 'failed'].includes(entry.state)) {
+      const observed = mtime(`${basePath}.exit`) || mtime(`${basePath}.out`);
+      if (observed) {
+        entry.observedAt = new Date(observed).toISOString();
+        if (entry.state === 'bounced' && entry.bounceUntil) {
+          const parsedReset = resetAt(entry.bounceUntil, observed);
+          entry.resetsAt = parsedReset ? new Date(parsedReset).toISOString() : null;
+        }
+      }
+    }
     const outText = readText(`${basePath}.out`, 20000);
     entry.edits = countEdits(outText, lane.editCounter);
     const report = readText(`${basePath}.md`, LAST_TEXT_MAX + 200).trim();
@@ -72,6 +103,14 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
     const info = sessionState(messages, now);
     if (info.lastActivityMs) lastSeen.set(entry.session, info.lastActivityMs);
     Object.assign(entry, info);
+    if (['bounced', 'delivered', 'failed'].includes(entry.state)) {
+      const observed = info.observedAt || info.lastActivityMs || now;
+      entry.observedAt = new Date(observed).toISOString();
+      if (entry.state === 'bounced' && entry.bounceUntil) {
+        const parsedReset = resetAt(entry.bounceUntil, observed);
+        entry.resetsAt = parsedReset ? new Date(parsedReset).toISOString() : null;
+      }
+    }
     const session = await fetchJson(`${lane.api}/session/${entry.session}`, { fetchImpl });
     if (session && session.tokens) entry.tokens = session.tokens;
   }
@@ -86,10 +125,19 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
   async function collect({ skipStale = true, now = Date.now() } = {}) {
     const rows = [];
     const jobs = [];
-    for (const [pkg, data] of groupRegistry(readJsonLines(config.paths.registry))) {
+    const questRows = currentQuestRows(config);
+    const registryRows = readJsonLines(config.paths.registry);
+    const registry = groupRegistry(registryRows);
+    const identitiesByName = new Map();
+    for (const quest of questRows.values()) {
+      for (const dispatch of quest.dispatches || []) rememberIdentity(identitiesByName, dispatch && dispatch.name, dispatch && dispatch.adventurerId);
+    }
+    for (const row of registryRows) rememberIdentity(identitiesByName, row && row.name, row && row.adventurerId);
+    for (const [pkg, data] of registry) {
       const dispatch = data.dispatches.at(-1);
       if (!dispatch) continue;
-      const entry = baseEntry(pkg, dispatch, data, now);
+      const adventurerId = packageIdentity(questRows.get(pkg), dispatch, identitiesByName);
+      const entry = baseEntry(pkg, dispatch, data, now, adventurerId);
       const lane = config.lanes[entry.lane];
       rows.push(entry);
       try {
@@ -108,13 +156,25 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
       if (!entry.stale && newest && now - Date.parse(newest.at) > STALE_3D_MS) entry.stale = true;
     }
     const laneLimits = {};
+    const laneEvidence = {};
     for (const [id, lane] of Object.entries(config.lanes)) {
       if (!lane.outputDir) continue;
-      const limit = laneLimit(path.join(config.root, lane.outputDir), now);
+      const options = { identityByName: (name) => identitiesByName.get(name) || null };
+      const limit = laneLimit(path.join(config.root, lane.outputDir), now, options);
       if (limit) laneLimits[id] = limit;
+      const evidence = readLaneEvidence(path.join(config.root, lane.outputDir), now, options);
+      if (evidence) {
+        const expiredCards = Object.fromEntries(Object.entries(evidence.cards).filter(([, entry]) => {
+          const reset = Date.parse(entry.resetsAt || '');
+          return Number.isFinite(reset) && reset <= now;
+        }));
+        if (Object.keys(expiredCards).length || evidence.unidentified.length) {
+          laneEvidence[id] = { cards: expiredCards, unidentified: evidence.unidentified };
+        }
+      }
     }
     const verification = config.verification ? latestProgress(config.verification.progressDirs) : null;
-    return { packages: rows, laneLimits, verification, generatedAt: new Date(now).toISOString() };
+    return { packages: rows, laneLimits, laneEvidence, verification, generatedAt: new Date(now).toISOString() };
   }
 
   return { collect };

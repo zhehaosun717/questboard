@@ -154,7 +154,7 @@ describe('quest API', () => {
     assert.equal((await fx.api('/api/events?after=-1')).status, 400);
   });
 
-  it('applies lane results: API deliveries are written first, bounces heal instead of being stored', async () => {
+  it('applies lane results: exact bounces limit one card, unknown bounces stay advisory', async () => {
     fx.project.write('docs/briefs/MOD-1-x.md', 'x');
     await fx.api('/api/quests', 'POST', { package: 'MOD-1', brief: 'docs/briefs/MOD-1-x.md' });
     await fx.api('/api/quests/MOD-1/assign', 'POST', { adventurer: 'oc-mimo' });
@@ -162,7 +162,8 @@ describe('quest API', () => {
     const now = new Date().toISOString();
     fx.holder.lanes = { packages: [
       { name: 'mod1', package: 'MOD-1', lane: 'opencode', model: 'xiaomi/mimo-v2.5-pro', state: 'delivered', dispatchedAt: now },
-      { name: 'look2f', package: 'LOOK-2F', lane: 'agy', model: 'gemini-3.8-flash-high', state: 'bounced', bounceUntil: '1:54 PM', dispatchedAt: now },
+      { name: 'look2f', package: 'LOOK-2F', lane: 'agy', model: 'gemini-3.8-flash-high', adventurerId: 'agy-gemini', state: 'bounced', bounceUntil: '1:54 PM', dispatchedAt: now },
+      { name: 'look3', package: 'LOOK-3', lane: 'opencode', model: 'xiaomi/mimo-v2.5-pro', state: 'bounced', bounceUntil: '1:54 PM', dispatchedAt: now },
     ], laneLimits: {} };
     fx.server.questRoutes.applyLanes();
     await tick();
@@ -173,7 +174,41 @@ describe('quest API', () => {
     assert.equal(body.quests.find((q) => q.id === 'LOOK-2F').status, 'bounced');
     const gemini = body.roster.find((a) => a.id === 'agy-gemini');
     assert.equal(gemini.status, 'limited');
+    assert.ok(gemini.derived && gemini.derived.reason, 'the exact bounce exposes its derived reason');
     assert.equal(fx.server.statusLog.current().has('agy-gemini'), false, 'a bounce is not written into the status log');
+    const mimo = body.roster.find((a) => a.id === 'oc-mimo');
+    assert.equal(mimo.status, 'available', 'an unknown-identity bounce does not limit another card');
+    assert.ok(mimo.laneDiagnostics?.some((entry) => entry.code === 'quota_identity_unknown'), 'the unknown bounce is an advisory diagnostic');
+  });
+
+  it('hides acknowledged or unattributable lane limits from /api/lanes and the snapshot alike', async () => {
+    const laneFx = await startFixture();
+    try {
+      const bouncedAt = new Date(Date.now() - 60000).toISOString();
+      const luna = { adventurerId: 'codex-luna', at: bouncedAt, since: bouncedAt, until: null, resetsAt: null, name: 'luna-run' };
+      const ghost = { adventurerId: 'ghost-card', at: bouncedAt, since: bouncedAt, until: null, resetsAt: null, name: 'ghost-run' };
+      laneFx.holder.lanes = { packages: [], laneLimits: {
+        codex: { ...luna, cards: { 'codex-luna': luna } },
+        agy: { ...ghost, cards: { 'ghost-card': ghost } },
+      } };
+      const before = await laneFx.api('/api/lanes');
+      assert.equal(before.status, 200);
+      assert.ok(before.body.laneLimits.codex, 'a limit on a real, still-limited card stays visible');
+      assert.equal(before.body.laneLimits.agy, undefined, 'a limit on a card outside the roster never shows');
+
+      const set = await laneFx.api('/api/roster/codex-luna/status', 'POST', { status: 'available', reason: '\u989d\u5ea6\u5df2\u786e\u8ba4' });
+      assert.equal(set.status, 200);
+      const afterLanes = await laneFx.api('/api/lanes');
+      assert.equal(afterLanes.body.laneLimits.codex, undefined, 'the owner acknowledgement clears the lane header here too');
+
+      const { body } = await laneFx.api('/api/quests');
+      assert.equal(body.laneLimits.codex, undefined);
+      assert.equal(body.laneLimits.agy, undefined);
+      assert.equal(body.laneEvidence.codex.cards['codex-luna'].cleared, 'owner');
+      assert.equal(body.laneEvidence.agy.cards['ghost-card'].cleared, 'no_card');
+    } finally {
+      await laneFx.close();
+    }
   });
 
   it('refuses dispatch and shows server down in eligibility when a lane server is down', async () => {

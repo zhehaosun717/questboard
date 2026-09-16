@@ -48,8 +48,17 @@ describe('sessionState terminal rules (N12-N14)', () => {
     assert.equal(staleFinish.state, 'failed', 'the error is the newest fact, not the stale finish');
     assert.match(staleFinish.reason, /upstream rejected/);
 
-    const quota = sessionState([msg({ time: {}, error: { name: 'ServerOverloaded', data: { message: "you've hit your usage limit, try again at 17:00" } } }, [txt('mid')])]);
+    const quota = sessionState([msg({ time: {}, error: { name: 'RateLimitError', code: 'rate_limit_exceeded', data: { message: "you've hit your usage limit, try again at 17:00" } } }, [txt('mid')])]);
     assert.equal(quota.state, 'bounced', 'bounce evidence still outranks completion');
+  });
+
+  it('requires a structured quota name or code and never regexes a free-text 402', () => {
+    const textOnly = sessionState([msg({ time: {}, error: { name: 'APIError', data: { message: "you've hit your usage limit" } } }, [txt('mid')])]);
+    assert.equal(textOnly.state, 'failed');
+    const structuredNonQuota = sessionState([msg({ time: {}, error: { name: 'APIError', data: { message: 'tool failed: exit 402' } } }, [txt('mid')])]);
+    assert.equal(structuredNonQuota.state, 'failed');
+    const byCode = sessionState([msg({ time: {}, error: { name: 'APIError', code: 'quota_exceeded', data: { message: 'provider rejected the request' } } }, [txt('mid')])]);
+    assert.equal(byCode.state, 'bounced');
   });
 
   it('does not infer a quota from an arbitrary tool transcript', () => {
