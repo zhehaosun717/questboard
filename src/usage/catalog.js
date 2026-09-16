@@ -191,7 +191,7 @@ export const nvidiaCatalog = makeEntry({
 export const claudeSubscriptionCatalog = makeEntry({
   id: 'claude-subscription',
   name: 'Claude 订阅',
-  access: 'manual',
+  access: 'official-hook',
   credentialType: 'claude-ai-subscription',
   docsUrl: 'https://code.claude.com/docs/en/statusline',
 });

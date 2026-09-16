@@ -4,6 +4,7 @@ import child_process from 'node:child_process';
 import module from 'node:module';
 import { tmpDir } from '../helpers.js';
 import { createUsageService } from '../../src/usage/service.js';
+import { CLAUDE_SETUP_NOTE } from '../../src/usage/claudeStatusline.js';
 import {
   MANUAL_NOTE,
   MANUAL_PROVIDERS,
@@ -65,8 +66,11 @@ describe('manual-only providers', () => {
   });
 
   it('yields a manual_only result with no numbers (empty windows and balances)', async () => {
+    // Hermetic home: claudeSubscription reads a snapshot file when one exists, so the
+    // fetch must be pinned to an empty directory instead of the developer's real home.
+    const homedir = tmpDir('qb-manual-empty-');
     for (const provider of MANUAL_PROVIDERS) {
-      const res = await provider.fetch();
+      const res = await provider.fetch({ homedir, env: {} });
       assert.equal(res.manual_only, true, `${provider.id} should have manual_only: true`);
       assert.equal(res.state, 'manual_only', `${provider.id} should have state: 'manual_only'`);
       assert.deepEqual(res.windows, [], `${provider.id} must have no windows (no numbers)`);
@@ -103,11 +107,11 @@ describe('manual-only providers', () => {
         assert.equal(provider.keys, undefined, `${provider.id} must not configure keys`);
         assert.equal(provider.oauth, undefined, `${provider.id} must not configure oauth`);
 
-        // Direct fetch
-        await provider.fetch({ fetchImpl: fakeFetchImpl, key: SECRET_CANARY });
+        // Direct fetch (hermetic home; never reads the developer's real snapshot)
+        const homedir = tmpDir('qb-manual-test-');
+        await provider.fetch({ fetchImpl: fakeFetchImpl, key: SECRET_CANARY, homedir, env: {} });
 
         // Service report integration
-        const homedir = tmpDir('qb-manual-test-');
         const service = createUsageService({
           homedir,
           env: { OPENAI_API_KEY: SECRET_CANARY, ALIBABA_API_KEY: SECRET_CANARY },
@@ -136,12 +140,13 @@ describe('manual-only providers', () => {
     }
   });
 
-  it('uses truthful copy (暂未确认公开的用量查询接口, 当前通过控制台查看, or 看板还没接入) and never claims "供应商没有接口"', async () => {
+  it('uses truthful copy (暂未确认公开的用量查询接口, 当前通过控制台查看, 看板还没接入, or the Claude setup step) and never claims "供应商没有接口"', async () => {
+    const homedir = tmpDir('qb-manual-copy-');
     for (const provider of MANUAL_PROVIDERS) {
-      const res = await provider.fetch();
+      const res = await provider.fetch({ homedir, env: {} });
       const text = res.note;
       assert.ok(
-        text.includes('暂未确认公开的用量查询接口') || text.includes('当前通过控制台查看') || text.includes('看板还没接入 Claude Code 状态栏数据'),
+        text.includes('暂未确认公开的用量查询接口') || text.includes('当前通过控制台查看') || text.includes('看板还没接入 Claude Code 状态栏数据') || text.includes('在 Claude Code 里运行 /usage'),
         `Copy must use truthful wording for ${provider.id}, got: ${text}`
       );
       assert.ok(
@@ -149,13 +154,14 @@ describe('manual-only providers', () => {
         `Copy must never say "供应商没有接口" for ${provider.id}`
       );
     }
-    const claudeRes = await claudeSubscription.fetch();
-    assert.equal(claudeRes.note, '看板还没接入 Claude Code 状态栏数据；当前在 Claude Code 里运行 /usage 查看');
+    const claudeRes = await claudeSubscription.fetch({ homedir: tmpDir('qb-manual-claude-'), env: {} });
+    assert.equal(claudeRes.note, CLAUDE_SETUP_NOTE);
   });
 
   it('never copies fixed quotas from pricing articles as account usage', async () => {
+    const homedir = tmpDir('qb-manual-quotas-');
     for (const provider of MANUAL_PROVIDERS) {
-      const res = await provider.fetch();
+      const res = await provider.fetch({ homedir, env: {} });
       // Verify no numeric quota or balance fields are fabricated
       assert.equal(res.windows.length, 0);
       assert.equal(res.balances.length, 0);
@@ -171,10 +177,11 @@ describe('manual-only providers', () => {
   });
 
   it('ensures no secrets or env values appear in manual provider outputs', async () => {
+    const homedir = tmpDir('qb-manual-secrets-');
     for (const provider of MANUAL_PROVIDERS) {
       const serialized = JSON.stringify(provider);
       assert.ok(!serialized.includes(SECRET_CANARY));
-      const res = await provider.fetch();
+      const res = await provider.fetch({ homedir, env: {} });
       assert.ok(!JSON.stringify(res).includes(SECRET_CANARY));
     }
   });

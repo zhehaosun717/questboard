@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CURRENCY_PATTERN, UsageError, getJson, isoOrNull, parseJsonDocuments, percent, safeLabel, toNumber, windowLabel } from './common.js';
 import { createAntigravityProvider } from './antigravity.js';
+import { readClaudeSnapshot } from './claudeStatusline.js';
 
 export const KIMI_BASE_URL = 'https://api.kimi.com/coding/v1';
 
@@ -444,4 +445,32 @@ export const mimo = {
   unavailable: '小米 MiMo 要用浏览器登录的 cookie 才能查，API key 查不了；看板还没有接这个来源',
 };
 
-export const PROVIDERS = [codex, kimi, deepseek, openrouter, cursor, antigravity, volcano, siliconflow, mimo];
+// Claude Code subscription status-line snapshot reader (opt-in on the Claude Code side: the owner adds the
+// statusLine command to their own settings; the board never edits that file and never chains a status line).
+// The card is always shown: with a snapshot it carries the live windows, without one it shows the setup step
+// as its note (state manual_only, no numbers invented), which is the honest thing a reader of the card needs.
+export const claudeSubscription = {
+  id: 'claude-subscription',
+  name: 'Claude 订阅',
+  source: 'official-hook',
+  access: 'official-hook',
+  credentialType: 'claude-ai-subscription',
+  docsUrl: 'https://code.claude.com/docs/en/statusline',
+  async fetch({ homedir, env, now = Date.now() } = {}) {
+    const res = readClaudeSnapshot({ homedir, env, now });
+    if (!res.ok && res.state === 'not_configured') {
+      return {
+        windows: [],
+        balances: [],
+        plan: '',
+        note: res.note,
+        manual_only: true,
+        state: 'manual_only',
+        asOf: null,
+      };
+    }
+    return res;
+  },
+};
+
+export const PROVIDERS = [codex, kimi, deepseek, openrouter, cursor, antigravity, volcano, siliconflow, mimo, claudeSubscription];

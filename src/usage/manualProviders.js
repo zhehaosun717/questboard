@@ -1,7 +1,10 @@
+import { CLAUDE_SETUP_NOTE } from './claudeStatusline.js';
+
 export const MANUAL_NOTE = '暂未确认公开的用量查询接口，当前通过控制台查看';
 export const ALIBABA_MANUAL_NOTE = '阿里云暂未确认公开的用量查询接口 · 当前通过控制台查看';
 export const NVIDIA_MANUAL_NOTE = 'NVIDIA 暂未确认公开的用量查询接口；当前通过控制台查看（在 build.nvidia.com 右上角账户菜单看限速）';
-export const CLAUDE_MANUAL_NOTE = '看板还没接入 Claude Code 状态栏数据；当前在 Claude Code 里运行 /usage 查看';
+// The Claude card's missing-snapshot note is the reader's setup step; one place, never stale text.
+export const CLAUDE_MANUAL_NOTE = CLAUDE_SETUP_NOTE;
 export const OPENAI_SPEND_MANUAL_NOTE = 'OpenAI API 消耗需要组织管理员 key，看板不读取；当前通过控制台查看';
 
 export const ALIBABA_EDITIONS = Object.freeze(new Set([
