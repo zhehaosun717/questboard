@@ -40,4 +40,15 @@ describe('dropping a card on returned work', () => {
     const after = (await fx.api('/api/quests')).body;
     assert.ok(Object.values(after.reviewEligibility['RUN-4']).every((v) => !v.ok && v.reasons[0].code === 'review_open'));
   });
+
+  it('keeps the delivered event already recorded when the same result is reported again (S2)', async () => {
+    const before = fx.events().filter((event) => event.event === 'delivered').length;
+    const res = await fx.api('/api/quests/RUN-4/status', 'POST', { status: 'delivered', detail: 'done' });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.quest.status, 'delivered');
+    assert.equal(res.body.quest.lastDetail, 'done', 'the first delivered detail is restored, not the review note');
+    assert.equal(fx.events().filter((event) => event.event === 'delivered').length, before);
+    assert.equal(fx.events().at(-1).event, 'status_note');
+  });
 });

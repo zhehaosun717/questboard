@@ -43,6 +43,15 @@ export function sameAttempt(assignee, attempt) {
   return Boolean(assignee.at) && Boolean(attempt.at) && assignee.at === attempt.at;
 }
 
+// A terminal fact belongs to the attempt it was recorded under. An older row that never carried an
+// attemptId must not shadow a newer attempt that does: the two sides have to agree on whether they even
+// have an attemptId (both or neither) before sameAttempt is allowed to decide the rest.
+function factMatchesAttempt(fact, attempt) {
+  if (!fact || !attempt) return false;
+  if (Boolean(fact.attemptId) !== Boolean(attempt.attemptId)) return false;
+  return sameAttempt(fact, attempt);
+}
+
 const now = () => new Date().toISOString();
 
 function splitList(value) {
@@ -130,16 +139,28 @@ export class QuestStore extends EventEmitter {
   // quest is still at N (a re-posted brief, a ruling or a status change in between makes it stale).
   save(quest) {
     const next = { ...quest, revision: (quest.revision || 0) + 1 };
-    // Disk first, memory second: if the append throws (a locked file, EISDIR), the in-memory map must stay
-    // exactly as it was, not jump ahead of what actually got persisted — a caller that reads it back after
-    // a failed save must see the same state a restart would replay from disk, never a state that looks
-    // further along (e.g. an assignee already cleared) than what is durable.
+    return this.appendSnapshot(next);
+  }
+
+  // The one durable write every save goes through: disk first, memory second. If the append throws (a locked
+  // file, EISDIR), the in-memory map must stay exactly as it was, not jump ahead of what actually got
+  // persisted — a caller that reads it back after a failed save must see the same state a restart would
+  // replay from disk, never a state that looks further along (e.g. an assignee already cleared) than what
+  // is durable.
+  appendSnapshot(next) {
     appendJsonLine(this.questsPath, next);
     this.quests.set(next.id, next);
     return next;
   }
 
-  emitEvent(quest, event, fields = {}) {
+  // Records the intent to report a terminal status before the event is appended, and deliberately without a
+  // revision bump: the status itself has not moved yet, and the revision a caller just read must stay the one
+  // that still identifies this open transition (a polling retry re-derives it and tries again).
+  savePendingFact(quest, terminalFact, updatedAt) {
+    return this.appendSnapshot({ ...quest, terminalFact, updatedAt });
+  }
+
+  emitEvent(quest, event, fields = {}, { notify = true } = {}) {
     const assignee = fields.assignee || quest.assignee || {};
     this.eventSeq += 1;
     const record = {
@@ -155,8 +176,19 @@ export class QuestStore extends EventEmitter {
       ...(fields.changes ? { changes: fields.changes } : {}),
     };
     appendJsonLine(this.eventsFile, record);
-    this.emit('event', record);
+    if (notify) this.notify(record);
     return record;
+  }
+
+  // Listeners (the SSE feed) must never be able to abort or duplicate a store write: a listener that throws
+  // would otherwise surface as a failed setStatus whose retry re-appends the event that already landed. The
+  // report follows the server's existing pattern, and the writes above are already durable.
+  notify(record) {
+    try {
+      this.emit('event', record);
+    } catch (error) {
+      process.stderr.write(`questboard: event listener failed: ${error.stack || error.message}\n`);
+    }
   }
 
   post(payload) {
@@ -275,25 +307,105 @@ export class QuestStore extends EventEmitter {
     if (!QUEST_STATUSES.has(status)) throw new Error(`status must be one of ${[...QUEST_STATUSES].join('|')}`);
     const quest = this.quests.get(id);
     if (!quest) return null;
-    // A second callback reporting the same terminal fact for the attempt already recorded (a duplicate
-    // poll, a retried write) must not re-fire delivered/failed/bounced — that event already happened once,
-    // and firing it again would read as a second, distinct attempt. Because assign()/adopt() always moves
-    // the quest back through 'dispatched' before any new attempt can reach a terminal status again, seeing
-    // the same terminal status twice in a row (no assign in between) can only be this same attempt. Extra
-    // detail is not thrown away — it is kept as a note, actor preserved, while the first terminal evidence
-    // (lastDetail, the assignee it happened under) stays exactly as first recorded.
-    if (TERMINAL_STATUSES.has(status) && quest.status === status) {
-      if (!detail || detail === quest.lastDetail) return quest;
-      const next = this.save({ ...quest, updatedAt: now() });
-      this.emitEvent(next, 'status_note', { by, detail, assignee: quest.assignee || {} });
-      return next;
-    }
+    // Terminal statuses go through setTerminalStatus, which owns the durable ordering (persist the fact,
+    // then append the event, then confirm it) that keeps a crash between writes from losing or duplicating
+    // the delivered/failed/bounced event.
+    if (TERMINAL_STATUSES.has(status)) return this.setTerminalStatus(quest, status, { detail, by });
     // A stall is silence, not a confirmed exit: the worker keeps the quest (and its slot and file
     // reservations) until release() says the process is gone. failed/bounced come from exit files.
     const stillAssigned = ['dispatched', 'delivered', 'reviewing', 'stalled'].includes(status);
     const next = this.save({ ...quest, status, assignee: stillAssigned ? quest.assignee : null, lastDetail: String(detail).slice(0, 2000), updatedAt: now() });
     this.emitEvent(next, STATUS_EVENTS[status] || `status_${status}`, { by, detail, assignee: quest.assignee || {} });
     return next;
+  }
+
+  // One terminal report for one attempt. The order of the three durable steps is the contract:
+  //   1. persist the quest with terminalFact {..., eventPending:{status,detail,by}} — intent recorded, status untouched;
+  //   2. append the terminal event (the fact alone is not the event);
+  //   3. persist the quest again with the pending marker cleared.
+  // A failure in (1) emits nothing and leaves memory untouched, so the retry starts clean. A failure in (2)
+  // throws with the marker durable, so the retry re-appends exactly the event that never landed. A failure in
+  // (3) — the append already happened — can duplicate that event when the retry re-appends it: at-least-once
+  // is the documented limit of two writes that cannot be made atomic without an outbox.
+  setTerminalStatus(quest, status, { detail, by }) {
+    const attempt = quest.dispatches?.length ? quest.dispatches[quest.dispatches.length - 1] : null;
+    const fact = quest.terminalFact;
+    const sameFact = factMatchesAttempt(fact, attempt);
+    const assignee = quest.assignee || {};
+    const eventName = STATUS_EVENTS[status] || `status_${status}`;
+
+    // A previous run for this same attempt got as far as the pending marker and then died before (or during)
+    // the append: re-append exactly the event it was about to write, not the retry's own text — the retry (a
+    // status poll, a manual re-click) may carry different or empty detail, but the event being retried is the
+    // original one. Confirm durably, and only then tell listeners.
+    if (sameFact && fact.eventPending && fact.eventPending.status === status) {
+      const record = this.emitEvent(quest, eventName, {
+        by: fact.eventPending.by, detail: fact.eventPending.detail, assignee,
+      }, { notify: false });
+      const next = this.finishTerminal(quest, status, fact, fact.eventPending.detail);
+      this.notify(record);
+      return next;
+    }
+
+    // Already recorded for this attempt (or an identical consecutive repeat from the pre-fact era): never
+    // re-fire the terminal event — that event already happened once, and firing it again would read as a
+    // second, distinct attempt. New text is kept as a status_note; a status that had moved on (reviewing,
+    // stalled, done) is moved back with the first evidence restored from the fact, and a move back with no
+    // text still says what happened.
+    const recorded = sameFact && fact.statuses ? fact.statuses[status] : null;
+    if (recorded || quest.status === status) {
+      const firstText = String((recorded ? recorded.detail : quest.lastDetail) ?? '');
+      const statusChanging = quest.status !== status;
+      const hasNewText = Boolean(detail) && detail !== firstText;
+      if (!statusChanging && !hasNewText) return quest;
+      const next = this.save({
+        ...quest,
+        status,
+        ...(statusChanging ? { lastDetail: firstText.slice(0, 2000) } : {}),
+        updatedAt: now(),
+      });
+      const record = this.emitEvent(next, 'status_note', { by, detail: detail || `状态改回 ${status}`, assignee }, { notify: false });
+      this.notify(record);
+      return next;
+    }
+
+    // A first terminal fact for this attempt (or a different attempt than the last fact described — identity
+    // changed, so the old set is not evidence about this one). The fact keeps a SET of per-status evidence:
+    // delivered then failed then delivered for one attempt is one delivered event, and the rest are notes.
+    // A marker left by a status whose event never landed is dropped from the set — it was never evidence.
+    const statuses = sameFact && fact.statuses ? { ...fact.statuses } : {};
+    if (fact && fact.eventPending) delete statuses[fact.eventPending.status];
+    const at = now();
+    const evidence = String(detail).slice(0, 2000);
+    const factNext = {
+      attemptId: attempt?.attemptId || null,
+      name: attempt?.name || null,
+      at: attempt?.at || null,
+      lane: attempt?.lane || null,
+      statuses: { ...statuses, [status]: { at, detail: evidence } },
+      eventPending: { status, detail: evidence, by, at },
+    };
+    const pending = this.savePendingFact(quest, factNext, at);
+    const record = this.emitEvent(pending, eventName, { by, detail, assignee }, { notify: false });
+    const next = this.finishTerminal(pending, status, factNext, evidence);
+    this.notify(record);
+    return next;
+  }
+
+  // Confirms a terminal transition once its event is durable: the status moves, the marker is dropped
+  // (without leaving an `eventPending: undefined` key behind), and the assignee follows the same hold rules
+  // as any other status (kept for delivered/reviewing, cleared for failed/bounced/done).
+  finishTerminal(quest, status, fact, detail) {
+    const { eventPending, ...clearedFact } = fact;
+    const stillAssigned = ['dispatched', 'delivered', 'reviewing', 'stalled'].includes(status);
+    return this.save({
+      ...quest,
+      status,
+      assignee: stillAssigned ? quest.assignee : null,
+      lastDetail: String(detail).slice(0, 2000),
+      terminalFact: clearedFact,
+      updatedAt: now(),
+    });
   }
 
   // Frees a stalled quest once someone has confirmed its worker is gone. A running quest is cancelled, not released.
