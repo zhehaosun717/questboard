@@ -1,10 +1,45 @@
 import { useState } from 'react';
 import { api } from '../../api/client';
 import type { Quest, Snapshot } from '../../api/types';
-import { boardAcceptanceDetail, parseVerdict, VERDICT_LABEL } from '../../lib/evidence';
+import { boardAcceptanceDetail, REPORT_SOURCE_LABEL, reviewVerdictOf, VERDICT_LABEL, type ReviewVerdict } from '../../lib/evidence';
 import { acceptanceBy, STATUS } from '../../lib/labels';
 import { isArchived, reviewsOf } from '../../lib/questState';
+import { formatClock } from '../../lib/board';
 import { DrawerSection } from './DrawerSection';
+import '../../styles/report-evidence.css';
+
+// The backend verifies 'PASS' | 'FAIL' | 'findings' | 'unknown' (src/core/reportEvidence.js extractVerdict;
+// R2-2 added 'findings' for the review template's third choice, PASS WITH FINDINGS).
+const REPORT_VERDICT_TEXT: Record<ReviewVerdict, string> = { pass: 'PASS', fail: 'FAIL', findings: 'PASS WITH FINDINGS', unknown: '未识别' };
+
+// Item 12: the badge used to read a verdict only out of the reviewer's `lastDetail` tail with a web-only
+// regex — wrong whenever that tail was truncated or the wording did not match. When the backend has already
+// bound and verified this review's own final report (src/core/reportEvidence.js — the exact final `VERDICT:`
+// line from the full read, never a truncated read or a `.out` transcript), that verdict is shown instead;
+// the lastDetail-derived badge is kept only as an explicitly labelled fallback for a review with no captured
+// report (legacy data, or one not yet terminal). Either way this is a display only — it never enables or
+// triggers the accept/reject controls below.
+function ReviewVerdictLine({ review }: { review: Quest }) {
+  const info = reviewVerdictOf(review);
+  const report = review.report;
+  if (info.verified && report) {
+    return (
+      <span className={`review-verdict review-verdict-${info.verdict}`}>
+        模型自报结论：{REPORT_VERDICT_TEXT[info.verdict]}
+        {info.verdict === 'unknown' && info.reason ? `（${info.reason}）` : ''}
+        <span className="review-report-verdict-meta">
+          {REPORT_SOURCE_LABEL[report.source]} · {formatClock(report.capturedAt)} 记录
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className={`review-verdict review-verdict-${info.verdict} review-verdict-fallback`}>
+      复核{VERDICT_LABEL[info.verdict]}
+      <span className="review-report-verdict-meta">未经核验，按记录文字判断</span>
+    </span>
+  );
+}
 
 interface ReviewSectionProps {
   quest: Quest;
@@ -98,15 +133,12 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
         <div className="review-links">
           {reviews.map((review) => {
             const reported = REPORTED.has(review.status) || isArchived(review);
-            const verdict = parseVerdict(review.lastDetail ?? '');
             return (
               <div key={review.id} className="review-link">
                 <div className="review-link-main">
                   <strong>{review.id}</strong>
                   <span className="review-link-status">{STATUS[review.status] ?? review.status}</span>
-                  {reported ? (
-                    <span className={`review-verdict review-verdict-${verdict}`}>复核{VERDICT_LABEL[verdict]}</span>
-                  ) : null}
+                  {reported ? <ReviewVerdictLine review={review} /> : null}
                   {reported && review.lastDetail ? (
                     <pre className="review-link-detail">{review.lastDetail}</pre>
                   ) : (

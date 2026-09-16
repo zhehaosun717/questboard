@@ -81,7 +81,8 @@ describe('nextStep', () => {
       createdAt: '2026-09-13T02:00:00.000Z',
     });
     const step = nextStep(work, makeSnapshot({ quests: [work, review] }));
-    expect([step.who, step.action, step.title]).toEqual(['coordinator', 'sign-off', '等 coordinator 验收 · 复核不通过']);
+    // No captured report on the review, so the tail-parsed verdict is labelled unverified (B2, round 2).
+    expect([step.who, step.action, step.title]).toEqual(['coordinator', 'sign-off', '等 coordinator 验收 · 复核不通过（未经核验）']);
     expect(step.detail).toContain('不代表编译或测试跑过');
   });
 
@@ -92,7 +93,22 @@ describe('nextStep', () => {
       createdAt: '2026-09-13T02:00:00.000Z',
     });
     const step = nextStep(work, makeSnapshot({ quests: [work, review] }));
-    expect([step.who, step.title]).toEqual(['you', '等你验收 · 复核通过']);
+    expect([step.who, step.title]).toEqual(['you', '等你验收 · 复核通过（未经核验）']);
+  });
+
+  it('B2 (round 2): a verified verdict from the review’s captured report needs no 未经核验 label', () => {
+    const work = codeWork({ status: 'reviewing', dispatches: [round] });
+    const review = makeQuest({
+      id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'delivered', lastDetail: 'VERDICT: FAIL',
+      createdAt: '2026-09-13T02:00:00.000Z',
+      report: {
+        source: 'delivery', ref: 'delivery/x.md', digest: 'abc', bytes: 10, sizeBytes: 10, truncated: false,
+        capturedAt: '2026-09-13T02:30:00.000Z', attemptId: 'att-1', verdict: 'PASS',
+      },
+    });
+    const step = nextStep(work, makeSnapshot({ quests: [work, review] }));
+    expect(step.title).toBe('等 coordinator 验收 · 复核通过');
+    expect(step.title).not.toContain('未经核验');
   });
 
   it('ignores a review from an earlier round', () => {
@@ -107,7 +123,7 @@ describe('nextStep', () => {
     const parent = codeWork({ id: 'd' });
     const review = makeQuest({ id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'delivered', lastDetail: 'VERDICT: PASS' });
     const step = nextStep(review, makeSnapshot({ quests: [parent, review] }));
-    expect([step.who, step.title, step.targetId, step.action]).toEqual(['coordinator', '复核结论：通过', 'd', 'none']);
+    expect([step.who, step.title, step.targetId, step.action]).toEqual(['coordinator', '复核结论：通过（未经核验）', 'd', 'none']);
     expect(step.detail).toContain('不用你验收');
   });
 
@@ -115,7 +131,7 @@ describe('nextStep', () => {
     const parent = makeQuest({ id: 'a', kind: 'art' });
     const review = makeQuest({ id: 'REVIEW-a', kind: 'review', parents: ['a'], status: 'delivered', lastDetail: 'VERDICT: PASS WITH FINDINGS' });
     const step = nextStep(review, makeSnapshot({ quests: [parent, review] }));
-    expect([step.who, step.title, step.targetId]).toEqual(['you', '复核结论：通过但有问题', 'a']);
+    expect([step.who, step.title, step.targetId]).toEqual(['you', '复核结论：通过但有问题（未经核验）', 'a']);
     expect(step.detail).toContain('决定验收还是退回');
   });
 
@@ -123,10 +139,26 @@ describe('nextStep', () => {
     const review = makeQuest({ id: 'REVIEW-x', kind: 'review', parents: ['gone'], status: 'delivered', lastDetail: 'VERDICT: PASS' });
     const step = nextStep(review, makeSnapshot());
     expect(step.who).toBe('nobody');
-    expect(step.title).toBe('复核结论：通过');
+    expect(step.title).toBe('复核结论：通过（未经核验）');
     expect(step.detail).toContain('不在看板上');
     expect(step.detail).toContain('找 coordinator 核实');
     expect(step.targetId).toBeUndefined();
+  });
+
+  it('B2 (round 2): a review’s own headline shows the verified verdict with no unverified label', () => {
+    const parent = codeWork({ id: 'd' });
+    const review = makeQuest({
+      id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'delivered', lastDetail: 'VERDICT: PASS',
+      report: {
+        source: 'summary', ref: 'out/x.out', digest: 'abc', bytes: 10, sizeBytes: 20, truncated: true,
+        capturedAt: '2026-09-13T02:30:00.000Z', attemptId: 'att-1', verdict: 'unknown', verdictReason: '报告超过 2 MB，只读了前 10 字节，没有读到结尾，给不出最终结论',
+      },
+    });
+    const step = nextStep(review, makeSnapshot({ quests: [parent, review] }));
+    // R2-2: a verified unknown reads 结论未识别, not the tail-parse fallback's 没写结论.
+    expect(step.title).toBe('复核结论：结论未识别');
+    expect(step.title).not.toContain('未经核验');
+    expect(step.title).not.toContain('通过');
   });
 
   it('lets an explicit question outrank the review kind', () => {

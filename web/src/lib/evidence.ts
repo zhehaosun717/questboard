@@ -3,7 +3,7 @@
 // belongs to no single quest. Each rung names who said it, and who is expected to say it: returned code and
 // tools wait on the coordinator's technical review, art and 你来 work wait on the owner. Nothing here
 // guesses an actor from a status: an unrecorded acceptance says it is unrecorded.
-import type { Quest, Snapshot } from '../api/types';
+import type { Quest, ReportSource, Snapshot } from '../api/types';
 import { isAwaitingSignOff, reviewsOf } from './questState';
 import { acceptanceBy } from './labels';
 
@@ -14,6 +14,14 @@ export const VERDICT_LABEL: Record<ReviewVerdict, string> = {
   findings: '通过但有问题',
   fail: '不通过',
   unknown: '没写结论',
+};
+
+// Where a review's own captured report came from (src/core/reportEvidence.js ReportSource), shown next to
+// its verdict wherever that verdict appears. Shared so the wording cannot drift between surfaces.
+export const REPORT_SOURCE_LABEL: Record<ReportSource, string> = {
+  delivery: '交付文件',
+  'exit-file': '退出文件',
+  summary: '运行记录（.out）',
 };
 
 // The review brief asks the reviewer to end with `VERDICT: PASS | PASS WITH FINDINGS | FAIL`. Only a line
@@ -28,6 +36,43 @@ export function parseVerdict(report: string): ReviewVerdict {
   if (last === 'PASS') return 'pass';
   if (last === 'FAIL') return 'fail';
   return 'unknown';
+}
+
+export interface ReviewVerdictInfo {
+  verdict: ReviewVerdict;
+  // true when this came from the review's own verified report (src/core/reportEvidence.js: a final report
+  // read in full, never a truncated read or a `.out` transcript). false means a tail-parsed guess.
+  verified: boolean;
+  // Only ever set on a verified 'unknown' (the backend's reason a truncated/summary read gives no verdict).
+  reason?: string;
+}
+
+/**
+ * The one place a review quest's verdict is decided (item 12/34): a verified report wins when the review has
+ * one — it is already gated at capture time, so a truncated or `.out`-sourced report is 'unknown' here too,
+ * never a guessed PASS. Only a review with no captured report at all falls back to a tail parse, and that
+ * fallback is always reported unverified so every surface that shows it can label it 未经核验.
+ */
+export function reviewVerdictOf(review: Quest): ReviewVerdictInfo {
+  const report = review.report;
+  if (report) {
+    const verdict: ReviewVerdict =
+      report.verdict === 'PASS' ? 'pass' : report.verdict === 'FAIL' ? 'fail' : report.verdict === 'findings' ? 'findings' : 'unknown';
+    return { verdict, verified: true, ...(report.verdictReason ? { reason: report.verdictReason } : {}) };
+  }
+  return { verdict: parseVerdict(review.lastDetail ?? ''), verified: false };
+}
+
+/**
+ * The Chinese verdict word, with an honest 未经核验 tag appended whenever it is not from a verified report.
+ * A verified 'unknown' (a truncated read, a `.out` transcript, or a report with no recognisable VERDICT line)
+ * reads 结论未识别 instead of the tail-parse fallback's 没写结论 (R2-2) — "没写结论" claims the reviewer wrote
+ * nothing, which is untrue for a report the board could not finish reading or could not read a verdict out of.
+ */
+export function verdictLabel(info: ReviewVerdictInfo): string {
+  if (!info.verified) return `${VERDICT_LABEL[info.verdict]}（未经核验）`;
+  if (info.verdict === 'unknown') return '结论未识别';
+  return VERDICT_LABEL[info.verdict];
 }
 
 export type RungState = 'done' | 'pending' | 'skipped' | 'bad';
@@ -70,9 +115,9 @@ function reviewedRung(quest: Quest, snap: Snapshot): Rung {
   if (!REPORTED.has(latest.status)) {
     return { ...base, state: 'pending', note: latest.assignee ? `${latest.id} 复核中` : `${latest.id} 还没派出去` };
   }
-  const verdict = parseVerdict(latest.lastDetail ?? '');
-  const state: RungState = verdict === 'fail' ? 'bad' : verdict === 'unknown' ? 'pending' : 'done';
-  return { ...base, state, note: `${latest.id}：复核${VERDICT_LABEL[verdict]}` };
+  const info = reviewVerdictOf(latest);
+  const state: RungState = info.verdict === 'fail' ? 'bad' : info.verdict === 'unknown' ? 'pending' : 'done';
+  return { ...base, state, note: `${latest.id}：复核${verdictLabel(info)}` };
 }
 
 /**

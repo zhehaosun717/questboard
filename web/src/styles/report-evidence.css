@@ -1,0 +1,69 @@
+/* Report evidence (feedback 7/12/34): the receipt's final-report summary/reference, the full-report panel,
+   and the model-self-reported verdict line in ReviewSection. Scoped here rather than in board.css because
+   only QuestReceipt/ReportPanel/ReviewSection use these classes. */
+
+.report-summary-heading { font: 700 13px var(--body); color: var(--tag); }
+
+.report-ref {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--cable);
+}
+.report-ref code { padding: 1px 4px; color: var(--cream); background: var(--hall-edge); border-radius: 2px; overflow-wrap: anywhere; }
+.report-ref-copy { padding: 1px 8px; font-size: 11px; }
+
+.report-truncated-note {
+  margin: 4px 0 0;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  background: repeating-linear-gradient(-45deg, var(--brass-lt) 0 10px, var(--amber) 10px 20px);
+}
+
+.report-actions { margin-top: 6px; }
+
+.report-panel {
+  margin-top: 8px;
+  padding: 9px 10px;
+  background: var(--hall-edge);
+  border: 1px solid var(--steel);
+  border-radius: 2px;
+}
+.report-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.report-panel-head strong { font: 700 12px var(--body); color: var(--cable); }
+.report-panel-note { margin: 6px 0 0; font-size: 12px; color: var(--dim); }
+.report-panel-error { margin: 6px 0 0; font-size: 12px; color: var(--wax-lt); word-break: break-word; }
+.report-panel-truncated {
+  margin: 6px 0 0;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  background: repeating-linear-gradient(-45deg, var(--brass-lt) 0 10px, var(--amber) 10px 20px);
+}
+.report-panel-body {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font: 12px var(--mono);
+  color: var(--cream);
+  background: var(--soil);
+  border: 1px solid var(--steel2);
+  border-radius: 2px;
+}
+
+/* The model's own self-reported verdict (item 12), inside a review row — visually distinct from the
+   record-text-derived fallback below it, and from the accept/reject controls further down the section. */
+.review-report-verdict-meta { margin-left: 6px; font: 11px var(--mono); color: var(--dim); overflow-wrap: anywhere; }
+/* S1 (round 2): opacity here pushed .review-report-verdict-meta below 4.5:1 (measured 4.26:1). The fallback
+   badge stays visually distinct through its own italic/label text, not through dimming. */
+.review-verdict-fallback { font-style: italic; }

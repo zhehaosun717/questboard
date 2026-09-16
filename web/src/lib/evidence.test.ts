@@ -5,6 +5,7 @@ import {
   evidenceFor,
   parseVerdict,
   recordedAcceptor,
+  reviewVerdictOf,
 } from './evidence';
 import { makeAssignee, makeCard, makeQuest, makeSnapshot } from './testFixtures';
 
@@ -76,13 +77,66 @@ describe('evidenceFor', () => {
     expect(claimed?.note).toBe('有交差记录但说不清是谁，不算核实');
   });
 
-  it('marks a failing review as bad, a missing verdict as pending with no conclusion, and a running review as pending', () => {
+  it('marks a failing review as bad, a missing verdict as pending with no conclusion, and a running review as pending — all unverified without a captured report', () => {
     const review = (status: 'delivered' | 'dispatched', lastDetail: string) =>
       makeQuest({ id: 'REVIEW-d', kind: 'review', parents: ['d'], status, lastDetail, createdAt: '2026-09-13T02:00:00.000Z', assignee: makeAssignee('card-2') });
     const rung = (r: ReturnType<typeof review>) => evidenceFor(work(), makeSnapshot({ quests: [work(), r] }))[1];
-    expect(rung(review('delivered', 'VERDICT: FAIL'))).toMatchObject({ state: 'bad', note: 'REVIEW-d：复核不通过' });
+    expect(rung(review('delivered', 'VERDICT: FAIL'))).toMatchObject({ state: 'bad', note: 'REVIEW-d：复核不通过（未经核验）' });
     expect(rung(review('delivered', 'no verdict here'))?.state).toBe('pending');
     expect(rung(review('dispatched', ''))?.note).toBe('REVIEW-d 复核中');
+  });
+
+  it('B2 (round 2): the ladder prefers a review’s verified report and never shows 复核通过 for a truncated one', () => {
+    const truncatedReview = makeQuest({
+      id: 'REVIEW-d', kind: 'review', parents: ['d'], status: 'delivered', lastDetail: 'VERDICT: PASS',
+      createdAt: '2026-09-13T02:00:00.000Z',
+      report: {
+        source: 'summary', ref: 'out/x.out', digest: 'abc', bytes: 10, sizeBytes: 20, truncated: true,
+        capturedAt: '2026-09-13T02:30:00.000Z', attemptId: 'att-1', verdict: 'unknown', verdictReason: '报告超过 2 MB，只读了前 10 字节，没有读到结尾，给不出最终结论',
+      },
+    });
+    const rung = evidenceFor(work(), makeSnapshot({ quests: [work(), truncatedReview] }))[1];
+    expect(rung?.state).toBe('pending');
+    expect(rung?.note).not.toContain('复核通过');
+    // R2-2: a verified unknown (this truncated report) reads 结论未识别, not the tail-parse fallback's 没写结论 —
+    // the report was read, it just could not be finished, which is not the same as the reviewer writing nothing.
+    expect(rung?.note).toBe('REVIEW-d：复核结论未识别');
+
+    const verifiedPass = makeQuest({
+      id: 'REVIEW-e', kind: 'review', parents: ['d'], status: 'delivered', lastDetail: '看起来还行',
+      createdAt: '2026-09-13T02:00:00.000Z',
+      report: {
+        source: 'delivery', ref: 'delivery/x.md', digest: 'abc', bytes: 10, sizeBytes: 10, truncated: false,
+        capturedAt: '2026-09-13T02:30:00.000Z', attemptId: 'att-1', verdict: 'PASS',
+      },
+    });
+    const rung2 = evidenceFor(work(), makeSnapshot({ quests: [work(), verifiedPass] }))[1];
+    expect(rung2).toMatchObject({ state: 'done', note: 'REVIEW-e：复核通过' });
+  });
+
+  it('reviewVerdictOf prefers the verified report and only falls back to a tail parse, labelled, when there is none', () => {
+    const withReport = makeQuest({
+      id: 'REVIEW-d', kind: 'review', lastDetail: 'VERDICT: FAIL',
+      report: {
+        source: 'delivery', ref: 'delivery/x.md', digest: 'abc', bytes: 10, sizeBytes: 10, truncated: false,
+        capturedAt: '2026-09-13T02:30:00.000Z', attemptId: 'att-1', verdict: 'PASS',
+      },
+    });
+    expect(reviewVerdictOf(withReport)).toEqual({ verdict: 'pass', verified: true });
+
+    const withoutReport = makeQuest({ id: 'REVIEW-e', kind: 'review', lastDetail: 'VERDICT: PASS' });
+    expect(reviewVerdictOf(withoutReport)).toEqual({ verdict: 'pass', verified: false });
+  });
+
+  it('R2-2: reviewVerdictOf maps a verified findings report straight through', () => {
+    const withFindings = makeQuest({
+      id: 'REVIEW-f', kind: 'review', lastDetail: 'VERDICT: PASS WITH FINDINGS',
+      report: {
+        source: 'delivery', ref: 'delivery/x.md', digest: 'abc', bytes: 10, sizeBytes: 10, truncated: false,
+        capturedAt: '2026-09-13T02:30:00.000Z', attemptId: 'att-1', verdict: 'findings',
+      },
+    });
+    expect(reviewVerdictOf(withFindings)).toEqual({ verdict: 'findings', verified: true });
   });
 
   it('ignores a review from before the latest dispatch', () => {

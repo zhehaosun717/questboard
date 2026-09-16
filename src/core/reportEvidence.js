@@ -17,8 +17,10 @@ export const SUMMARY_VERDICT_REASON = '这是 worker 的运行记录（.out）�
 const NAME_OK = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const HEADING_RE = /^\s{0,3}#{1,6}\s+(.+?)\s*$/;
 // Case-sensitive on purpose: only an exact uppercase `VERDICT:` line counts. Prose and templates that spell
-// it differently are not this attempt's verdict — 'unknown' is the honest answer for them.
-const VERDICT_RE = /^\s{0,3}(?:#{1,6}\s+)?(?:(?:\*\*|__)\s*)?VERDICT\s*[:：]\s*(PASS|FAIL)\s*(?:(?:\*\*|__)\s*)?$/;
+// it differently are not this attempt's verdict — 'unknown' is the honest answer for them. The review
+// template offers a third choice, `PASS WITH FINDINGS` (src/core/reviewRequest.js) — tried before the plain
+// `PASS` alternative so it is never left as a `PASS` match with trailing text unconsumed.
+const VERDICT_RE = /^\s{0,3}(?:#{1,6}\s+)?(?:(?:\*\*|__)\s*)?VERDICT\s*[:：]\s*(PASS WITH FINDINGS|PASS|FAIL)\s*(?:(?:\*\*|__)\s*)?$/;
 const QUOTE_RE = /^\s{0,3}>\s?/;
 const INDENT_RE = /^(?: {4,}|\t)/;
 const LIST_RE = /^\s{0,3}(?:[-*+]|\d+[.)])\s+/;
@@ -187,6 +189,13 @@ export function resolveAttemptReport({ config, quest, only = null }) {
 // (CommonMark fences only close with the same character and at least the same length), not a blockquote and
 // not an indented code sample, and keeps the LAST exact verdict. Only the exact uppercase token counts;
 // template lines that list alternatives are skipped; no genuine line means 'unknown'.
+// The regex captures the exact literal on the line; only `PASS WITH FINDINGS` maps onto a different stored
+// value than the token itself, so a verified 'findings' verdict shares its name with the web-only tail-parse
+// fallback (web/src/lib/evidence.ts ReviewVerdict) instead of carrying three spaces.
+function verdictValue(raw) {
+  return raw === 'PASS WITH FINDINGS' ? 'findings' : raw;
+}
+
 export function extractVerdict(text, { source } = {}) {
   if (source === 'summary') return unknownWithReason(SUMMARY_VERDICT_REASON);
   if (typeof text !== 'string' || !text) return { verdict: 'unknown', line: null, position: null };
@@ -209,7 +218,7 @@ export function extractVerdict(text, { source } = {}) {
     }
     if (!QUOTE_RE.test(line) && !INDENT_RE.test(line)) {
       const match = VERDICT_RE.exec(line);
-      if (match) found = { verdict: match[1], line: line.trim().slice(0, VERDICT_LINE_MAX), position: offset };
+      if (match) found = { verdict: verdictValue(match[1]), line: line.trim().slice(0, VERDICT_LINE_MAX), position: offset };
     }
     offset += line.length + (separators[index]?.length || 0);
   }

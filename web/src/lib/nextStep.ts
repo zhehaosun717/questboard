@@ -2,7 +2,7 @@
 // which controls to show. The card shows the title; the dossier opens on the whole step with its controls.
 // Every entry point used to decide this on its own, which is how "等我处理" came to mean three things.
 import type { Quest, QuestKind, Snapshot } from '../api/types';
-import { currentReviews, parseVerdict, recordedAcceptor, type ReviewVerdict, VERDICT_LABEL } from './evidence';
+import { currentReviews, recordedAcceptor, reviewVerdictOf, verdictLabel, type ReviewVerdict } from './evidence';
 import { acceptanceBy, OPEN_STATUSES } from './labels';
 import { hasEligibleCard, isArchived, isAwaitingSignOff, sharedRefusals } from './questState';
 
@@ -84,15 +84,15 @@ function signOffStep(quest: Quest, snap: Snapshot): NextStep {
   }
   const reported = [...reviews].reverse().find((review) => REPORTED.has(review.status) || review.status === 'done');
   if (reported) {
-    const verdict = parseVerdict(reported.lastDetail ?? '');
+    const info = reviewVerdictOf(reported);
     return technical
       ? {
-        who: 'coordinator', tone: 'coordinator', title: `等 coordinator 验收 · 复核${VERDICT_LABEL[verdict]}`,
+        who: 'coordinator', tone: 'coordinator', title: `等 coordinator 验收 · 复核${verdictLabel(info)}`,
         detail: `复核结论已回，由 coordinator 核验后验收或退回。${VERDICT_CAUTION}`, action: 'sign-off', targetId: reported.id,
       }
       : {
-        who: 'you', tone: 'you', title: `等你验收 · 复核${VERDICT_LABEL[verdict]}`,
-        detail: SIGN_OFF_ADVICE[verdict], action: 'sign-off', targetId: reported.id,
+        who: 'you', tone: 'you', title: `等你验收 · 复核${verdictLabel(info)}`,
+        detail: SIGN_OFF_ADVICE[info.verdict], action: 'sign-off', targetId: reported.id,
       };
   }
   return technical
@@ -139,7 +139,7 @@ export function nextStep(quest: Quest, snap: Snapshot): NextStep {
   }
 
   if (quest.kind === 'review' && REPORTED.has(quest.status)) {
-    const title = `复核结论：${VERDICT_LABEL[parseVerdict(quest.lastDetail ?? '')]}`;
+    const title = `复核结论：${verdictLabel(reviewVerdictOf(quest))}`;
     const by = reviewAcceptedBy(quest, snap);
     const parentId = quest.parents[0];
     if (by === 'coordinator' && parentId) {

@@ -1,7 +1,7 @@
 // The only module that talks to the board server. Errors carry the server's refusal reasons.
 import type {
-  AdventurerInput, ArtRedoResponse, Card, CardStatus, LanePreviewRequest, LanePreviewResponse, LaneServerStatus, LanesReport, Message, MetadataUpdateInput, OmoChange, OmoConfig, Quest, QuestEvent,
-  QuestStatus, Reason, SettingsReport, Snapshot, Thread, ThreadDetail, ThreadStatusFilter, UsageReport,
+  AdventurerInput, ArtRedoResponse, Card, CardStatus, LanePreviewRequest, LanePreviewResponse, LaneServerStatus, LanesReport, Message, MetadataUpdateInput, OmoChange, OmoConfig, Quest, QuestDetail, QuestEvent,
+  QuestStatus, Reason, ReportText, SettingsReport, Snapshot, Thread, ThreadDetail, ThreadStatusFilter, UsageReport,
   RosterBulkRequest, RosterBulkResponse,
 } from './types';
 
@@ -130,6 +130,26 @@ export const api = {
       kind: 'art',
       reviewPage: input.reviewPage,
     }),
+
+  // The receipt's on-demand detail read (item 34/12): the snapshot's quest row enriched with the unpruned
+  // report reference (summary, verdict reason) the pruned snapshot leaves out. Never polled — fetch once per
+  // quest+project mount, like the metadata section's own reads.
+  questDetail: (questId: string) => call<{ quest: QuestDetail }>(quest(questId)),
+  // The full bounded report text (src/server/questRoutes.js GET .../report): served as text/plain, so the
+  // generic `call` above (which always parses JSON) cannot be reused for a 200 — a refusal (404/409) is still
+  // JSON and reuses ApiError the same way. An old server without this route answers 404 same as any other.
+  report: async (questId: string): Promise<ReportText> => {
+    const response = await fetch(`${quest(questId)}/report`);
+    if (!response.ok) {
+      const value = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(value.error || `HTTP ${response.status}`, undefined, undefined, undefined, response.status);
+    }
+    return {
+      text: await response.text(),
+      truncated: response.headers.get('x-report-truncated') === '1',
+      digest: response.headers.get('x-report-digest'),
+    };
+  },
 };
 
 // Live events. Returns a function that closes the stream.

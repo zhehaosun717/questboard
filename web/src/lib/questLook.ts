@@ -1,5 +1,5 @@
 import type { Quest, Snapshot } from '../api/types';
-import { currentReviews, parseVerdict } from './evidence';
+import { currentReviews, reviewVerdictOf } from './evidence';
 
 export type QuestRank = 'S' | 'A' | 'B';
 
@@ -40,7 +40,11 @@ export function sealFor(quest: Quest, snap: Snapshot): QuestSeal | null {
   if (!latest) return null;
   if (!REPORTED_STATUSES.has(latest.status)) return null;
 
-  const verdict = parseVerdict(latest.lastDetail ?? '');
+  // A verified report wins here too (item 34/12 consistency): a truncated or `.out`-sourced report is
+  // 'unknown' at capture time, so it never reaches this seal as a false 复核通过. The seal has no room to
+  // carry a 未经核验 label (R2-1), so a tail-derived guess never seals at all — verified or nothing.
+  const { verdict, verified } = reviewVerdictOf(latest);
+  if (!verified) return null;
   if (verdict === 'pass' || verdict === 'findings' || verdict === 'fail') {
     return {
       verdict,

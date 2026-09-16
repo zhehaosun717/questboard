@@ -89,6 +89,29 @@ describe('extractVerdict', () => {
       assert.equal(extractVerdict(`${line}\n`).verdict, 'unknown', line);
     }
   });
+
+  it('R2-2: recognises the review template’s third verdict, PASS WITH FINDINGS, mapped to findings', () => {
+    const text = ['# 复核报告', '', '发现两个小问题。', '', 'VERDICT: PASS WITH FINDINGS', ''].join('\n');
+    const found = extractVerdict(text);
+    assert.equal(found.verdict, 'findings');
+    assert.equal(found.line, 'VERDICT: PASS WITH FINDINGS');
+  });
+
+  it('R2-2: takes the last genuine line even when it downgrades PASS WITH FINDINGS to a plain PASS', () => {
+    const text = ['VERDICT: PASS WITH FINDINGS', '又检查了一遍，其实没问题', 'VERDICT: PASS', ''].join('\n');
+    assert.equal(extractVerdict(text).verdict, 'PASS');
+  });
+
+  it('R2-2: still refuses the echoed three-way template line', () => {
+    const text = ['任务模板要求最后写一行：', 'VERDICT: PASS | PASS WITH FINDINGS | FAIL', ''].join('\n');
+    assert.equal(extractVerdict(text).verdict, 'unknown');
+  });
+
+  it('R2-2: matches PASS WITH FINDINGS case-sensitively', () => {
+    for (const line of ['verdict: pass with findings', 'VERDICT: Pass With Findings']) {
+      assert.equal(extractVerdict(`${line}\n`).verdict, 'unknown', line);
+    }
+  });
 });
 
 describe('summarizeReport', () => {
@@ -254,6 +277,20 @@ describe('captureAttemptReport', () => {
       assert.equal(snapshot.verdict, 'unknown');
       assert.equal(snapshot.verdictReason, SUMMARY_VERDICT_REASON);
     }
+  });
+
+  it('R2-2: captures a verified PASS WITH FINDINGS report as verdict findings, through to the snapshot', () => {
+    const project = makeProject();
+    const text = '# 复核报告\n\n发现两个小问题。\n\nVERDICT: PASS WITH FINDINGS\n';
+    put(project.root, '.work/oc/mod1.md', text);
+    const quest = { id: 'RPT-21', assignee: attempt() };
+    const capture = captureAttemptReport({ config: project.config, quest });
+    assert.equal(capture.source, 'delivery');
+    assert.equal(capture.verdict.verdict, 'findings');
+    assert.equal(capture.verdict.line, 'VERDICT: PASS WITH FINDINGS');
+    const snapshot = reportSnapshot({ ...quest, attemptReport: capture });
+    assert.equal(snapshot.verdict, 'findings');
+    assert.equal(snapshot.verdictReason, undefined, '一个读全的 findings 结论不需要理由');
   });
 
   it('still reads the verdict when the report ends exactly at the cap', () => {

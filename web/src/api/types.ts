@@ -67,6 +67,12 @@ export interface Quest {
   rulings: Ruling[];
   files: string[];
   lastDetail?: string;
+  // Pruned reference/verdict for the quest's CURRENT dispatch attempt (src/core/reportEvidence.js
+  // reportSnapshot, feedback 7/12/34). Present only once an actual report file was found — a quest with no
+  // attempt, a stale attempt, or an attempt that left nothing readable simply has no `report` field, and an
+  // older server never sends one either; readers must keep showing the pre-existing receipt for those.
+  // Never carries the report text or summary — see QuestReportDetail for the on-demand detail-route shape.
+  report?: QuestReportSnapshot;
   postedBy?: string;
   // Bumped on every server-side change; send it back as ifRevision so a write to a changed quest is refused.
   revision?: number;
@@ -629,4 +635,86 @@ export interface ArtRedoRequest {
 
 export interface ArtRedoResponse {
   quest: Quest;
+}
+
+// Report evidence (feedback 7/12/34, src/core/reportEvidence.js). A dispatch attempt's own final report,
+// resolved only through the lane's configured directories — never a caller-supplied path.
+export type ReportSource = 'delivery' | 'exit-file' | 'summary';
+
+// The exact-uppercase `VERDICT: PASS|PASS WITH FINDINGS|FAIL` line found in a report read in full — never
+// from a truncated read or a `.out` transcript, both of which are always 'unknown' with a reason.
+// `PASS WITH FINDINGS` (the review template's third choice) is stored as 'findings' (R2-2), sharing its name
+// with the web-only tail-parse fallback in lib/evidence.ts ReviewVerdict.
+export type ReportVerdictValue = 'PASS' | 'FAIL' | 'findings' | 'unknown';
+
+// snapshot.quests[].report (src/core/reportEvidence.js reportSnapshot) — see the `report` field on Quest
+// above for when this is present.
+export interface QuestReportSnapshot {
+  source: ReportSource;
+  ref: string;
+  digest: string;
+  bytes: number;
+  sizeBytes: number;
+  truncated: boolean;
+  capturedAt: string;
+  attemptId: string | null;
+  verdict: ReportVerdictValue;
+  // Present only when verdict is 'unknown' and the backend has a specific reason (a truncated read, or a
+  // `.out` transcript, which never carries a verdict). A plain "no VERDICT line found" carries no reason.
+  verdictReason?: string;
+}
+
+// The first heading and the first complete paragraph or findings item after it (src/core/reportEvidence.js
+// summarizeReport): kept on source line boundaries, so it never begins or ends mid-word.
+export interface ReportSummary {
+  heading: string | null;
+  paragraph: string | null;
+  hasMore: boolean;
+}
+
+export interface ReportVerdictDetail {
+  verdict: ReportVerdictValue;
+  line: string | null;
+  position: number | null;
+  reason?: string;
+}
+
+// GET /api/quests/:id .quest.report (src/server/questRoutes.js questReportView): the unpruned reference for
+// the quest's current attempt, meant to be fetched on demand — never part of the snapshot fan-out. null (on
+// the parent `quest.report` field of the detail response) means there is no current attempt at all; a
+// resolved value with source:'none' means an attempt happened but left nothing readable, and `reason`
+// explains why.
+export interface QuestReportDetail {
+  source: ReportSource | 'none';
+  ref: string | null;
+  digest: string | null;
+  bytes: number;
+  sizeBytes: number;
+  truncated: boolean;
+  capturedAt: string;
+  attemptId: string | null;
+  name: string | null;
+  lane: string | null;
+  at: string | null;
+  reason?: string;
+  verdict?: ReportVerdictDetail;
+  summary?: ReportSummary;
+}
+
+// GET /api/quests/:id (src/server/questRoutes.js): the snapshot's quest row enriched with the worker's live
+// output, linked threads, grouped eligibility and the unpruned report reference. Fetched on demand by the
+// receipt (see api/client.ts `api.questDetail`), never polled.
+export interface QuestDetail extends Omit<Quest, 'report'> {
+  live: LiveWorker | null;
+  threads: ThreadLink[];
+  eligibility: { canTake: string[]; refused: Record<string, string[]> };
+  report: QuestReportDetail | null;
+}
+
+// GET /api/quests/:id/report success body (src/server/questRoutes.js), assembled client-side from the
+// plain-text response and its headers.
+export interface ReportText {
+  text: string;
+  truncated: boolean;
+  digest: string | null;
 }
