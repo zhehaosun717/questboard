@@ -55,7 +55,7 @@ export function createTools({ config, base, author, home, request }) {
     {
       name: 'questboard_get_quest',
       title: 'Get a quest',
-      description: 'One quest with its history, the files its brief may edit, linked message-board threads, live worker output, and which cards may take it right now (refusals grouped by reason).',
+      description: 'One quest with its history, the files its brief may edit, linked message-board threads, live worker output, which cards may take it right now (refusals grouped by reason), and the current attempt\'s structured evidence (worker report, project verification, verification hook — see `evidence`).',
       inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Package id, e.g. RUN-4' } }, required: ['id'] },
       annotations: read,
       handler: async (args) => {
@@ -63,7 +63,24 @@ export function createTools({ config, base, author, home, request }) {
         const snap = await snapshot();
         const quest = snap.quests.find((q) => q.id === args.id);
         if (!quest) throw new Error(`no quest ${args.id} on the board`);
-        return { ...quest, live: quest.assignee ? snap.live[quest.assignee.name] || null : null, threads: snap.threads[quest.id] || [], eligibility: eligibilitySummary(snap.eligibility[quest.id]) };
+        // S2: the detail route computes evidence from the raw stored quest (attemptReport included); the
+        // snapshot's own quest row is pruned, so this is a second, additive read rather than a re-derivation.
+        // F7: a quest that answered the first (list) read but vanishes before the second (e.g. released
+        // between the two calls) must not fail the whole tool call — evidence alone goes to null, honestly
+        // unavailable, rather than the caller losing every other field it already had.
+        let evidence;
+        let evidenceError;
+        try {
+          evidence = (await api(`/api/quests/${encodeURIComponent(args.id)}`)).quest.evidence;
+        } catch (err) {
+          evidence = null;
+          evidenceError = `证据读取失败：${err.message}`;
+        }
+        return {
+          ...quest, live: quest.assignee ? snap.live[quest.assignee.name] || null : null, threads: snap.threads[quest.id] || [],
+          eligibility: eligibilitySummary(snap.eligibility[quest.id]), evidence,
+          ...(evidenceError !== undefined ? { evidenceError } : {}),
+        };
       },
     },
     {

@@ -67,3 +67,42 @@
 /* S1 (round 2): opacity here pushed .review-report-verdict-meta below 4.5:1 (measured 4.26:1). The fallback
    badge stays visually distinct through its own italic/label text, not through dimming. */
 .review-verdict-fallback { font-style: italic; }
+
+/* S2: the drawer's attempt-bound evidence section (EvidenceSection). Named attempt-evidence-* — distinct from
+   the pre-existing .evidence-* classes above, which belong to the "who has said it's done" ladder. */
+.attempt-evidence { display: grid; gap: 8px; }
+.attempt-evidence-attempt { margin: 0; font-size: 11px; color: var(--dim); }
+.attempt-evidence-item {
+  padding: 7px 8px;
+  background: rgba(255, 255, 255, .03);
+  border-left: 3px solid var(--steel2);
+  border-radius: 2px;
+}
+.attempt-evidence-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.attempt-evidence-head strong { font: 700 12px var(--body); color: var(--tag); }
+.attempt-evidence-chip {
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--dim);
+  background: var(--hall-edge);
+  border-radius: 10px;
+}
+.attempt-evidence-passed { border-left-color: var(--pcb); }
+.attempt-evidence-passed .attempt-evidence-chip:first-of-type { color: var(--ready-lt); }
+.attempt-evidence-findings { border-left-color: var(--amber); }
+.attempt-evidence-findings .attempt-evidence-chip:first-of-type { color: var(--brass-lt); }
+.attempt-evidence-failed, .attempt-evidence-timedout { border-left-color: var(--blood); }
+.attempt-evidence-failed .attempt-evidence-chip:first-of-type, .attempt-evidence-timedout .attempt-evidence-chip:first-of-type { color: var(--wax-lt); }
+.attempt-evidence-queued .attempt-evidence-chip:first-of-type, .attempt-evidence-running .attempt-evidence-chip:first-of-type { color: var(--travel-lt); }
+/* bound:false always wins over the state color above — a stale record must never read as a current pass.
+   F4: reset the left border to the same neutral steel the item starts with, so an unbound "passed" never
+   keeps the pass-green border (the chip and opacity above were not enough to tell them apart at a glance). */
+.attempt-evidence-unbound { opacity: .75; border-left-color: var(--steel2); }
+.attempt-evidence-unbound .attempt-evidence-chip:first-of-type { color: var(--dim); }
+.attempt-evidence-chip-unbound { color: var(--brass-lt); background: rgba(240, 207, 138, .12); }
+.attempt-evidence-ref { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0; font-size: 11px; color: var(--cable); }
+.attempt-evidence-ref code { padding: 1px 4px; color: var(--cream); background: var(--hall-edge); border-radius: 2px; overflow-wrap: anywhere; }
+.attempt-evidence-copy { padding: 1px 8px; font-size: 11px; }
+.attempt-evidence-time { margin: 4px 0 0; font-size: 11px; color: var(--dim); }
+.attempt-evidence-reason { margin: 4px 0 0; font-size: 11px; color: var(--dim); }

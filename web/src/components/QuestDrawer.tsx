@@ -8,6 +8,7 @@ import { isArchived } from '../lib/questState';
 import { AssignSection } from './quest/AssignSection';
 import { DrawerSection } from './quest/DrawerSection';
 import { EvidenceLadder } from './quest/EvidenceLadder';
+import { EvidenceSection } from './quest/EvidenceSection';
 import { NextStepPanel } from './quest/NextStepPanel';
 import { MetadataSection } from './quest/MetadataSection';
 import { OwnerTaskSection } from './quest/OwnerTaskSection';
@@ -199,6 +200,8 @@ export function QuestDrawer({
           <EvidenceLadder rungs={rungs} />
         </DrawerSection>
       ) : null}
+
+      <EvidenceSection key={`evidence:${snap.project.id ?? ''}:${quest.id}`} quest={quest} projectId={snap.project.id ?? ''} />
 
       <MetadataSection key={`${snap.project.id ?? ''}:${quest.id}`} quest={quest} snap={snap} refresh={refresh} pushToast={pushToast} />
 

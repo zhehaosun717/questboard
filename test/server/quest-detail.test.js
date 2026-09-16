@@ -28,6 +28,11 @@ describe('GET /api/quests/:id', () => {
     assert.equal(quest.live, null);
     assert.deepEqual(quest.threads, []);
     assert.ok(quest.eligibility.canTake.includes('codex-luna'));
+    // S2: additive, attempt-bound evidence (src/core/evidence.js) — present even before any dispatch.
+    assert.equal(quest.evidence.version, 1);
+    assert.equal(quest.evidence.attemptId, null);
+    assert.deepEqual(quest.evidence.items.map((item) => item.kind), ['report', 'project-verification', 'hook']);
+    assert.equal(quest.evidence.items[0].state, 'missing');
     const again = await fx.api('/api/quests/QD-1');
     assert.equal(again.body.quest.revision, quest.revision, 'reading does not bump the revision');
     assert.equal(fx.events().length, eventsBefore, 'the read itself appends no events');
@@ -147,6 +152,9 @@ describe('GET /api/quests/:id/report', () => {
     assert.equal(view.attemptId, store.get('RP-1').assignee.attemptId, 'the reference belongs to this attempt');
     assert.equal(view.verdict.verdict, 'PASS');
     assert.ok(view.summary.paragraph.includes('第一段'), 'the first paragraph is readable without the full text');
+    // S2: the same capture, bound to this attempt, shows up as the evidence report item too.
+    const reportEvidence = detail.body.quest.evidence.items[0];
+    assert.deepEqual([reportEvidence.state, reportEvidence.bound, reportEvidence.ref], ['passed', true, `.work/oc/${name}.md`]);
 
     const served = await fx.api('/api/quests/RP-1/report');
     assert.equal(served.status, 200);
@@ -178,5 +186,68 @@ describe('GET /api/quests/:id/report', () => {
     const staleReport = await fx.api('/api/quests/RP-1/report');
     assert.equal(staleReport.status, 404);
     assert.match(staleReport.body.error, /报告不可用/);
+  });
+});
+
+// S2: the detail route's evidence.project-verification item reads the collector's own verification field
+// (already exposed on GET /api/lanes and the snapshot) — bound only when it is at least as new as this
+// attempt's own dispatch.
+describe('GET /api/quests/:id — evidence.project-verification (S2)', () => {
+  it('is bound once the collector reports a progress strip newer than the dispatch', async () => {
+    const verifyFx = await startFixture({ projectOverrides: { verification: { progressDirs: ['.work/full'] } } });
+    try {
+      verifyFx.project.write('docs/briefs/EV-1-x.md', 'brief');
+      await verifyFx.api('/api/quests', 'POST', { package: 'EV-1', brief: 'docs/briefs/EV-1-x.md' });
+      const before = await verifyFx.api('/api/quests/EV-1');
+      assert.deepEqual([before.body.quest.evidence.items[1].state, before.body.quest.evidence.items[1].bound], ['missing', false]);
+
+      assert.equal((await verifyFx.api('/api/quests/EV-1/assign', 'POST', { adventurer: 'codex-luna' })).status, 200);
+      await tick();
+      const dir = path.join(verifyFx.project.root, '.work', 'full');
+      verifyFx.holder.lanes = { packages: [], laneLimits: {}, verification: { dir, mtime: Date.now() + 60000, steps: [], done: true, editXml: null, playXml: null } };
+      const after = await verifyFx.api('/api/quests/EV-1');
+      const item = after.body.quest.evidence.items[1];
+      assert.equal(item.bound, true);
+      assert.equal(item.state, 'passed');
+    } finally {
+      await verifyFx.close();
+    }
+  });
+
+  // F2: progress.txt is shared by the whole project — a verification run made for a LATER dispatch of ANOTHER
+  // quest must never count as bound evidence for an EARLIER quest's attempt, even though its file mtime is
+  // newer than that earlier attempt's own dispatch time.
+  it('binds project verification only to the project-wide latest dispatch, not an earlier quest\'s attempt', async () => {
+    const verifyFx = await startFixture({ projectOverrides: { verification: { progressDirs: ['.work/full'] } } });
+    try {
+      verifyFx.project.write('docs/briefs/EV-2-x.md', 'brief');
+      verifyFx.project.write('docs/briefs/EV-3-x.md', 'brief');
+      await verifyFx.api('/api/quests', 'POST', { package: 'EV-2', brief: 'docs/briefs/EV-2-x.md' });
+      await verifyFx.api('/api/quests', 'POST', { package: 'EV-3', brief: 'docs/briefs/EV-3-x.md' });
+      assert.equal((await verifyFx.api('/api/quests/EV-2/assign', 'POST', { adventurer: 'codex-luna' })).status, 200);
+      await tick();
+      assert.equal((await verifyFx.api('/api/quests/EV-3/assign', 'POST', { adventurer: 'oc-mimo' })).status, 200);
+      await tick();
+
+      // Force distinguishable, ordered dispatch times: EV-2 dispatched first, EV-3 1s later.
+      const store = verifyFx.server.store;
+      const ev2 = store.get('EV-2');
+      const ev3 = store.get('EV-3');
+      store.save({ ...ev2, assignee: { ...ev2.assignee, at: '2026-09-14T00:00:00.000Z' }, dispatches: [{ ...ev2.dispatches[0], at: '2026-09-14T00:00:00.000Z' }] });
+      store.save({ ...ev3, assignee: { ...ev3.assignee, at: '2026-09-14T00:00:05.000Z' }, dispatches: [{ ...ev3.dispatches[0], at: '2026-09-14T00:00:05.000Z' }] });
+
+      // A single progress.txt written after BOTH dispatches — newer than either attempt's own `at`.
+      const dir = path.join(verifyFx.project.root, '.work', 'full');
+      verifyFx.holder.lanes = { packages: [], laneLimits: {}, verification: { dir, mtime: Date.parse('2026-09-14T00:00:10.000Z'), steps: [], done: true, editXml: null, playXml: null } };
+
+      const ev2After = await verifyFx.api('/api/quests/EV-2');
+      const ev3After = await verifyFx.api('/api/quests/EV-3');
+      assert.equal(ev2After.body.quest.evidence.items[1].bound, false, 'EV-2 is not the project-wide latest dispatch, even though the file is newer than its own attempt');
+      assert.equal(ev2After.body.quest.evidence.items[1].reason, '这是上一次尝试之前的记录，不算本次证据');
+      assert.equal(ev3After.body.quest.evidence.items[1].bound, true, 'EV-3 IS the project-wide latest dispatch and the file is newer than it');
+      assert.equal(ev3After.body.quest.evidence.items[1].state, 'passed');
+    } finally {
+      await verifyFx.close();
+    }
   });
 });

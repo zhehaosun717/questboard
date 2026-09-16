@@ -12,7 +12,8 @@ import { isReviewable, requestReview, reviewEligibility } from '../core/reviewRe
 import { withFileSets } from '../core/briefs.js';
 import { lockPresent } from '../core/snapshot.js';
 import { laneServers } from '../core/laneServer.js';
-import { questReportView, readCapturedReport } from '../core/reportEvidence.js';
+import { attemptOf, questReportView, readCapturedReport } from '../core/reportEvidence.js';
+import { questEvidence } from '../core/evidence.js';
 import { createRosterBulkRoutes } from './rosterBulkRoutes.js';
 
 const SYNC_INTERVAL_MS = 5000;
@@ -24,6 +25,20 @@ const EVENTS_MAX = 500;
 function requestSource(request) {
   const value = String(request.headers['x-questboard-source'] || '').trim();
   return ['ui', 'cli', 'mcp'].includes(value) ? value : 'unknown';
+}
+
+// F2: the project-wide latest dispatch time, over every quest's CURRENT attempt (assignee, or its last
+// dispatch row once settled) — never just this one quest's history. progress.txt is shared by the whole
+// project, so evidence.js needs this to refuse binding it to an attempt that a later dispatch of some OTHER
+// quest has since superseded.
+function projectLatestDispatchAt(quests) {
+  let latest = null;
+  for (const quest of quests) {
+    const at = attemptOf(quest)?.at;
+    const ms = at ? Date.parse(at) : NaN;
+    if (Number.isFinite(ms) && (latest === null || ms > latest)) latest = ms;
+  }
+  return latest;
 }
 
 // Same grouping the MCP get_quest answers with, so one read serves CLI, board and agents alike.
@@ -248,6 +263,10 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
           // not the snapshot row: the snapshot carries only the pruned reference. Legacy rows and stale attempts
           // return null, which the surfaces render as 报告不可用.
           report: questReportView(store.get(quest.id)),
+          // S2: structured, attempt-bound evidence (src/core/evidence.js) — additive, read-only, never part
+          // of the snapshot fan-out. Uses the same raw stored quest as `report` above so the attempt identity
+          // (assignee/dispatches) and the captured report reference agree.
+          evidence: questEvidence({ config, quest: store.get(quest.id), verification: snap.verification, latestDispatchAt: projectLatestDispatchAt(store.list()) }),
           // Requirement 5/R3: a sanitized, process-local, explicitly not restart-durable diagnostic — this
           // process still remembers a session id for the quest's current attempt that its own durable
           // record does not (yet, or ever) confirm. null once there is nothing to report, or once a later

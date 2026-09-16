@@ -195,6 +195,16 @@ describe('questboard get — report evidence', () => {
     assert.match(got.stdout, /第一段。/);
   });
 
+  // S2: --evidence prints the structured, attempt-bound evidence object (src/core/evidence.js) as JSON.
+  it('--evidence prints the structured evidence object, with the report item bound to this attempt', async () => {
+    const got = await atBoard(['get', 'RPT-1', '--evidence']);
+    assert.equal(got.status, 0, got.stderr);
+    const evidence = JSON.parse(got.stdout);
+    assert.equal(evidence.version, 1);
+    const report = evidence.items.find((item) => item.kind === 'report');
+    assert.deepEqual([report.state, report.bound, report.ref], ['passed', true, '.work/oc/rpt1.md']);
+  });
+
   it('a quest with nothing stored says so in Chinese', async () => {
     fx.project.write('docs/briefs/RPT-2-answer.md', 'brief');
     await fx.api('/api/quests', 'POST', { package: 'RPT-2', brief: 'docs/briefs/RPT-2-answer.md' });

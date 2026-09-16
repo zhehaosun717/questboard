@@ -232,7 +232,7 @@ export const commands = {
   async get(args) {
     const { base } = context(args);
     const id = positional(args, ['--project', '--url']);
-    if (!id) throw new Error('usage: questboard get <id> [--json] [--report]　读取一个任务的详情：第几版、当前 worker、派单历史、最近动态、可改文件；--report 打印这次派遣的完整报告原文');
+    if (!id) throw new Error('usage: questboard get <id> [--json] [--report] [--evidence]　读取一个任务的详情：第几版、当前 worker、派单历史、最近动态、可改文件；--report 打印这次派遣的完整报告原文；--evidence 打印本次尝试的结构化证据（工作者报告、项目验证记录、验证钩子）');
     // --report asks the board for the bounded plain-text report itself, not the JSON detail: the reference
     // is re-verified there (digest + containment) and a report that changed after capture is refused.
     if (args.includes('--report')) {
@@ -258,6 +258,13 @@ export const commands = {
       return;
     }
     const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}`, 'GET');
+    // --evidence prints only the structured evidence object (S2, src/core/evidence.js); an older server that
+    // sends no `evidence` field says so instead of printing `undefined`.
+    if (args.includes('--evidence')) {
+      if (!quest.evidence) throw new Error(`${id} 没有证据数据：服务器版本不支持 evidence 字段`);
+      out(JSON.stringify(quest.evidence, null, 2));
+      return;
+    }
     out(args.includes('--json') ? JSON.stringify(quest, null, 2) : questDetailText(quest));
   },
 

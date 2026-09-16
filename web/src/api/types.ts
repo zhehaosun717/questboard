@@ -726,6 +726,47 @@ export interface QuestReportDetail {
   summary?: ReportSummary;
 }
 
+// Suggestion S2 (src/core/evidence.js questEvidence): structured, attempt-bound evidence for a quest's
+// CURRENT dispatch attempt. Ordered report, project-verification, hook. `bound: false` means the item is a
+// real record but belongs to an earlier attempt (or, for project-verification, cannot be confirmed current) —
+// it is shown, never dropped, and must never be styled as if it passed.
+export type EvidenceKind = 'report' | 'project-verification' | 'hook';
+export type EvidenceState =
+  | 'passed' | 'findings' | 'failed' | 'unknown' | 'missing' | 'not_configured'
+  | 'queued' | 'running' | 'timedout';
+
+export interface EvidenceItem {
+  kind: EvidenceKind;
+  label: string;
+  state: EvidenceState;
+  source: string | null;
+  ref: string | null;
+  digest: string | null;
+  capturedAt: string | null;
+  attemptId: string | null;
+  bound: boolean;
+  reason?: string;
+  // hook items only (kind === 'hook'): the PM brief's own field names, alongside the generic
+  // source/ref/digest/capturedAt above (source mirrors commandRef, ref mirrors logPath, digest mirrors
+  // logDigest) so a kind-agnostic renderer and a hook-specific one can both read the same item.
+  commandRef?: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  exitCode?: number | null;
+  logPath?: string | null;
+  logDigest?: string | null;
+}
+
+export interface QuestEvidence {
+  version: number;
+  attemptId: string | null;
+  attemptAt: string | null;
+  // Additive (F6): the current attempt's worker name, so the drawer can show who ran it instead of only the
+  // attemptId UUID. Optional so an older server that predates this field renders exactly as before.
+  attemptName?: string | null;
+  items: EvidenceItem[];
+}
+
 // GET /api/quests/:id (src/server/questRoutes.js): the snapshot's quest row enriched with the worker's live
 // output, linked threads, grouped eligibility and the unpruned report reference. Fetched on demand by the
 // receipt (see api/client.ts `api.questDetail`), never polled.
@@ -734,6 +775,9 @@ export interface QuestDetail extends Omit<Quest, 'report'> {
   threads: ThreadLink[];
   eligibility: { canTake: string[]; refused: Record<string, string[]> };
   report: QuestReportDetail | null;
+  // Optional: an older server sends no `evidence` field at all, and readers must render exactly as before
+  // this field existed (the section hides itself) rather than treat a missing field as an empty items list.
+  evidence?: QuestEvidence;
 }
 
 // GET /api/quests/:id/report success body (src/server/questRoutes.js), assembled client-side from the
