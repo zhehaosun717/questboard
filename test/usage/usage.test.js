@@ -5,7 +5,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { tmpDir } from '../helpers.js';
 import { createUsageService } from '../../src/usage/service.js';
-import { codex, cursor, deepseek, kimi, openrouter, siliconflow, volcano } from '../../src/usage/providers.js';
+import { KIMI_BASE_URL, codex, cursor, deepseek, kimi, openrouter, siliconflow, volcano } from '../../src/usage/providers.js';
 import { childEnvironment, parseJsonDocuments, runCommand, windowLabel } from '../../src/usage/common.js';
 import { createUsageRoutes } from '../../src/server/usageRoutes.js';
 import { routeParts } from '../../src/server/http.js';
@@ -33,14 +33,14 @@ describe('usage providers', () => {
     const homedir = fakeHome({
       codexLines: [
         { timestamp: '2026-09-13T08:00:00Z', type: 'event_msg', payload: { type: 'token_count', rate_limits: { primary: { used_percent: 1, window_minutes: 300, resets_at: 1789300000 } } } },
-        { timestamp: '2026-09-13T09:00:00Z', type: 'event_msg', payload: { type: 'token_count', rate_limits: { primary: { used_percent: 2, window_minutes: 300, resets_at: 1789307228 }, secondary: { used_percent: 34, window_minutes: 10080, resets_at: 1789833273 } } } },
+        { timestamp: '2026-09-13T09:00:00Z', type: 'event_msg', payload: { type: 'token_count', rate_limits: { primary: { used_percent: 2, window_minutes: 300, resets_at: 2000000000 }, secondary: { used_percent: 34, window_minutes: 10080, resets_at: 2000500000 } } } },
       ],
     });
     const usage = createUsageService({ homedir, env: {}, providers: [codex] });
     const [entry] = (await usage.report()).providers;
     assert.equal(entry.ok, true);
     assert.deepEqual(entry.windows.map((w) => [w.label, w.usedPercent]), [['5 小时', 2], ['7 天', 34]]);
-    assert.equal(entry.windows[0].resetsAt, new Date(1789307228 * 1000).toISOString());
+    assert.equal(entry.windows[0].resetsAt, new Date(2000000000 * 1000).toISOString());
     assert.equal(entry.asOf, '2026-09-13T09:00:00.000Z');
   });
 
@@ -49,7 +49,7 @@ describe('usage providers', () => {
     const seen = [];
     const fetchImpl = async (url, options) => {
       seen.push([new URL(url).host, options.headers.authorization]);
-      if (url.includes('kimi')) return json(200, { usage: { limit: '100', used: '25', resetTime: '2026-09-20T00:00:00Z' }, limits: [{ window: { duration: 300, timeUnit: 'TIME_UNIT_MINUTE' }, detail: { limit: '50', remaining: '40', resetTime: '2026-09-13T12:00:00Z' } }] });
+      if (url.includes('kimi')) return json(200, { usage: { limit: '100', used: '25', resetTime: '2030-09-20T00:00:00Z' }, limits: [{ window: { duration: 300, timeUnit: 'TIME_UNIT_MINUTE' }, detail: { limit: '50', remaining: '40', resetTime: '2030-09-13T12:00:00Z' } }] });
       return json(200, { is_available: true, balance_infos: [{ currency: 'CNY', total_balance: '12.50' }] });
     };
     const usage = createUsageService({ homedir, env: { DEEPSEEK_API_KEY: 'from-env' }, fetchImpl, providers: [kimi, deepseek] });
@@ -179,6 +179,229 @@ describe('usage providers', () => {
   it('labels windows and splits concatenated JSON documents', () => {
     assert.deepEqual([windowLabel(300), windowLabel(10080), windowLabel(90), windowLabel(null)], ['5 小时', '7 天', '90 分钟', '额度窗口']);
     assert.deepEqual(parseJsonDocuments('noise {"a":"}"} text [1,2]'), [{ a: '}' }, [1, 2]]);
+  });
+
+  it('shows expired Codex window as reset with no used percent, never its old percent', async () => {
+    const homedir = fakeHome({
+      codexLines: [
+        { timestamp: '2026-09-13T09:00:00Z', type: 'event_msg', payload: { type: 'token_count', rate_limits: { primary: { used_percent: 50, window_minutes: 300, resets_at: 1000000000 } } } },
+      ],
+    });
+    const usage = createUsageService({ homedir, env: {}, providers: [codex] });
+    const [entry] = (await usage.report()).providers;
+    assert.equal(entry.ok, true);
+    assert.equal(entry.windows[0].usedPercent, null);
+    assert.equal(entry.windows[0].resetsAt, new Date(1000000000 * 1000).toISOString());
+  });
+
+  it('parses Kimi usages synthetic fixture following Report 885 rules', async () => {
+    const fixturePath = path.join(import.meta.dirname, 'fixtures', 'kimi-usages.synthetic.json');
+    const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+    let requestedUrl = null;
+    const fetchImpl = async (url) => {
+      requestedUrl = url;
+      return json(200, fixture);
+    };
+
+    assert.equal(KIMI_BASE_URL, 'https://api.kimi.com/coding/v1');
+    const result = await kimi.fetch({ fetchImpl, key: 'test-key', now: 1500000000000 });
+    assert.equal(requestedUrl, `${KIMI_BASE_URL}/usages`);
+
+    assert.equal(result.windows[0].label, '5 小时');
+    assert.equal(result.windows[0].usedPercent, null);
+    assert.equal(result.windows[0].state, 'reset');
+
+    assert.equal(result.windows[1].label, 'placeholder-named-limit');
+    assert.equal(result.windows[1].usedPercent, 20);
+    assert.equal(result.windows[1].resetDerived, true);
+
+    assert.equal(result.windows[2].label, '7 天');
+    assert.equal(result.windows[2].usedPercent, null);
+
+    assert.equal(result.windows[3].label, '本期总额度');
+    assert.equal(result.windows[3].usedPercent, null);
+
+    const serialized = JSON.stringify(result);
+    assert.ok(!serialized.toLowerCase().includes('tokens'));
+    assert.ok(!serialized.toLowerCase().includes('requests'));
+  });
+
+  it('falls back to Chinese label 额度 n when a Kimi limit has no name or window', async () => {
+    const fetchImpl = async () => json(200, {
+      limits: [
+        { detail: { limit: '100', used: '30' } },
+        { detail: { limit: '200', used: '50' } },
+      ],
+    });
+    const result = await kimi.fetch({ fetchImpl, key: 'test-key' });
+    assert.equal(result.windows[0].label, '额度 1');
+    assert.equal(result.windows[0].usedPercent, 30);
+    assert.equal(result.windows[1].label, '额度 2');
+    assert.equal(result.windows[1].usedPercent, 25);
+  });
+
+  it('parses Volcano Coding Plan synthetic fixture and drops viewer/seat_id entirely', async () => {
+    const fixturePath = path.join(import.meta.dirname, 'fixtures', 'arkcli-usage-plan-coding.synthetic.json');
+    const fixtureText = fs.readFileSync(fixturePath, 'utf8');
+
+    const result = await volcano.fetch({ exec: async () => fixtureText });
+    assert.equal(result.plan, 'personal · 已订阅');
+    assert.equal(result.asOf, '1999-12-31T16:00:00.000Z');
+
+    assert.deepEqual(result.windows.map((w) => [w.label, w.usedPercent]), [
+      ['5 小时', 1],
+      ['每周', 2],
+      ['每月', 3],
+    ]);
+
+    const serialized = JSON.stringify(result);
+    assert.ok(!serialized.includes('viewer'), 'viewer must never appear in result');
+    assert.ok(!serialized.includes('seat_id'), 'seat_id must never appear in result');
+    assert.ok(!serialized.includes('SYNTHETIC-USER'), 'viewer identifiers must be dropped');
+    assert.ok(!serialized.includes('SYNTHETIC-ACCOUNT'), 'viewer identifiers must be dropped');
+    assert.ok(!serialized.includes('SYNTHETIC-SEAT'), 'seat_id must be dropped');
+    assert.ok(!serialized.includes('arkcli 只给订阅状态，不给用量数字'));
+  });
+
+  it('handles Volcano subscribed:false and empty periods as not_subscribed and unknown', async () => {
+    const notSubscribedOutput = JSON.stringify({
+      items: [{ product: 'coding-plan', edition: 'personal', subscribed: false }],
+    });
+    const notSubRes = await volcano.fetch({ exec: async () => notSubscribedOutput, now: 1000 });
+    assert.equal(notSubRes.state, 'not_subscribed');
+    assert.equal(notSubRes.plan, 'personal · 未订阅');
+    assert.deepEqual(notSubRes.windows, []);
+
+    const emptyPeriodsOutput = JSON.stringify({
+      items: [{ product: 'coding-plan', edition: 'personal', subscribed: true, periods: [] }],
+    });
+    const emptyRes = await volcano.fetch({ exec: async () => emptyPeriodsOutput, now: 1000 });
+    assert.equal(emptyRes.state, 'unknown');
+    assert.equal(emptyRes.plan, 'personal · 已订阅');
+    assert.deepEqual(emptyRes.windows, []);
+
+    // B2: missing, null, and string values for subscribed yield state 'unknown' and '<edition> · 订阅状态未知'
+    const missingSubOutput = JSON.stringify({
+      items: [{ product: 'coding-plan', edition: 'personal' }],
+    });
+    const missingRes = await volcano.fetch({ exec: async () => missingSubOutput, now: 1000 });
+    assert.equal(missingRes.state, 'unknown');
+    assert.equal(missingRes.plan, 'personal · 订阅状态未知');
+    assert.deepEqual(missingRes.windows, []);
+
+    const nullSubOutput = JSON.stringify({
+      items: [{ product: 'coding-plan', edition: 'personal', subscribed: null }],
+    });
+    const nullRes = await volcano.fetch({ exec: async () => nullSubOutput, now: 1000 });
+    assert.equal(nullRes.state, 'unknown');
+    assert.equal(nullRes.plan, 'personal · 订阅状态未知');
+    assert.deepEqual(nullRes.windows, []);
+
+    const strTrueOutput = JSON.stringify({
+      items: [{ product: 'coding-plan', edition: 'personal', subscribed: 'true', periods: [{ label: 'session', percent: '5' }] }],
+    });
+    const strTrueRes = await volcano.fetch({ exec: async () => strTrueOutput, now: 1000 });
+    assert.equal(strTrueRes.state, 'unknown');
+    assert.equal(strTrueRes.plan, 'personal · 订阅状态未知');
+    assert.deepEqual(strTrueRes.windows, []);
+
+    const strFalseOutput = JSON.stringify({
+      items: [{ product: 'coding-plan', edition: 'personal', subscribed: 'false' }],
+    });
+    const strFalseRes = await volcano.fetch({ exec: async () => strFalseOutput, now: 1000 });
+    assert.equal(strFalseRes.state, 'unknown');
+    assert.equal(strFalseRes.plan, 'personal · 订阅状态未知');
+    assert.deepEqual(strFalseRes.windows, []);
+  });
+
+  it('preserves DeepSeek available-balance truth and splits granted versus topped-up balances', async () => {
+    const balanceData = {
+      is_available: true,
+      balance_infos: [
+        { currency: 'CNY', total_balance: '100.00', granted_balance: '20.00', topped_up_balance: '80.00' },
+      ],
+    };
+    const fetchImpl = async () => json(200, balanceData);
+    const result = await deepseek.fetch({ fetchImpl, key: 'test-key' });
+    assert.equal(result.isAvailable, true);
+    assert.equal(result.balances.length, 1);
+    assert.equal(result.balances[0].currency, 'CNY');
+    assert.equal(result.balances[0].amount, 100);
+    assert.equal(result.balances[0].granted, 20);
+    assert.equal(result.balances[0].toppedUp, 80);
+
+    const unavailableFetch = async () => json(200, { is_available: false, balance_infos: [{ currency: 'CNY', total_balance: '0.00' }] });
+    const unavailResult = await deepseek.fetch({ fetchImpl: unavailableFetch, key: 'test-key' });
+    assert.equal(unavailResult.isAvailable, false);
+    assert.match(unavailResult.note, /余额不足/);
+
+    // N5: no total_balance means no amount, absent is_available means null, never invented sums
+    const noTotalFetch = async () => json(200, {
+      balance_infos: [
+        { currency: 'CNY', granted_balance: '2.50' },
+      ],
+    });
+    const noTotalResult = await deepseek.fetch({ fetchImpl: noTotalFetch, key: 'test-key' });
+    assert.equal(noTotalResult.isAvailable, null);
+    assert.equal(noTotalResult.balances[0].amount, undefined);
+    assert.equal(noTotalResult.balances[0].granted, 2.5);
+    assert.equal(noTotalResult.note, '');
+  });
+
+  it('ensures Kimi never leaks API key echoed inside name, title, or scope in service report', async () => {
+    const testKey = 'sk-kimi-service-probe-key-0123456789abcdef';
+    const fetchImpl = async () => json(200, {
+      usage: { limit: '100', used: '25', name: `Echoed ${testKey}` },
+      limits: [
+        { name: `x ${testKey}`, limit: '50', used: '10' },
+        { title: `Prefix Bearer ${testKey}`, limit: '60', used: '20' },
+        { scope: testKey, limit: '70', used: '30' },
+        { name: '0123456789abcdef0123456789', limit: '80', used: '40' },
+      ],
+    });
+    const homedir = fakeHome();
+    const usage = createUsageService({
+      homedir,
+      env: { KIMI_API_KEY: testKey },
+      fetchImpl,
+      providers: [kimi],
+    });
+    const report = await usage.report();
+    const serialized = JSON.stringify(report);
+    assert.ok(!serialized.includes(testKey), 'Key must never appear in report JSON');
+    assert.ok(!serialized.toLowerCase().includes('sk-kimi-service-probe-key'));
+    const [k] = report.providers;
+    assert.equal(k.ok, true);
+    assert.equal(k.windows[0].label, '额度 1');
+    assert.equal(k.windows[1].label, '额度 2');
+    assert.equal(k.windows[2].label, '额度 3');
+    assert.equal(k.windows[3].label, '额度 4');
+    assert.equal(k.windows[4].label, '本期总额度');
+  });
+
+  it('drops resets on huge relative resets or updated_at values instead of throwing RangeError', async () => {
+    const fetchImpl = async () => json(200, {
+      limits: [
+        { name: 'normal-row', limit: '100', used: '10', reset_in: 1e20 },
+      ],
+    });
+    const kimiRes = await kimi.fetch({ fetchImpl, key: 'test-key', now: 1000 });
+    assert.equal(kimiRes.windows[0].label, 'normal-row');
+    assert.equal(kimiRes.windows[0].resetsAt, null);
+
+    const volcOutput = JSON.stringify({
+      items: [{
+        product: 'coding-plan',
+        edition: 'personal',
+        subscribed: true,
+        updated_at: 1e20,
+        periods: [{ label: 'session', percent: '10', reset_at: 1e20 }],
+      }],
+    });
+    const volcRes = await volcano.fetch({ exec: async () => volcOutput, now: 1000 });
+    assert.equal(volcRes.state, 'ok');
+    assert.equal(volcRes.windows[0].resetsAt, null);
+    assert.equal(volcRes.asOfDerived, true);
   });
 });
 

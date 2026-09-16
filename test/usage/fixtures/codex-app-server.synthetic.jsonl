@@ -1,0 +1,9 @@
+{"_dir":"client","id":1,"method":"initialize","params":{"clientInfo":{"name":"questboard","version":"0.0.0"}}}
+{"_dir":"server","id":1,"result":{"codexHome":"/synthetic/.codex","platformFamily":"windows","platformOs":"windows","userAgent":"synthetic"}}
+{"_dir":"client","method":"initialized"}
+{"_dir":"client","id":2,"method":"account/read","params":{"refreshToken":false}}
+{"_dir":"server","id":2,"result":{"requiresOpenaiAuth":true,"account":{"type":"chatgpt","email":"synthetic@example.invalid","planType":"plus"}}}
+{"_dir":"client","id":3,"method":"account/rateLimits/read","params":null}
+{"_dir":"server","id":3,"result":{"accountId":"SYNTHETIC","rateLimits":{"limitId":"codex","primary":{"usedPercent":1,"windowDurationMins":300,"resetsAt":946684800},"secondary":{"usedPercent":120,"windowDurationMins":10080,"resetsAt":null},"credits":null,"planType":"plus"},"rateLimitsByLimitId":{"codex":{"limitId":"codex","primary":{"usedPercent":1,"windowDurationMins":300,"resetsAt":946684800},"secondary":null}},"rateLimitResetCredits":null}}
+{"_dir":"server","method":"account/rateLimits/updated","params":{}}
+{"_variant":"apiKeyAccount","_dir":"server","id":2,"result":{"requiresOpenaiAuth":true,"account":{"type":"apiKey"}}}

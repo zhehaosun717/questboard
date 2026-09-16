@@ -82,6 +82,8 @@ export function createAntigravityProvider({ post = postLocalJson, platform = pro
     id: 'agy',
     name: 'Antigravity（agy）',
     source: 'local-app',
+    access: 'local-app',
+    credentialType: 'antigravity-local-csrf',
     async fetch({ exec }) {
       if (platform !== 'win32') return { ok: false, configured: false, code: 'windows_only' };
       const found = findLanguageServer(await exec('powershell', LIST_PROCESSES, { timeoutMs: 20000 }));

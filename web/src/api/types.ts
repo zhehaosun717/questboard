@@ -239,7 +239,7 @@ export type UsageProviderState = 'pending' | 'fresh' | 'stale' | 'unconfigured' 
 export interface UsageProvider {
   id: string;
   name: string;
-  source: 'local-log' | 'api' | 'cli' | 'local-app';
+  source: 'local-log' | 'api' | 'cli' | 'local-app' | 'official-api' | 'official-cli' | 'official-hook' | 'undocumented-api' | 'manual';
   ok: boolean;
   // false when the provider is not set up on this machine (no key, no log) or not supported yet; null when
   // that fact itself is not known yet (a first read still pending) — treating null the same as false would

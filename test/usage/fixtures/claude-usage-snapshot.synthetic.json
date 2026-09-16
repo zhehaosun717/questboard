@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "capturedAt": "2000-01-01T00:00:00.000Z",
+  "rate_limits": {
+    "five_hour": { "used_percentage": 1.5, "resets_at": 946684800 },
+    "spend_limit": { "used_percentage": 101, "resets_at": 4102444800 }
+  }
+}

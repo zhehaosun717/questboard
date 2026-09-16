@@ -1,0 +1,18 @@
+{
+  "_comment": "Synthetic shape per arkcli-usage-plan.md:62-99,121-134 and 1.0.23 binary tags. viewer must be dropped. Values are placeholders.",
+  "viewer": { "auth_method": "sso", "is_root": false, "user_id": "SYNTHETIC-USER", "user_name": "synthetic", "account_id": "SYNTHETIC-ACCOUNT", "profile": "synthetic", "tenant": "volc", "region": "cn-beijing", "project_name": "default" },
+  "items": [
+    {
+      "product": "coding-plan",
+      "edition": "personal",
+      "subscribed": true,
+      "periods": [
+        { "label": "session", "percent": 1, "reset_at": "2000-01-01T05:00:00+08:00" },
+        { "label": "weekly", "percent": 2, "reset_at": "2000-01-03T00:00:00+08:00" },
+        { "label": "monthly", "percent": 3 }
+      ],
+      "updated_at": 946656000000
+    },
+    { "product": "coding-plan-team", "edition": "team", "seat_id": "SYNTHETIC-SEAT", "subscribed": true, "periods": [], "error": "no seat bound to caller for coding-plan-team" }
+  ]
+}

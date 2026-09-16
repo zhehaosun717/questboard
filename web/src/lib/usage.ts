@@ -47,6 +47,11 @@ export const USAGE_SOURCE_LABEL: Record<string, string> = {
   api: '接口',
   cli: '命令行',
   'local-app': '本机应用',
+  'official-api': '官方接口',
+  'official-cli': '官方命令行',
+  'official-hook': '官方钩子',
+  'undocumented-api': '未公开接口',
+  manual: '手动查看',
 };
 
 export function formatSourceLabel(source: string): string {

@@ -1,0 +1,14 @@
+{
+  "_comment": "Synthetic status-line stdin per code.claude.com/docs/en/statusline. Only rate_limits may be copied; other fields must never reach the snapshot. Values are placeholders.",
+  "session_id": "SYNTHETIC-SESSION",
+  "transcript_path": "/synthetic/path.jsonl",
+  "cwd": "/synthetic",
+  "model": { "id": "synthetic", "display_name": "synthetic" },
+  "workspace": { "current_dir": "/synthetic" },
+  "cost": { "total_cost_usd": 0 },
+  "context_window": { "used_percentage": 1 },
+  "rate_limits": {
+    "five_hour": { "used_percentage": 1.5, "resets_at": 946684800 },
+    "spend_limit": { "used_percentage": 101, "resets_at": 4102444800 }
+  }
+}

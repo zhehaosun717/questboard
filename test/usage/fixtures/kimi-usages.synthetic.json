@@ -1,0 +1,9 @@
+{
+  "_comment": "Synthetic shape for kimi_cli/ui/shell/usage.py:104-215. Values are placeholders with no meaning.",
+  "usage": { "limit": "100", "used": "10", "resetTime": "2000-01-01T00:00:00.000000000Z" },
+  "limits": [
+    { "window": { "duration": 300, "timeUnit": "TIME_UNIT_MINUTE" }, "detail": { "limit": "100", "remaining": "90", "resetTime": "2000-01-01T00:00:00Z" } },
+    { "name": "placeholder-named-limit", "limit": 100, "used": 20, "reset_in": 3600 },
+    { "window": { "duration": 7, "timeUnit": "TIME_UNIT_DAY" }, "detail": { "limit": "0", "remaining": "0" } }
+  ]
+}
