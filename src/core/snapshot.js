@@ -10,6 +10,7 @@ import { effectiveRoster, visibleLaneLimits } from './overlay.js';
 import { withFileSets, discoverBriefs, briefUsable, briefUnusableInfo } from './briefs.js';
 import { isReviewable, reviewEligibility } from './reviewRequest.js';
 import { recentFailuresByCard } from './failureContext.js';
+import { reportSnapshot } from './reportEvidence.js';
 
 // tools/review embeds the manifest as <script type="application/json" id="review-data">.
 const MANIFEST_PATTERN = /<script[^>]*\bid="review-data"[^>]*>([\s\S]*?)<\/script>/;
@@ -101,7 +102,14 @@ export function threadsByPackage(boardStore, packageIds) {
 }
 
 export function buildSnapshot({ config, store, adventurers, boardStore, lanes, downLanes = null }) {
-  const quests = withFileSets(config, store.list());
+  // Quest rows carry the full internal attemptReport (which may include the report's first paragraph).
+  // That is fine in quests.jsonl and the quest-detail route, but a snapshot fan-out must stay small: strip
+  // the internal field and expose only the bounded reference/verdict surface (never the full text).
+  const quests = withFileSets(config, store.list()).map((quest) => {
+    const report = reportSnapshot(quest);
+    const { attemptReport, ...rest } = quest;
+    return report ? { ...rest, report } : rest;
+  });
   // Historical context only: the latest failed or bounced attempt per exact card id, omitted when empty.
   const recentFailures = recentFailuresByCard(quests);
   const roster = effectiveRoster(adventurers, lanes);

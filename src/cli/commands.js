@@ -48,10 +48,27 @@ function context(args) {
 }
 
 // One quest in readable lines. Labels follow the board's everyday wording; --json is the agent-facing form.
-function questDetailText(quest) {
+// Exported so the CLI tests can pin the exact detail rendering (the report lines especially).
+export function questDetailText(quest) {
   const lines = [questLine(quest)];
   lines.push(`  第 ${quest.revision || 0} 版 · priority ${quest.priority} · brief ${quest.brief || '无'}`);
   if (quest.lastDetail) lines.push(`  最近: ${quest.lastDetail}`);
+  // The attempt's own report reference, verdict and first paragraph (items 7/12/34), as the detail route
+  // exposes them. Null on legacy rows and stale attempts; a capture that found nothing still says why.
+  const report = quest.report || null;
+  if (report && report.source !== 'none') {
+    lines.push(`  报告: ${report.ref}（${report.source}，sha256 ${String(report.digest || '').slice(0, 12)}…${report.truncated ? '，已截断' : ''}）`);
+    const verdict = report.verdict || {};
+    if (verdict.verdict === 'PASS' || verdict.verdict === 'FAIL') lines.push(`  结论: ${verdict.verdict}${verdict.line ? ` — ${verdict.line}` : ''}`);
+    else if (verdict.reason) lines.push(`  结论: 不确定（${verdict.reason}）`);
+    else lines.push('  结论: 不确定（报告里没有找到明确的 VERDICT 行）');
+    const summary = report.summary || {};
+    if (summary.paragraph) lines.push(`  摘要: ${summary.heading ? `${summary.heading} — ` : ''}${summary.paragraph}${summary.hasMore ? ' …' : ''}`);
+  } else if (report && report.source === 'none') {
+    lines.push(`  报告: 不可用（${report.reason}）`);
+  } else if (['delivered', 'failed', 'bounced'].includes(quest.status)) {
+    lines.push('  报告: 不可用（这次派遣没有留下报告引用）');
+  }
   lines.push(`  可改文件: ${(quest.files || []).join(', ') || '无'}`);
   for (const d of quest.dispatches || []) lines.push(`  派单: ${d.at} ${d.model} (${d.name}) 由 ${d.by}${d.adopted ? '（接管已在跑的 worker）' : ''}${d.requestKey ? ` key=${d.requestKey}` : ''}`);
   for (const r of quest.rulings || []) lines.push(`  裁决: ${r.at} ${r.by}: ${r.text}`);
@@ -210,7 +227,31 @@ export const commands = {
   async get(args) {
     const { base } = context(args);
     const id = positional(args, ['--project', '--url']);
-    if (!id) throw new Error('usage: questboard get <id> [--json]　读取一个任务的详情：第几版、当前 worker、派单历史、最近动态、可改文件');
+    if (!id) throw new Error('usage: questboard get <id> [--json] [--report]　读取一个任务的详情：第几版、当前 worker、派单历史、最近动态、可改文件；--report 打印这次派遣的完整报告原文');
+    // --report asks the board for the bounded plain-text report itself, not the JSON detail: the reference
+    // is re-verified there (digest + containment) and a report that changed after capture is refused.
+    if (args.includes('--report')) {
+      let response;
+      try {
+        response = await fetch(`${base}/api/quests/${encodeURIComponent(id)}/report`);
+      } catch {
+        throw new Error(`questboard server is not running at ${base}. Start it with: questboard serve`);
+      }
+      if (!response.ok) {
+        const value = await response.json().catch(() => ({}));
+        throw new Error(value.error || `HTTP ${response.status}`);
+      }
+      const text = await response.text();
+      // The route marks a capped read with a header, not in the body: without this notice the CLI would
+      // print the first 2 MB as though it were the whole report (review round 1, B3).
+      if (response.headers.get('x-report-truncated') === '1') {
+        const contentLength = response.headers.get('content-length');
+        const shown = contentLength ? `前 ${contentLength} 字节` : '前一部分字节';
+        process.stderr.write(`报告超过 2 MB，只显示了${shown}，不是完整报告\n`);
+      }
+      out(text);
+      return;
+    }
     const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}`, 'GET');
     out(args.includes('--json') ? JSON.stringify(quest, null, 2) : questDetailText(quest));
   },

@@ -12,6 +12,7 @@ import { isReviewable, requestReview, reviewEligibility } from '../core/reviewRe
 import { withFileSets } from '../core/briefs.js';
 import { lockPresent } from '../core/snapshot.js';
 import { laneServers } from '../core/laneServer.js';
+import { questReportView, readCapturedReport } from '../core/reportEvidence.js';
 
 const SYNC_INTERVAL_MS = 5000;
 const HEARTBEAT_MS = 20000;
@@ -216,12 +217,38 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
           live: quest.assignee ? snap.live[quest.assignee.name] || null : null,
           threads: snap.threads[quest.id] || [],
           eligibility: eligibilitySummary(snap.eligibility[quest.id]),
+          // The attempt's own report reference/verdict/summary (item 7/12/34). Read from the raw stored quest,
+          // not the snapshot row: the snapshot carries only the pruned reference. Legacy rows and stale attempts
+          // return null, which the surfaces render as 报告不可用.
+          report: questReportView(store.get(quest.id)),
           // Requirement 5/R3: a sanitized, process-local, explicitly not restart-durable diagnostic — this
           // process still remembers a session id for the quest's current attempt that its own durable
           // record does not (yet, or ever) confirm. null once there is nothing to report, or once a later
           // durable write makes it current again. Never secrets/commands/env/raw error text.
           unpersistedSession: quest.assignee ? dispatcher.getUnpersistedSession(quest.id, quest.assignee.attemptId) : null,
         } });
+      } else if (parts[1] === 'quests' && parts.length === 4 && parts[3] === 'report' && request.method === 'GET') {
+        // The full report text of the current attempt, bounded (see core/reportEvidence.js) and served as
+        // plain text so it can never execute: no HTML rendering, no scripts, same no-store/nosniff headers
+        // as every other read. The reference is re-checked and the digest re-verified on every read; a file
+        // that changed after it was captured is refused (409) rather than shown as if it were that report.
+        const quest = store.get(parts[2]);
+        if (!quest) { sendJson(response, 404, { error: 'quest not found' }); return true; }
+        const view = questReportView(quest);
+        if (!view) { sendJson(response, 404, { error: '报告不可用：这次派遣没有留下报告引用' }); return true; }
+        if (view.source === 'none') { sendJson(response, 404, { error: `报告不可用：${view.reason}` }); return true; }
+        const read = readCapturedReport(config, view);
+        if (!read.ok) { sendJson(response, read.code === 'changed' ? 409 : 404, { error: read.reason }); return true; }
+        const body = Buffer.from(read.text, 'utf8');
+        response.writeHead(200, {
+          'content-type': 'text/plain; charset=utf-8',
+          'content-length': body.length,
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+          'x-report-digest': read.digest,
+          ...(read.truncated ? { 'x-report-truncated': '1' } : {}),
+        });
+        response.end(body);
       } else if (url.pathname === '/api/roster' && request.method === 'GET') {
         sendJson(response, 200, { adventurers: effectiveRoster(adventurers(), getLanes()) });
       } else if (url.pathname === '/api/lanes' && request.method === 'GET') {

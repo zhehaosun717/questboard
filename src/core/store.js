@@ -174,6 +174,10 @@ export class QuestStore extends EventEmitter {
       // stays byte-identical to before this was added.
       ...(fields.changedFields ? { changedFields: fields.changedFields } : {}),
       ...(fields.changes ? { changes: fields.changes } : {}),
+      // Additive, only on a terminal event whose caller captured one: the structured reference to the report
+      // this attempt produced ({source, ref, digest, capturedAt, ...}). Omitted entirely otherwise, so every
+      // existing event's own shape on disk stays byte-identical to before this was added.
+      ...(fields.report ? { report: fields.report } : {}),
     };
     appendJsonLine(this.eventsFile, record);
     if (notify) this.notify(record);
@@ -303,14 +307,15 @@ export class QuestStore extends EventEmitter {
     return this.save({ ...quest, assignee, updatedAt: now() });
   }
 
-  setStatus(id, status, { detail = '', by = 'coordinator' } = {}) {
+  setStatus(id, status, { detail = '', by = 'coordinator', report = null } = {}) {
     if (!QUEST_STATUSES.has(status)) throw new Error(`status must be one of ${[...QUEST_STATUSES].join('|')}`);
     const quest = this.quests.get(id);
     if (!quest) return null;
     // Terminal statuses go through setTerminalStatus, which owns the durable ordering (persist the fact,
     // then append the event, then confirm it) that keeps a crash between writes from losing or duplicating
-    // the delivered/failed/bounced event.
-    if (TERMINAL_STATUSES.has(status)) return this.setTerminalStatus(quest, status, { detail, by });
+    // the delivered/failed/bounced event. `report` rides along additively so the terminal write can also
+    // bind the attempt's final-report reference; callers without one pass nothing and nothing changes.
+    if (TERMINAL_STATUSES.has(status)) return this.setTerminalStatus(quest, status, { detail, by, report });
     // A stall is silence, not a confirmed exit: the worker keeps the quest (and its slot and file
     // reservations) until release() says the process is gone. failed/bounced come from exit files.
     const stillAssigned = ['dispatched', 'delivered', 'reviewing', 'stalled'].includes(status);
@@ -327,7 +332,7 @@ export class QuestStore extends EventEmitter {
   // throws with the marker durable, so the retry re-appends exactly the event that never landed. A failure in
   // (3) — the append already happened — can duplicate that event when the retry re-appends it: at-least-once
   // is the documented limit of two writes that cannot be made atomic without an outbox.
-  setTerminalStatus(quest, status, { detail, by }) {
+  setTerminalStatus(quest, status, { detail, by, report = null }) {
     const attempt = quest.dispatches?.length ? quest.dispatches[quest.dispatches.length - 1] : null;
     const fact = quest.terminalFact;
     const sameFact = factMatchesAttempt(fact, attempt);
@@ -339,10 +344,12 @@ export class QuestStore extends EventEmitter {
     // status poll, a manual re-click) may carry different or empty detail, but the event being retried is the
     // original one. Confirm durably, and only then tell listeners.
     if (sameFact && fact.eventPending && fact.eventPending.status === status) {
+      const pendingReport = report || fact.eventPending.report || null;
       const record = this.emitEvent(quest, eventName, {
         by: fact.eventPending.by, detail: fact.eventPending.detail, assignee,
+        ...(pendingReport ? { report: pendingReport } : {}),
       }, { notify: false });
-      const next = this.finishTerminal(quest, status, fact, fact.eventPending.detail);
+      const next = this.finishTerminal(quest, status, fact, fact.eventPending.detail, pendingReport);
       this.notify(record);
       return next;
     }
@@ -383,11 +390,11 @@ export class QuestStore extends EventEmitter {
       at: attempt?.at || null,
       lane: attempt?.lane || null,
       statuses: { ...statuses, [status]: { at, detail: evidence } },
-      eventPending: { status, detail: evidence, by, at },
+      eventPending: { status, detail: evidence, by, at, ...(report ? { report } : {}) },
     };
     const pending = this.savePendingFact(quest, factNext, at);
-    const record = this.emitEvent(pending, eventName, { by, detail, assignee }, { notify: false });
-    const next = this.finishTerminal(pending, status, factNext, evidence);
+    const record = this.emitEvent(pending, eventName, { by, detail, assignee, ...(report ? { report } : {}) }, { notify: false });
+    const next = this.finishTerminal(pending, status, factNext, evidence, report);
     this.notify(record);
     return next;
   }
@@ -395,7 +402,7 @@ export class QuestStore extends EventEmitter {
   // Confirms a terminal transition once its event is durable: the status moves, the marker is dropped
   // (without leaving an `eventPending: undefined` key behind), and the assignee follows the same hold rules
   // as any other status (kept for delivered/reviewing, cleared for failed/bounced/done).
-  finishTerminal(quest, status, fact, detail) {
+  finishTerminal(quest, status, fact, detail, report = null) {
     const { eventPending, ...clearedFact } = fact;
     const stillAssigned = ['dispatched', 'delivered', 'reviewing', 'stalled'].includes(status);
     return this.save({
@@ -405,6 +412,10 @@ export class QuestStore extends EventEmitter {
       lastDetail: String(detail).slice(0, 2000),
       terminalFact: clearedFact,
       updatedAt: now(),
+      // Additive: the reference to the report this attempt actually produced, keyed to its attemptId.
+      // Absent for every legacy terminal quest and for callers that captured nothing, so old rows and old
+      // event shapes stay byte-identical; presence only ever grows a row by this one small object.
+      ...(report ? { attemptReport: report } : {}),
     });
   }
 

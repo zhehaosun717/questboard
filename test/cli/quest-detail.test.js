@@ -5,17 +5,19 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startFixture, tick } from '../server/fixture.js';
+import { REPORT_READ_CAP, captureAttemptReport } from '../../src/core/reportEvidence.js';
 
 const run = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'cli', 'questboard.js');
 let fx;
 async function cli(args) {
   try {
-    const { stdout, stderr } = await run(process.execPath, [CLI, ...args], { timeout: 20000, env: { ...process.env, QUESTBOARD_PROJECT: '', QUESTBOARD_URL: '' } });
+    const { stdout, stderr } = await run(process.execPath, [CLI, ...args], { timeout: 20000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, QUESTBOARD_PROJECT: '', QUESTBOARD_URL: '' } });
     return { status: 0, stdout, stderr };
   } catch (error) {
     return { status: error.code === undefined ? 1 : error.code, stdout: error.stdout || '', stderr: error.stderr || '' };
@@ -138,5 +140,73 @@ describe('board author default', () => {
     assert.equal(fx.server.boardStore.listThreads({}).find((t) => t.title === 'QD-1 noted').author, 'worker-1');
     const refused = await fx.api('/api/threads', 'POST', { title: 'no-author', body: 'b' });
     assert.equal(refused.status, 400, 'the HTTP API still requires an author; the default lives in the CLI');
+  });
+});
+
+// Feedback 7: `get` prints the attempt's own report reference/verdict/first paragraph; `--report` asks the
+// board for the bounded plain text itself. A quest with no stored reference says 报告不可用 instead of
+// silently printing nothing that could be mistaken for "the report is fine".
+describe('questboard get — report evidence', () => {
+  before(async () => {
+    fx.project.write('docs/briefs/RPT-1-answer.md', 'brief');
+    assert.equal((await fx.api('/api/quests', 'POST', { package: 'RPT-1', brief: 'docs/briefs/RPT-1-answer.md' })).status, 201);
+    assert.equal((await fx.api('/api/quests/RPT-1/assign', 'POST', { adventurer: 'oc-mimo' })).status, 200);
+    await tick();
+    const store = fx.server.store;
+    const name = store.get('RPT-1').assignee.name;
+    const text = '# 报告\n\n第一段。\n\nVERDICT: PASS\n';
+    fs.mkdirSync(path.join(fx.project.root, '.work', 'oc'), { recursive: true });
+    fx.project.write(`.work/oc/${name}.md`, text);
+    const report = captureAttemptReport({ config: fx.project.config, quest: store.get('RPT-1') });
+    store.setStatus('RPT-1', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', report });
+  });
+
+  it('prints the report reference, verdict and first paragraph', async () => {
+    const got = await atBoard(['get', 'RPT-1']);
+    assert.equal(got.status, 0, got.stderr);
+    assert.match(got.stdout, /报告: \.work\/oc\/rpt1\.md/);
+    assert.match(got.stdout, /结论: PASS/);
+    assert.match(got.stdout, /摘要: .*第一段/);
+  });
+
+  it('--report prints the bounded plain text itself', async () => {
+    const got = await atBoard(['get', 'RPT-1', '--report']);
+    assert.equal(got.status, 0, got.stderr);
+    assert.match(got.stdout, /VERDICT: PASS/);
+    assert.match(got.stdout, /第一段。/);
+  });
+
+  it('a quest with nothing stored says so in Chinese', async () => {
+    fx.project.write('docs/briefs/RPT-2-answer.md', 'brief');
+    await fx.api('/api/quests', 'POST', { package: 'RPT-2', brief: 'docs/briefs/RPT-2-answer.md' });
+    const none = await atBoard(['get', 'RPT-2', '--report']);
+    assert.equal(none.status, 1);
+    assert.match(none.stderr, /报告不可用/);
+    const detail = await atBoard(['get', 'RPT-2']);
+    assert.equal(detail.status, 0, detail.stderr);
+    assert.doesNotMatch(detail.stdout, /报告: /, 'no reference line when nothing was ever captured');
+  });
+
+  it('warns on stderr when --report got a truncated read instead of the whole report', async () => {
+    fx.project.write('docs/briefs/RPT-3-big.md', 'brief');
+    assert.equal((await fx.api('/api/quests', 'POST', { package: 'RPT-3', brief: 'docs/briefs/RPT-3-big.md' })).status, 201);
+    assert.equal((await fx.api('/api/quests/RPT-3/assign', 'POST', { adventurer: 'oc-mimo' })).status, 200);
+    await tick();
+    const store = fx.server.store;
+    const name = store.get('RPT-3').assignee.name;
+    fs.mkdirSync(path.join(fx.project.root, '.work', 'oc'), { recursive: true });
+    fx.project.write(`.work/oc/${name}.md`, `VERDICT: PASS\n${'y'.repeat(REPORT_READ_CAP)}\nVERDICT: FAIL\n`);
+    const report = captureAttemptReport({ config: fx.project.config, quest: store.get('RPT-3') });
+    assert.equal(report.truncated, true, 'the fixture file must sit over the read cap');
+    store.setStatus('RPT-3', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', report });
+
+    const got = await atBoard(['get', 'RPT-3', '--report']);
+    assert.equal(got.status, 0, got.stderr);
+    assert.match(got.stderr, /报告超过 2 MB，只显示了前 \d+ 字节，不是完整报告/);
+    assert.equal(got.stdout.length, REPORT_READ_CAP + 1, 'the printed body stays bounded even when the file does not');
+
+    const detail = await atBoard(['get', 'RPT-3']);
+    assert.equal(detail.status, 0, detail.stderr);
+    assert.match(detail.stdout, /结论: 不确定（报告超过 2 MB/);
   });
 });

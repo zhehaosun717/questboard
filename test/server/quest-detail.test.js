@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { startFixture, tick } from './fixture.js';
+import { captureAttemptReport } from '../../src/core/reportEvidence.js';
 
 let fx;
 before(async () => { fx = await startFixture(); });
@@ -100,5 +101,65 @@ describe('GET /api/quests/:id — unpersistedSession diagnostic (R3)', () => {
       try { fs.existsSync(ef) && fs.statSync(ef).isDirectory() && fs.rmdirSync(ef); } catch { /* ignore */ }
       await diagFx.close();
     }
+  });
+});
+
+// Feedback 7 (backend): the detail route surfaces the current attempt's captured reference (source, ref,
+// digest, verdict, first paragraph) and the bounded /report route serves the very file it points at —
+// re-verified by digest on every read — as plain text that can never execute in a browser.
+describe('GET /api/quests/:id/report', () => {
+  it('serves the captured report as bounded plain text and shows reference, verdict and summary on the detail', async () => {
+    const brief = 'docs/briefs/RP-1-x.md';
+    fx.project.write(brief, 'brief');
+    assert.equal((await fx.api('/api/quests', 'POST', { package: 'RP-1', brief })).status, 201);
+    assert.equal((await fx.api('/api/quests/RP-1/assign', 'POST', { adventurer: 'oc-mimo' })).status, 200);
+    await tick();
+    const store = fx.server.store;
+    const name = store.get('RP-1').assignee.name;
+    const text = '# 报告\n\n第一段。\n\nVERDICT: PASS\n';
+    fs.mkdirSync(path.join(fx.project.root, '.work', 'oc'), { recursive: true });
+    fx.project.write(`.work/oc/${name}.md`, text);
+    const report = captureAttemptReport({ config: fx.project.config, quest: store.get('RP-1') });
+    assert.equal(report.source, 'delivery');
+    store.setStatus('RP-1', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', report });
+
+    const detail = await fx.api('/api/quests/RP-1');
+    const view = detail.body.quest.report;
+    assert.equal(view.source, 'delivery');
+    assert.equal(view.ref, `.work/oc/${name}.md`);
+    assert.equal(view.attemptId, store.get('RP-1').assignee.attemptId, 'the reference belongs to this attempt');
+    assert.equal(view.verdict.verdict, 'PASS');
+    assert.ok(view.summary.paragraph.includes('第一段'), 'the first paragraph is readable without the full text');
+
+    const served = await fx.api('/api/quests/RP-1/report');
+    assert.equal(served.status, 200);
+    assert.equal(served.text, text, 'the report is served byte for byte');
+    assert.equal(served.headers.get('content-type'), 'text/plain; charset=utf-8');
+    assert.equal(served.headers.get('x-report-digest'), report.digest);
+    assert.equal(served.headers.get('x-content-type-options'), 'nosniff');
+  });
+
+  it('answers 404 with a Chinese reason when there is nothing, 409 when the file changed, and hides a stale attempt', async () => {
+    const brief = 'docs/briefs/RP-2-x.md';
+    fx.project.write(brief, 'brief');
+    await fx.api('/api/quests', 'POST', { package: 'RP-2', brief });
+    const none = await fx.api('/api/quests/RP-2/report');
+    assert.equal(none.status, 404);
+    assert.match(none.body.error, /报告不可用/);
+
+    const store = fx.server.store;
+    const name = store.get('RP-1').assignee.name;
+    fx.project.write(`.work/oc/${name}.md`, '# 报告\n\n已经被改过。\n');
+    const changed = await fx.api('/api/quests/RP-1/report');
+    assert.equal(changed.status, 409, 'a file that changed after capture is refused, not shown as that report');
+    assert.match(changed.body.error, /改过/);
+
+    // A newer attempt must not inherit the previous attempt's reference: same worker name, new attempt id.
+    store.save({ ...store.get('RP-1'), assignee: { ...store.get('RP-1').assignee, attemptId: 'attempt-next' } });
+    const staleDetail = await fx.api('/api/quests/RP-1');
+    assert.equal(staleDetail.body.quest.report, null);
+    const staleReport = await fx.api('/api/quests/RP-1/report');
+    assert.equal(staleReport.status, 404);
+    assert.match(staleReport.body.error, /报告不可用/);
   });
 });

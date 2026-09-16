@@ -7,10 +7,14 @@ import { withFileSets } from '../core/briefs.js';
 import { lockPresent, briefExists, briefUnusable } from '../core/snapshot.js';
 import { writeApiDelivery, TRANSIENT_DELIVERY_CODES } from '../core/deliveries.js';
 import { sameAttempt } from '../core/store.js';
+import { captureAttemptReport } from '../core/reportEvidence.js';
 import { createNonDurableBindings, sanitizeUnpersistedSession } from '../core/nonDurableBindings.js';
 
 const EVIDENCE_WAIT_MS = 10000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Terminal transitions are the only ones that may bind a report reference: stalled/dispatched are silence
+// or a retry, not an ending, and a report captured for them would be partial evidence presented as final.
+const TERMINAL_STATUSES = new Set(['delivered', 'failed', 'bounced']);
 
 // A pending delivery write is tracked by the attempt it belongs to, not by quest id: two different attempts
 // of the same quest (an old one whose write is still hung, a new one after a reassignment) must never share
@@ -98,6 +102,16 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // can, without every other caller having to look at a return value it doesn't need.
   function safeguard(label, detail, fn) {
     try { fn(); return true; } catch (error) { reportPersistenceFailure(label, detail, error); return false; }
+  }
+
+  // Binds a terminal transition to the report file the attempt actually left behind (item 7): resolved
+  // only through the lane's own configured delivery/output directories and this attempt's worker name,
+  // never a caller-supplied path (see core/reportEvidence.js). Never throws — a capture failure (an
+  // unreadable directory, a broken symlink, a file vanishing mid-read) must not replace the durable status
+  // decision the caller is about to make; it is reported like any other persistence shortfall and the
+  // transition proceeds with no reference, which the surfaces render as 报告不可用.
+  function captureReportFor(quest) {
+    try { return captureAttemptReport({ config, quest }); } catch (error) { reportPersistenceFailure('captureAttemptReport', quest.id, error); return null; }
   }
 
   function failIfStillOurs(questId, attempt, detail) {
@@ -458,7 +472,10 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         if (!current) return;
         const note = `交付已写入 ${path.relative(config.root, out).split(path.sep).join('/')}`;
         const detail = [note, transition.detail].filter(Boolean).join(' | ');
-        safeguard('deliverFromApi setStatus delivered', detail, () => store.setStatus(quest.id, 'delivered', { detail, by: 'lanes' }));
+        // Capture before the status write so the reference lands in the same durable record as the
+        // 'delivered' fact; a captured failure simply carries no reference.
+        const report = captureReportFor(current);
+        safeguard('deliverFromApi setStatus delivered', detail, () => store.setStatus(quest.id, 'delivered', { detail, by: 'lanes', ...(report ? { report } : {}) }));
       })
       .catch((error) => {
         const current = stillOurs(quest.id, attempt);
@@ -477,7 +494,10 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         }
         clearOwnNotice(quest.id, key);
         safeguard('deliverFromApi delivery_write_failed', error.message, () => store.emitEvent(current, 'delivery_write_failed', { by: 'board', detail: error.message }));
-        safeguard('deliverFromApi setStatus failed', error.message, () => store.setStatus(quest.id, 'failed', { detail: `交付文件没写成：${error.message}`, by: 'lanes' }));
+        // A failed delivery still binds whatever the attempt actually left on disk (a partial report or an
+        // exit-file summary), so the failure is readable next to real evidence instead of only a message.
+        const report = captureReportFor(current);
+        safeguard('deliverFromApi setStatus failed', error.message, () => store.setStatus(quest.id, 'failed', { detail: `交付文件没写成：${error.message}`, by: 'lanes', ...(report ? { report } : {}) }));
       })
       .finally(() => pendingDeliveries.delete(key));
   }
@@ -492,7 +512,9 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       if (quest.assignee && pendingDeliveries.has(attemptKey(quest.assignee))) continue;
       const lane = quest.assignee && config.lanes[quest.assignee.lane];
       if (transition.status === 'delivered' && lane && lane.api && lane.deliveryDir) { deliverFromApi(quest, transition); continue; }
-      store.setStatus(transition.id, transition.status, { detail: transition.detail, by: 'lanes' });
+      // Only an ending binds a report reference; stalled/dispatched pass through untouched.
+      const report = quest.assignee && TERMINAL_STATUSES.has(transition.status) ? captureReportFor(quest) : null;
+      store.setStatus(transition.id, transition.status, { detail: transition.detail, by: 'lanes', ...(report ? { report } : {}) });
     }
   }
 

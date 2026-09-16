@@ -8,9 +8,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { createDispatcher } from '../../src/server/dispatcher.js';
 import { QuestStore } from '../../src/core/store.js';
 import { readJsonLines } from '../../src/core/jsonl.js';
+import { REPORT_READ_CAP } from '../../src/core/reportEvidence.js';
 import { makeProject, card } from '../helpers.js';
 
 const transientError = (message, code = 'STILL_RUNNING') => { const error = new Error(message); error.code = code; return error; };
@@ -305,5 +307,102 @@ describe('dispatcher deliverFromApi', () => {
     const disk = new QuestStore(realConfig).get('FRFOUR-1');
     assert.equal(disk.status, 'dispatched', 'neither write went through, so the durable record stays at its last real state — the slot is not lost');
     assert.ok(disk.assignee, 'the reservation is untouched');
+  });
+
+  // Item 7/12/34: a terminal transition binds the attempt to the report it actually wrote. The reference
+  // (source/ref/digest/attemptId) is stored on the quest and mirrored into the delivered event's own detail
+  // object — concise, never the full text — while the actor and lastDetail semantics stay untouched.
+  it('binds a delivered attempt to the report file the lane actually wrote, and the event carries the same reference', async () => {
+    const { config: realConfig, write } = makeProject();
+    write('docs/briefs/MOD-3-x.md', 'brief');
+    const store = new QuestStore(realConfig);
+    const { quest } = store.post({ package: 'MOD-3', kind: 'code', brief: 'docs/briefs/MOD-3-x.md', by: 'owner' });
+    const dispatched = store.assign(quest.id, { adventurer: card('oc-mimo'), name: 'mod3', by: 'owner' });
+    const reportText = '# 交付报告\n\n正文第一段。\n\nVERDICT: PASS\n';
+    const reportPath = path.join(realConfig.root, '.work', 'oc', 'mod3.md');
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, reportText);
+    const row = { name: 'mod3', package: 'MOD-3', lane: 'opencode', model: 'x', state: 'delivered', dispatchedAt: dispatched.assignee.at };
+    const dispatcher = createDispatcher({ config: realConfig, store, writeDelivery: async () => reportPath });
+
+    dispatcher.applyLanes({ packages: [row] });
+    await wait();
+
+    const delivered = store.get('MOD-3');
+    assert.equal(delivered.status, 'delivered');
+    assert.equal(delivered.assignee.name, 'mod3', 'the actor is preserved on delivered');
+    const digest = createHash('sha256').update(reportText, 'utf8').digest('hex');
+    assert.equal(delivered.attemptReport.source, 'delivery');
+    assert.equal(delivered.attemptReport.ref, '.work/oc/mod3.md');
+    assert.equal(delivered.attemptReport.attemptId, dispatched.assignee.attemptId, 'the reference is bound to this exact attempt');
+    assert.equal(delivered.attemptReport.digest, digest);
+    assert.equal(delivered.attemptReport.truncated, false);
+    assert.equal(delivered.attemptReport.verdict.verdict, 'PASS');
+    const events = readJsonLines(realConfig.paths.events);
+    const last = events.at(-1);
+    assert.equal(last.event, 'delivered');
+    assert.equal(last.by, 'lanes');
+    assert.equal(last.report.source, 'delivery', 'the delivered event carries the structured reference');
+    assert.equal(last.report.ref, '.work/oc/mod3.md');
+  });
+
+  // A failed attempt still binds whatever it left on disk: a partial file-lane .out is a summary-source
+  // reference, visibly not a review verdict (unknown), never presented as a complete final report.
+  it('binds a failed file-lane attempt to the partial .out summary left on disk', async () => {
+    const { config: realConfig, write } = makeProject();
+    write('docs/briefs/MOD-4-x.md', 'brief');
+    const store = new QuestStore(realConfig);
+    const { quest } = store.post({ package: 'MOD-4', kind: 'code', brief: 'docs/briefs/MOD-4-x.md', by: 'owner' });
+    const dispatched = store.assign(quest.id, { adventurer: card('codex-luna'), name: 'luna4', by: 'owner' });
+    const outPath = path.join(realConfig.root, '.work', 'codex', 'luna4.out');
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, '部分输出，边跑边写。\n');
+    const row = { name: 'luna4', package: 'MOD-4', lane: 'codex', model: 'x', state: 'failed', dispatchedAt: dispatched.assignee.at };
+    const dispatcher = createDispatcher({ config: realConfig, store });
+
+    dispatcher.applyLanes({ packages: [row] });
+    await wait();
+
+    const failed = store.get('MOD-4');
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.attemptReport.source, 'summary');
+    assert.equal(failed.attemptReport.ref, '.work/codex/luna4.out');
+    assert.equal(failed.attemptReport.attemptId, dispatched.assignee.attemptId);
+    assert.equal(failed.attemptReport.verdict.verdict, 'unknown', 'a partial transcript is not a review verdict');
+    const events = readJsonLines(realConfig.paths.events);
+    const last = events.at(-1);
+    assert.equal(last.event, 'failed');
+    assert.equal(last.by, 'lanes');
+    assert.equal(last.report.source, 'summary');
+  });
+
+  // B1 (review round 1): a report larger than the read cap is captured truncated; whatever verdict text
+  // sits in the first 2 MB is not the final word — the stored fact and the terminal event both say
+  // unknown, with the Chinese reason, instead of presenting the early text as the outcome.
+  it('records an unknown verdict with a reason when the delivered report exceeds the read cap', async () => {
+    const { config: realConfig, write } = makeProject();
+    write('docs/briefs/MOD-5-x.md', 'brief');
+    const store = new QuestStore(realConfig);
+    const { quest } = store.post({ package: 'MOD-5', kind: 'code', brief: 'docs/briefs/MOD-5-x.md', by: 'owner' });
+    const dispatched = store.assign(quest.id, { adventurer: card('oc-mimo'), name: 'mod5', by: 'owner' });
+    const reportPath = path.join(realConfig.root, '.work', 'oc', 'mod5.md');
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, `VERDICT: PASS\n${'y'.repeat(REPORT_READ_CAP)}\nVERDICT: FAIL\n`);
+    const row = { name: 'mod5', package: 'MOD-5', lane: 'opencode', model: 'x', state: 'delivered', dispatchedAt: dispatched.assignee.at };
+    const dispatcher = createDispatcher({ config: realConfig, store, writeDelivery: async () => reportPath });
+
+    dispatcher.applyLanes({ packages: [row] });
+    await wait();
+
+    const delivered = store.get('MOD-5');
+    assert.equal(delivered.status, 'delivered');
+    assert.equal(delivered.attemptReport.truncated, true);
+    assert.equal(delivered.attemptReport.verdict.verdict, 'unknown', 'the early PASS must not become the final verdict');
+    assert.match(delivered.attemptReport.verdict.reason, /没有读到结尾/);
+    const events = readJsonLines(realConfig.paths.events);
+    const last = events.at(-1);
+    assert.equal(last.event, 'delivered');
+    assert.equal(last.report.truncated, true);
+    assert.equal(last.report.verdict.verdict, 'unknown');
   });
 });
