@@ -143,6 +143,16 @@ export function toggleGroupFold(
   return { tempFolded: [], rememberedFolded: remembered, persist: true };
 }
 
+export interface FoldedProviderButtonState {
+  provider: string;
+  expanded: boolean;
+}
+
+/** Convert the table's rendered provider-button state into the fold list used by bulk selection. */
+export function foldedProvidersFromTable(buttons: readonly FoldedProviderButtonState[]): string[] {
+  return [...new Set(buttons.filter((button) => !button.expanded).map((button) => button.provider).filter(Boolean))];
+}
+
 /** localStorage-style subset the fold helpers need, so tests can pass a fake. */
 export type FoldStorage = Pick<Storage, 'getItem' | 'setItem'>;
 

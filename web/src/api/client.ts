@@ -2,6 +2,7 @@
 import type {
   AdventurerInput, Card, CardStatus, LanePreviewRequest, LanePreviewResponse, LaneServerStatus, LanesReport, Message, MetadataUpdateInput, OmoChange, OmoConfig, Quest, QuestEvent,
   QuestStatus, Reason, SettingsReport, Snapshot, Thread, ThreadDetail, ThreadStatusFilter, UsageReport,
+  RosterBulkRequest, RosterBulkResponse,
 } from './types';
 
 export class ApiError extends Error {
@@ -113,6 +114,12 @@ export const api = {
   // Simulates command execution with optionalArgs; returns argv, omitted groups, and warnings.
   lanePreview: (request: LanePreviewRequest) =>
     call<LanePreviewResponse>('/api/settings/lanes/preview', 'POST', request),
+  // Preview is required before apply; the returned fingerprint is sent back on apply so a newer roster cannot
+  // be overwritten by a stale dialog.
+  rosterBulkPreview: (input: RosterBulkRequest) =>
+    call<RosterBulkResponse>('/api/roster/bulk/preview', 'POST', input),
+  rosterBulkApply: (input: RosterBulkRequest) =>
+    call<RosterBulkResponse>('/api/roster/bulk/apply', 'POST', input),
 };
 
 // Live events. Returns a function that closes the stream.

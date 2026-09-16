@@ -6,6 +6,7 @@ import {
   ROSTER_STATUSES,
   buildRosterFilterOptions,
   filterRosterCards,
+  foldedProvidersFromTable,
   foldKeyFor,
   isFoldedByDefault,
   loadFoldedProviders,
@@ -209,6 +210,18 @@ describe('temporary fold while filtering (QB-FB-BG)', () => {
     const revealed = new Set(['a', 'b', 'c']);
     expect([...openRevealedGroups(revealed, ['b'])]).toEqual(['a', 'c']);
     expect([...openRevealedGroups(revealed, [])]).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('live table fold state', () => {
+  test('turns rendered aria-expanded states into the exact folded provider list', () => {
+    expect(foldedProvidersFromTable([
+      { provider: 'alpha', expanded: true },
+      { provider: 'beta', expanded: false },
+      { provider: 'gamma', expanded: false },
+      { provider: 'beta', expanded: false },
+      { provider: '', expanded: false },
+    ])).toEqual(['beta', 'gamma']);
   });
 });
 

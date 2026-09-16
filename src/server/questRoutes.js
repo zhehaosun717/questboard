@@ -13,6 +13,7 @@ import { withFileSets } from '../core/briefs.js';
 import { lockPresent } from '../core/snapshot.js';
 import { laneServers } from '../core/laneServer.js';
 import { questReportView, readCapturedReport } from '../core/reportEvidence.js';
+import { createRosterBulkRoutes } from './rosterBulkRoutes.js';
 
 const SYNC_INTERVAL_MS = 5000;
 const HEARTBEAT_MS = 20000;
@@ -42,6 +43,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
   // point it's assigned — passing it lets the recheck re-resolve the adventurer's roster status, lane and
   // policy fresh at spawn time instead of trusting the object captured at drop time.
   const dispatcher = createDispatcher({ config, store, runners, evidenceWaitMs, writeDelivery, getDownLanes: () => downLanes, getAdventurer: (id) => findCard(id) });
+  const rosterBulkRoutes = createRosterBulkRoutes({ rosterFile, statusLog, getQuests: () => store.list(), getLanes });
   const clients = new Set();
   const timers = [];
   let lastLanes = null;
@@ -211,6 +213,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
   }
 
   async function handle(request, response, url, parts) {
+    if (parts[0] === 'api' && parts[1] === 'roster' && parts[2] === 'bulk') return rosterBulkRoutes.handle(request, response, url, parts);
     if (parts[0] !== 'api' || !['quests', 'roster', 'lanes', 'events'].includes(parts[1])) return false;
     try {
       if (url.pathname === '/api/events' && request.method === 'GET') {

@@ -548,3 +548,71 @@ export interface LanePreviewResponse {
   omitted: LanePreviewOmitted[];
   warnings: string[];
 }
+
+// Roster batch operations (POST /api/roster/bulk/{preview,apply}). Env values are accepted by the server but
+// intentionally do not appear in any response shape; changedFields/preservedFields are the preview contract.
+export type RosterBulkStatus = Extract<CardStatus, 'available' | 'limited' | 'paused'>;
+
+export interface RosterBulkEnvPatch {
+  set?: Record<string, string>;
+  remove?: string[];
+}
+
+export interface RosterBulkPatch {
+  action?: 'update' | 'delete';
+  delete?: boolean;
+  status?: RosterBulkStatus | { status: RosterBulkStatus; reason?: string };
+  reason?: string;
+  // Empty variant is an explicit clear; omit variant from the patch when it should remain unchanged.
+  variant?: string;
+  env?: RosterBulkEnvPatch;
+  removeEnv?: string[];
+}
+
+export interface RosterBulkRequest {
+  ids: string[];
+  patch: RosterBulkPatch;
+  actor?: string;
+  revision?: string;
+  fingerprint?: string;
+}
+
+export interface RosterBulkResult {
+  id: string;
+  ok: boolean;
+  ready: boolean;
+  denied: boolean;
+  changedFields: string[];
+  preservedFields: string[];
+  reasons?: Reason[];
+  error?: string;
+  partial?: boolean;
+  appliedFields?: string[];
+}
+
+export interface RosterBulkCounts {
+  requested: number;
+  ready: number;
+  changed: number;
+  unchanged: number;
+  denied: number;
+  failed: number;
+  partial: number;
+}
+
+export interface RosterBulkResponse {
+  ok: boolean;
+  applied?: boolean;
+  ids: string[];
+  action: 'update' | 'delete';
+  actor: string;
+  revision: string;
+  fingerprint: string;
+  changedFields: string[];
+  preservedFields: string[];
+  deniedActiveCards: Array<{ id: string; reasons?: Reason[] }>;
+  statusNote: string;
+  backup?: boolean;
+  results: RosterBulkResult[];
+  counts: RosterBulkCounts;
+}
