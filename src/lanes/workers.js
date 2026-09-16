@@ -66,14 +66,24 @@ function resetText(line) {
   return match ? match[1].trim() : null;
 }
 
-function bounceFromExit(line, exitRecord) {
+function bounceFromExit(line, exitRecord, patterns) {
   const structured = Boolean(exitRecord && QUOTA_REASON_RE.test(exitRecord.reason || ''));
-  if (!structured && !USAGE_RE.test(line)) return null;
-  return { state: 'bounced', reason: 'usage limit', bounceUntil: resetText(line) || (exitRecord && exitRecord.resetAt) || null };
+  if (structured || USAGE_RE.test(line)) {
+    return { state: 'bounced', reason: 'usage limit', bounceUntil: resetText(line) || (exitRecord && exitRecord.resetAt) || null };
+  }
+  // The project's own structured patterns run after the built-in usage-limit check, against the exit line
+  // only — never a transcript, never the body of .out. The first match wins, and the state carries the
+  // pattern's code so a coordinator can branch on it instead of matching prose.
+  for (const entry of patterns || []) {
+    if (entry && entry.pattern && entry.pattern.test(line)) {
+      return { state: 'bounced', reason: entry.label, code: entry.code, bounceUntil: resetText(line) || (exitRecord && exitRecord.resetAt) || null };
+    }
+  }
+  return null;
 }
 
 // editCounter tells a stream-json lane's tool transcript apart from a lane whose .out is itself prose.
-export function workerState(basePath, now = Date.now(), { editCounter } = {}) {
+export function workerState(basePath, now = Date.now(), { editCounter, stallAfterMinutes, bouncePatterns } = {}) {
   const outPath = `${basePath}.out`;
   const exitPath = `${basePath}.exit`;
   if (!fs.existsSync(outPath)) return { state: 'unknown', reason: 'no .out file' };
@@ -83,12 +93,17 @@ export function workerState(basePath, now = Date.now(), { editCounter } = {}) {
   // A malformed or half-written .exit is not terminal evidence: treat it exactly like no .exit at all —
   // still running, or stalled once .out itself has gone quiet for a long time.
   if (code === null) {
-    if (now - mtime(outPath) > STALE_MS) return { state: 'stalled', reason: exitExists ? 'malformed .exit, .out stale >20m' : 'no .exit, .out stale >20m' };
+    // The threshold is the project's own policy.stallAfterMinutes (20 unless the owner changed it); the
+    // reason names the configured minutes so the settings page and this line always agree.
+    const staleMinutes = Number.isInteger(stallAfterMinutes) && stallAfterMinutes > 0 ? stallAfterMinutes : 20;
+    if (now - mtime(outPath) > staleMinutes * 60 * 1000) {
+      return { state: 'stalled', reason: exitExists ? `malformed .exit, .out stale >${staleMinutes}m` : `no .exit, .out stale >${staleMinutes}m` };
+    }
     return { state: 'running' };
   }
   const outText = readText(outPath, 4000);
   if (code !== 0) {
-    const bounce = bounceFromExit(lastLine(outText), exitRecord);
+    const bounce = bounceFromExit(lastLine(outText), exitRecord, bouncePatterns);
     const cancel = exitRecord?.cancelRequestId ? { cancelRequestId: exitRecord.cancelRequestId, cancelScope: exitRecord.cancelScope } : {};
     if (bounce) return { ...bounce, ...cancel };
     return { state: 'failed', reason: `exit ${code}`, ...cancel };
@@ -160,6 +175,7 @@ function limitEntry(bounce) {
   return {
     since: new Date(bounce.at).toISOString(), until,
     at: new Date(bounce.at).toISOString(), resetsAt: parsedReset ? new Date(parsedReset).toISOString() : null,
+    ...(bounce.code ? { code: bounce.code } : {}),
     ...(bounce.adventurerId ? { adventurerId: bounce.adventurerId } : {}), name: bounce.name,
   };
 }
@@ -184,7 +200,7 @@ export function laneEvidence(outputDir, now = Date.now(), options = {}) {
     const name = file.slice(0, -4);
     const adventurerId = resolveIdentity(name);
     if (exitRecord.code === 0) { successes.push({ at: terminalAt, adventurerId }); continue; }
-    const bounce = bounceFromExit(lastLine(readText(outPath, 4000)), exitRecord);
+    const bounce = bounceFromExit(lastLine(readText(outPath, 4000)), exitRecord, options.bouncePatterns);
     if (!bounce) continue;
     const evidence = { ...bounce, at: terminalAt, name, adventurerId: adventurerId || null };
     if (evidence.adventurerId) {

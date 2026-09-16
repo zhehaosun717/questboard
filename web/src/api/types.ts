@@ -246,6 +246,9 @@ export interface LaneLimitCardEntry {
   resetsAt: string | null;
   adventurerId: string;
   name: string;
+  // Structured bounce code (feedback 38 policy.bouncePatterns): present when this entry matched a configured
+  // pattern instead of the built-in usage-limit detection. Absent for older servers.
+  code?: string;
 }
 
 // snapshot.laneLimits[lane] / GET /api/lanes .laneLimits: present only while at least one roster card on
@@ -270,6 +273,8 @@ export interface LaneEvidenceUnidentified {
   until: string | null;
   resetsAt: string | null;
   name?: string;
+  // Structured bounce code, same as LaneLimitCardEntry.code (feedback 38).
+  code?: string;
 }
 
 // snapshot.laneEvidence[lane]: history/diagnostics only, never a limit. GET /api/lanes returns the raw
@@ -288,6 +293,8 @@ export interface Snapshot {
   project: { name: string; id?: string; lanes: string[] };
   quests: Quest[];
   roster: Card[];
+  // Owner preferences from policy.defaultLane/defaultCard (feedback 38); optional — an older server sends none.
+  preferences?: { defaultLane: string | null; defaultCard: string | null; defaultCardMissing: boolean };
   eligibility: Record<string, Record<string, Verdict>>;
   // For delivered and reviewing quests: may this card review the work? A drop on returned work sends a review.
   // Optional: the web build is served from disk and can be newer than the running server, which then sends
@@ -354,6 +361,9 @@ export interface LanePackage {
   state: string;
   reason: string;
   stale: boolean;
+  // Structured bounce code when this live row was matched by a configured policy.bouncePatterns entry
+  // (feedback 38); absent for older servers and for the built-in usage-limit path.
+  code?: string;
   edits: number;
   editLabel?: string;
   tokens: { input: number; output: number } | null;
@@ -488,7 +498,15 @@ export interface SettingsReport {
     briefs: { dispatchDirs: string[]; ownerDirs: string[]; recentDays: number };
     reviewPagesDir: string | null;
     lanes: Array<{ id: string; run: string[]; outputDir: string | null; api: string | null; serve: string[] | null; serialize: boolean; defaultModel: string | null; optionalArgs?: OptionalArgGroup[] }>;
-    policy: { bannedModelPatterns: string[]; bannedAgents: string[] };
+    // Additive policy fields (feedback 38); bouncePatterns are compiled on the server (RegExp serializes as {}) so the form edits the raw file through `raw` instead.
+    policy: {
+      bannedModelPatterns: string[];
+      bannedAgents: string[];
+      stallAfterMinutes?: number;
+      laneConcurrency?: Record<string, number>;
+      defaultLane?: string | null;
+      defaultCard?: string | null;
+    };
   };
   // questboard.config.json exactly as written — what the settings page edits. `project` above is the resolved
   // view (absolute paths, compiled patterns) and cannot be written back.

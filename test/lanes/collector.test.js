@@ -120,6 +120,28 @@ describe('workers', () => {
     assert.equal(workerState(base('f'), now).state, 'failed', 'a nonzero exit with no quota evidence stays a plain failure');
   });
 
+  it('bounces on a configured exit-line pattern with its label and code, built-in detection first', () => {
+    const { root, write } = makeProject();
+    const base = (name) => path.join(root, '.work', name);
+    const now = Date.now();
+    const patterns = [{ code: 'quota_5h', label: '额度用尽', pattern: /resets (at|in)|try again at/i }];
+    write('.work/p1.out', 'working...\nrate window resets in 3h');
+    write('.work/p1.exit', '1');
+    assert.deepEqual(workerState(base('p1'), now, { bouncePatterns: patterns }), { state: 'bounced', reason: '额度用尽', code: 'quota_5h', bounceUntil: null });
+    // The built-in usage-limit detection runs first and stays uncoded, even when a pattern matches the same line.
+    write('.work/p2.out', 'working...\nusage limit reached, try again at 2:15 PM');
+    write('.work/p2.exit', '1');
+    assert.deepEqual(workerState(base('p2'), now, { bouncePatterns: patterns }), { state: 'bounced', reason: 'usage limit', bounceUntil: '2:15 PM' });
+    // Only the exit line is consulted: the same wording earlier in .out is never matched.
+    write('.work/p3.out', 'rate window resets in 3h\nall done');
+    write('.work/p3.exit', '1');
+    assert.equal(workerState(base('p3'), now, { bouncePatterns: patterns }).state, 'failed');
+    // Without configured patterns the default behaviour is untouched.
+    write('.work/p4.out', 'rate window resets in 3h');
+    write('.work/p4.exit', '1');
+    assert.equal(workerState(base('p4'), now).state, 'failed');
+  });
+
   it('recognizes the documented Codex quota prefix and trailing reset sentence', () => {
     const { root, write } = makeProject();
     const base = (name) => path.join(root, '.work', 'codex', name);
@@ -181,6 +203,25 @@ describe('workers', () => {
     assert.equal(workerState(base('l'), now).state, 'running', 'a non-numeric .exit is not a valid terminal code either');
   });
 
+  it('reads the stall threshold from the configured minutes, not a frozen constant', () => {
+    const { root, write } = makeProject();
+    const base = (name) => path.join(root, '.work', name);
+    const now = Date.now();
+    write('.work/s1.out', 'working');
+    assert.equal(workerState(base('s1'), now + 44 * 60 * 1000, { stallAfterMinutes: 45 }).state, 'running', 'under the configured threshold the worker is still working');
+    const stalled = workerState(base('s1'), now + 46 * 60 * 1000, { stallAfterMinutes: 45 });
+    assert.equal(stalled.state, 'stalled');
+    assert.equal(stalled.reason, 'no .exit, .out stale >45m');
+    const dflt = workerState(base('s1'), now + 21 * 60 * 1000);
+    assert.equal(dflt.state, 'stalled');
+    assert.equal(dflt.reason, 'no .exit, .out stale >20m', 'without a configured value the reason keeps the original default');
+    write('.work/s2.out', 'working');
+    write('.work/s2.exit', 'nope');
+    const malformed = workerState(base('s2'), now + 46 * 60 * 1000, { stallAfterMinutes: 45 });
+    assert.equal(malformed.state, 'stalled');
+    assert.equal(malformed.reason, 'malformed .exit, .out stale >45m');
+  });
+
   it('skips a malformed .exit file when computing a lane limit', () => {
     const { root, write } = makeProject();
     write('.work/codex/m.out', 'usage limit reached, try again at 3:00 PM');
@@ -200,6 +241,28 @@ describe('workers', () => {
     const ids = { a: 'card-a', b: 'card-b' };
     assert.ok(laneLimit(path.join(root, '.work', 'codex'), Date.now(), { identityByName: (name) => ids[name] }), 'a different card cannot clear the bounce');
     assert.equal(laneLimit(path.join(root, '.work', 'codex'), Date.now(), { identityByName: (name) => name === 'a' || name === 'b' ? 'card-a' : null }), null, 'the same card clears it');
+  });
+
+  it('carries the configured bounce code through laneLimit and laneEvidence rows', () => {
+    const { root, write } = makeProject();
+    const now = Date.now();
+    const put = (name, text) => {
+      const out = write(`.work/codex/${name}.out`, text);
+      const exit = write(`.work/codex/${name}.exit`, '1');
+      fs.utimesSync(out, new Date(now), new Date(now));
+      fs.utimesSync(exit, new Date(now), new Date(now));
+    };
+    put('p1', 'rate window resets in 3h');
+    put('leftover', 'rate window resets in 3h');
+    const options = {
+      identityByName: (name) => (name === 'p1' ? 'card-a' : null),
+      bouncePatterns: [{ code: 'quota_5h', label: '额度用尽', pattern: /resets (at|in)/i }],
+    };
+    const limit = laneLimit(path.join(root, '.work', 'codex'), now + 1000, options);
+    assert.equal(limit.cards['card-a'].code, 'quota_5h');
+    assert.equal(limit.cards['card-a'].until, null);
+    const evidence = laneEvidence(path.join(root, '.work', 'codex'), now + 1000, options);
+    assert.equal(evidence.unidentified[0].code, 'quota_5h');
   });
 
   it('keeps the newest bounce for every card and retains a newer unidentified advisory separately', () => {

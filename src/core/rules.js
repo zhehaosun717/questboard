@@ -20,6 +20,9 @@ const MESSAGES = {
   lane_server_down: (quest, adventurer, detail) => `${adventurer.lane} 通道的服务没开（${detail} 连不上）：先到 设置 → 执行通道 点「一键启动服务」`,
   // A refusal that says only "满了" cannot be checked: name the quests that hold the slots and their states.
   adventurer_busy: (quest, adventurer, detail) => `已在做 ${detail.holders.length}/${detail.limit} 个任务（${detail.holders.map((h) => `${h.id} ${h.status}`).join('、')}），满了`,
+  // The lane's own ceiling, separate from a card's maxParallel: the lane is the shared resource. Lowering
+  // it never touches the workers already on it; it only refuses the next one until one of them finishes.
+  lane_busy: (quest, adventurer, detail) => `这条通道已有 ${detail.running} 个 worker 在跑，上限 ${detail.limit}，等一个结束再派`,
   reviewer_coded_parent: (quest, adventurer, detail) => `同一模型写过被审核的 ${detail}，不能自己审自己`,
   // Most packages in a design round share a partial, so a conflict reads as a queue, not an error.
   // A declared conflict holds even when the two file lists are disjoint, so the message must not claim
@@ -175,6 +178,7 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
   reasons.push(...adventurerReasons(quest, adventurer, policy, env));
   const holders = busyQuests(adventurer.id, quests, quest.id);
   if (holders.length >= (adventurer.maxParallel || 1)) reasons.push(reason('adventurer_busy', quest, adventurer, { limit: adventurer.maxParallel || 1, holders: holders.map(({ id, status }) => ({ id, status })) }));
+  reasons.push(...laneBusyReasons(quest, adventurer, quests, policy));
   const authored = authoredAncestor(quest, adventurer, byId);
   if (authored) reasons.push(reason('reviewer_coded_parent', quest, adventurer, authored));
   const conflict = runningConflict(quest, quests);
@@ -191,4 +195,15 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
 
 export function eligibility({ quest, roster, quests, policy, env }) {
   return Object.fromEntries(roster.map((adventurer) => [adventurer.id, canDispatch({ quest, adventurer, quests, policy, env })]));
+}
+
+// policy.laneConcurrency caps how many attempts one lane may carry at once, on top of each card's own
+// maxParallel. Only quests that hold a slot (dispatched or stalled) count, and the candidate itself never
+// counts against its own recheck — the same shape busyQuests uses. Counted here, at each refusal, so a
+// lowered limit blocks the next dispatch without ever touching the workers already running.
+function laneBusyReasons(quest, adventurer, quests, policy) {
+  const limit = policy && policy.laneConcurrency ? policy.laneConcurrency[adventurer.lane] : undefined;
+  if (!Number.isInteger(limit) || limit < 1) return [];
+  const running = quests.filter((q) => q.id !== quest.id && holdsSlot(q) && q.assignee && q.assignee.lane === adventurer.lane).length;
+  return running >= limit ? [reason('lane_busy', quest, adventurer, { running, limit })] : [];
 }

@@ -78,6 +78,49 @@ describe('config', () => {
     assert.throws(() => fillTemplate(['{agent}'], { agent: '' }, 'lanes.opencode.env'), /needs \{agent\}/);
   });
 
+  it('defaults every feedback-38 policy field to exactly today\'s behaviour', () => {
+    const config = resolveConfig('E:/game', { name: 'Game', lanes });
+    assert.equal(config.policy.stallAfterMinutes, 20);
+    assert.deepEqual(Object.keys(config.policy.laneConcurrency), []);
+    assert.equal(config.policy.defaultLane, null);
+    assert.equal(config.policy.defaultCard, null);
+    assert.deepEqual(config.policy.bouncePatterns, []);
+  });
+
+  it('refuses invalid feedback-38 policy values, naming the field', () => {
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, policy: { stallAfterMinutes: 0 } }), /policy\.stallAfterMinutes must be a positive integer \(minutes\)/);
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, policy: { stallAfterMinutes: 1.5 } }), /policy\.stallAfterMinutes/);
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, policy: { laneConcurrency: { ghost: 2 } } }), /policy\.laneConcurrency\.ghost names a lane that is not configured/);
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, policy: { laneConcurrency: { codex: 0 } } }), /policy\.laneConcurrency\.codex must be a positive integer/);
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, policy: { defaultLane: 'ghost' } }), /policy\.defaultLane ghost is not a configured lane/);
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, policy: { defaultCard: 'Bad Card' } }), /policy\.defaultCard must match/);
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, policy: { bouncePatterns: [42] } }), /policy\.bouncePatterns\[0\].*object/);
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, policy: { bouncePatterns: [{ code: 'Bad Code', pattern: 'x', label: 'y' }] } }), /policy\.bouncePatterns\[0\]\.code must match/);
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, policy: { bouncePatterns: [{ code: 'ok', pattern: '(', label: 'y' }] } }), /policy\.bouncePatterns\[0\]\.pattern is not a valid regular expression/);
+  });
+
+  it('resolves feedback-38 policy values, compiling bounce patterns at resolve time', () => {
+    const config = resolveConfig('E:/g', {
+      name: 'G',
+      lanes,
+      policy: {
+        stallAfterMinutes: 45,
+        laneConcurrency: { codex: 2 },
+        defaultLane: 'codex',
+        defaultCard: 'oc-mimo',
+        bouncePatterns: [{ code: 'quota_5h', pattern: 'resets (at|in)', label: '额度用尽' }],
+      },
+    });
+    assert.equal(config.policy.stallAfterMinutes, 45);
+    assert.equal(config.policy.laneConcurrency.codex, 2);
+    assert.equal(config.policy.defaultLane, 'codex');
+    assert.equal(config.policy.defaultCard, 'oc-mimo');
+    assert.equal(config.policy.bouncePatterns[0].code, 'quota_5h');
+    assert.equal(config.policy.bouncePatterns[0].label, '额度用尽');
+    assert.ok(config.policy.bouncePatterns[0].pattern instanceof RegExp);
+    assert.ok(config.policy.bouncePatterns[0].pattern.test('rate window resets in 3h'));
+  });
+
   it('validates an optional per-lane health contract without disturbing lanes that omit it', () => {
     const withHealth = resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096', health: { path: '/global/health', json: { healthy: true } } } } });
     assert.deepEqual(withHealth.lanes.oc.health, { path: '/global/health', json: { healthy: true } });

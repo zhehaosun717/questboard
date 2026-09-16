@@ -210,9 +210,14 @@ export const commands = {
   },
 
   async assign(args) {
-    const { base } = context(args);
+    const { config, base } = context(args);
+    const requested = option(args, '--adventurer');
+    // A preference never overrides an explicit choice: only a missing card falls back to 策略 → 默认卡,
+    // and the board says which card it picked and why before it does anything.
+    const adventurer = requested === undefined ? config.policy.defaultCard || undefined : requested;
+    if (requested === undefined && adventurer !== undefined) out(`没指定卡，用设置 → 策略 里的默认卡「${adventurer}」`);
     const body = await request(base, `/api/quests/${encodeURIComponent(args[0])}/assign`, 'POST', {
-      adventurer: option(args, '--adventurer'), by: option(args, '--by') || 'coordinator',
+      adventurer, by: option(args, '--by') || 'coordinator',
       requestKey: option(args, '--request-key'), ifRevision: option(args, '--if-revision'),
     });
     out(`${questLine(body.quest)}${body.repeated ? '  (already dispatched under this request key; nothing new started)' : ''}`);

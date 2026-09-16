@@ -10,6 +10,11 @@ export const CONFIG_FILE = 'questboard.config.json';
 const PLACEHOLDER = /\{([a-z]+)\}/g;
 const PLACEHOLDERS = new Set(['name', 'brief', 'model', 'variant', 'agent', 'package']);
 const LANE_ID = /^[a-z][a-z0-9-]{0,31}$/;
+// Same shape as a roster card id (src/core/roster.js ID_PATTERN): the roster itself is machine-level, so a
+// project config can only promise that the id it names is well-formed, never that the card exists.
+const CARD_ID = /^[a-z0-9-]{1,48}$/;
+// A structured bounce code: lowercase words joined by underscores, starting with a letter (e.g. rate_limit).
+const BOUNCE_CODE = /^[a-z][a-z0-9_]*$/;
 const EDIT_COUNTERS = new Set(['patch', 'stream-json', 'none']);
 // name/brief/model/package are always required and can never be dropped; only these two may control an
 // optional argument group (lanes.<id>.optionalArgs — see validateOptionalArgs and fillOptionalArgs below).
@@ -289,6 +294,62 @@ function validateUsageConfig(rawUsage) {
   return result;
 }
 
+// The project policy: what the board refuses to dispatch, plus the limits and preferences the owner edits
+// on the settings page. Every field is additive and optional — a config file that never mentions any of
+// them resolves to exactly the behaviour from before they existed (stall after 20 minutes, no per-lane
+// limit, no preferred lane or card, no extra bounce patterns). Unknown policy keys are not touched here;
+// saveProjectConfig writes the raw file object back, so they survive a save untouched.
+function validatePolicyConfig(rawPolicy, laneIds) {
+  if (rawPolicy !== undefined && (!rawPolicy || typeof rawPolicy !== 'object' || Array.isArray(rawPolicy))) fail('policy must be an object');
+  const policy = rawPolicy || {};
+  const laneConcurrency = Object.create(null); // no prototype: lane names are asked as plain keys
+  const result = {
+    bannedModelPatterns: stringList(policy.bannedModelPatterns, 'policy.bannedModelPatterns', []),
+    bannedAgents: stringList(policy.bannedAgents, 'policy.bannedAgents', []),
+    stallAfterMinutes: 20,
+    laneConcurrency,
+    defaultLane: null,
+    defaultCard: null,
+    bouncePatterns: [],
+  };
+  if (policy.stallAfterMinutes !== undefined) {
+    if (!Number.isInteger(policy.stallAfterMinutes) || policy.stallAfterMinutes < 1) fail('policy.stallAfterMinutes must be a positive integer (minutes)');
+    result.stallAfterMinutes = policy.stallAfterMinutes;
+  }
+  if (policy.laneConcurrency !== undefined) {
+    if (!policy.laneConcurrency || typeof policy.laneConcurrency !== 'object' || Array.isArray(policy.laneConcurrency)) fail('policy.laneConcurrency must be an object of lane limits');
+    for (const [lane, limit] of Object.entries(policy.laneConcurrency)) {
+      if (!laneIds.has(lane)) fail(`policy.laneConcurrency.${lane} names a lane that is not configured`);
+      if (!Number.isInteger(limit) || limit < 1) fail(`policy.laneConcurrency.${lane} must be a positive integer`);
+      laneConcurrency[lane] = limit;
+    }
+  }
+  if (policy.defaultLane !== undefined && policy.defaultLane !== null) {
+    const lane = requireString(policy.defaultLane, 'policy.defaultLane');
+    if (!laneIds.has(lane)) fail(`policy.defaultLane ${lane} is not a configured lane`);
+    result.defaultLane = lane;
+  }
+  if (policy.defaultCard !== undefined && policy.defaultCard !== null) {
+    const card = requireString(policy.defaultCard, 'policy.defaultCard');
+    if (!CARD_ID.test(card)) fail('policy.defaultCard must match /^[a-z0-9-]{1,48}$/ (a roster card id)');
+    result.defaultCard = card;
+  }
+  if (policy.bouncePatterns !== undefined) {
+    if (!Array.isArray(policy.bouncePatterns)) fail('policy.bouncePatterns must be an array');
+    result.bouncePatterns = policy.bouncePatterns.map((entry, index) => {
+      const field = `policy.bouncePatterns[${index}]`;
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail(`${field} must be an object`);
+      const code = requireString(entry.code, `${field}.code`);
+      if (!BOUNCE_CODE.test(code)) fail(`${field}.code must match /^[a-z][a-z0-9_]*$/`);
+      const label = requireString(entry.label, `${field}.label`);
+      // Compiled here, at resolve time, so an invalid pattern fails loudly before any worker runs; the
+      // compiled RegExp rides along in the resolved config and is applied to an exit line only.
+      return { code, label, pattern: regex(entry.pattern, `${field}.pattern`) };
+    });
+  }
+  return result;
+}
+
 export function resolveConfig(root, raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('the file must hold a JSON object');
   const base = path.resolve(root);
@@ -300,6 +361,7 @@ export function resolveConfig(root, raw) {
   // port would "work" (the server listens fine) but every tab would just show a connection-refused page.
   validateBoardPort(port);
   const dataDir = raw.dataDir === undefined ? '.questboard-data' : raw.dataDir;
+  const laneIds = new Set(Object.keys(raw.lanes));
   return {
     root: base,
     name: requireString(raw.name, 'name'),
@@ -323,10 +385,7 @@ export function resolveConfig(root, raw) {
     // No prototype: `config.lanes[name]` is asked with names from briefs, rosters and requests, and
     // "constructor" must not count as a lane.
     lanes: Object.assign(Object.create(null), Object.fromEntries(Object.entries(raw.lanes).map(([id, lane]) => [id, validateLane(id, lane)]))),
-    policy: {
-      bannedModelPatterns: stringList(raw.policy && raw.policy.bannedModelPatterns, 'policy.bannedModelPatterns', []),
-      bannedAgents: stringList(raw.policy && raw.policy.bannedAgents, 'policy.bannedAgents', []),
-    },
+    policy: validatePolicyConfig(raw.policy, laneIds),
     usage: validateUsageConfig(raw.usage),
   };
 }

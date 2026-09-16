@@ -139,6 +139,14 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
     quests: publicQuests,
     ...(Object.keys(recentFailures).length ? { recentFailures } : {}),
     roster,
+    // Feedback 38: the owner's preferred lane/card and whether the preferred card is actually on this
+    // machine's roster. A missing card stays visible (never deleted, never silently swapped); nothing here
+    // routes work by itself — only an explicit `questboard assign` with no card reads defaultCard.
+    preferences: {
+      defaultLane: config.policy.defaultLane || null,
+      defaultCard: config.policy.defaultCard || null,
+      defaultCardMissing: Boolean(config.policy.defaultCard) && !roster.some((card) => card.id === config.policy.defaultCard),
+    },
     eligibility: byQuest,
     reviewEligibility: forReview,
     env: { treeLocked: env.treeLocked },

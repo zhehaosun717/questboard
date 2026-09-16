@@ -100,6 +100,18 @@ describe('status parity backend contract', () => {
     });
   });
 
+  it('exposes the feedback-38 preferences and flags a default card that is not in the roster', () => {
+    const missing = makeProject({ policy: { defaultLane: 'codex', defaultCard: 'ghost-card' } });
+    const flagged = buildSnapshot({ config: missing.config, store: new QuestStore(missing.config), adventurers: [card], boardStore: null, lanes: { packages: [], laneLimits: {} } });
+    assert.deepEqual(flagged.preferences, { defaultLane: 'codex', defaultCard: 'ghost-card', defaultCardMissing: true });
+    const present = makeProject({ policy: { defaultCard: 'codex-luna' } });
+    const kept = buildSnapshot({ config: present.config, store: new QuestStore(present.config), adventurers: [card], boardStore: null, lanes: { packages: [], laneLimits: {} } });
+    assert.deepEqual(kept.preferences, { defaultLane: null, defaultCard: 'codex-luna', defaultCardMissing: false });
+    const plain = makeProject();
+    const bare = buildSnapshot({ config: plain.config, store: new QuestStore(plain.config), adventurers: [card], boardStore: null, lanes: { packages: [], laneLimits: {} } });
+    assert.deepEqual(bare.preferences, { defaultLane: null, defaultCard: null, defaultCardMissing: false });
+  });
+
   it('passes laneEvidence through snapshots and keeps expired cards unverified', () => {
     const { config } = makeProject();
     const store = new QuestStore(config);

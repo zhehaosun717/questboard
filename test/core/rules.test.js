@@ -86,6 +86,37 @@ describe('canDispatch', () => {
     assert.ok(!message.includes('RUN-14'), 'the candidate quest is never listed against itself');
   });
 
+  it('refuses a lane once its configured concurrency is reached, naming lane and limit', () => {
+    const lanePolicy = { ...policy, laneConcurrency: { codex: 1 } };
+    const running = quest({ id: 'LOOK-2F', status: 'dispatched', assignee: { adventurerId: 'codex-luna', lane: 'codex' } });
+    const candidate = quest({ id: 'RUN-14' });
+    const verdict = canDispatch({ quest: candidate, adventurer: card('codex-luna', { maxParallel: 5 }), quests: [running, candidate], policy: lanePolicy, env });
+    assert.ok(codes(verdict).includes('lane_busy'));
+    assert.equal(verdict.reasons.find((r) => r.code === 'lane_busy').message, '这条通道已有 1 个 worker 在跑，上限 1，等一个结束再派');
+  });
+
+  it('leaves running workers alone when the limit is lowered under them; only the new dispatch is refused', () => {
+    const lanePolicy = { ...policy, laneConcurrency: { codex: 1 } };
+    const first = quest({ id: 'RUN-10', status: 'dispatched', assignee: { adventurerId: 'codex-luna', lane: 'codex' } });
+    const second = quest({ id: 'RUN-11', status: 'stalled', assignee: { adventurerId: 'codex-astra', lane: 'codex' } });
+    const third = quest({ id: 'RUN-12' });
+    assert.equal(first.status, 'dispatched', 'the two already running quests keep their state: nothing here ends a worker');
+    assert.equal(second.status, 'stalled');
+    const verdict = canDispatch({ quest: third, adventurer: card('codex-astra', { maxParallel: 5 }), quests: [first, second, third], policy: lanePolicy, env });
+    assert.deepEqual(codes(verdict), ['lane_busy']);
+    assert.equal(verdict.reasons[0].message, '这条通道已有 2 个 worker 在跑，上限 1，等一个结束再派');
+  });
+
+  it('does not count the candidate against its own lane slot, and leaves lanes without a limit unlimited', () => {
+    const lanePolicy = { ...policy, laneConcurrency: { codex: 1 } };
+    const mine = quest({ id: 'RUN-5', status: 'stalled', assignee: { adventurerId: 'codex-luna', lane: 'codex', name: 'run5' } });
+    const verdict = canDispatch({ quest: mine, adventurer: luna, quests: [mine], policy: lanePolicy, env });
+    assert.ok(!codes(verdict).includes('lane_busy'), 'the quest itself never occupies its own lane slot');
+    const otherLane = quest({ id: 'RUN-6' });
+    const free = canDispatch({ quest: otherLane, adventurer: card('agy-gemini'), quests: [otherLane], policy: lanePolicy, env });
+    assert.equal(free.ok, true, 'a lane without a configured limit stays unlimited');
+  });
+
   it('does not count the candidate quest against its own parallel limit', () => {
     const silent = quest({ id: 'RUN-5', status: 'stalled', assignee: { adventurerId: 'codex-luna', name: 'run5' } });
     const verdict = check(silent, luna, [silent]);

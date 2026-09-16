@@ -96,6 +96,71 @@ describe('settingsForm toDrafts and toRaw', () => {
     expect(result.unmanagedNumber).toBe(42);
   });
 
+  it('round trips the feedback-38 policy fields and drops them when cleared', () => {
+    const rawWithPolicy = {
+      ...exampleConfig,
+      policy: {
+        ...exampleConfig.policy,
+        stallAfterMinutes: 45,
+        laneConcurrency: { codex: 2, claude: 1 },
+        defaultLane: 'codex',
+        defaultCard: 'oc-mimo',
+        bouncePatterns: [{ code: 'quota_5h', pattern: 'resets (at|in)', label: '额度用尽' }],
+        unknownPolicyKey: { keep: true },
+      },
+    };
+    const drafts = toDrafts(rawWithPolicy);
+    expect(drafts.policy.stallAfterMinutes).toBe('45');
+    expect(drafts.policy.laneConcurrency).toEqual([{ lane: 'codex', limit: '2' }, { lane: 'claude', limit: '1' }]);
+    expect(drafts.policy.defaultLane).toBe('codex');
+    expect(drafts.policy.defaultCard).toBe('oc-mimo');
+    expect(drafts.policy.bouncePatterns).toEqual([{ code: 'quota_5h', pattern: 'resets (at|in)', label: '额度用尽' }]);
+    expect(toRaw(rawWithPolicy, drafts)).toEqual(rawWithPolicy);
+    const cleared = toRaw(rawWithPolicy, {
+      ...drafts,
+      policy: { ...drafts.policy, stallAfterMinutes: '', laneConcurrency: [], defaultLane: '', defaultCard: '', bouncePatterns: [] },
+    });
+    expect(cleared.policy).toEqual({ bannedModelPatterns: ['-fast(\\b|-)'], bannedAgents: [], unknownPolicyKey: { keep: true } });
+  });
+
+  it('validates feedback-38 policy fields in Chinese, keyed the way the section reads them', () => {
+    expect(validateDrafts(validDrafts())).toEqual({});
+    const drafts = validDrafts();
+    const bad = {
+      ...drafts,
+      policy: {
+        ...drafts.policy,
+        stallAfterMinutes: '0',
+        laneConcurrency: [{ lane: 'ghost', limit: 'x' }, { lane: 'codex', limit: '2' }, { lane: 'codex', limit: '2' }],
+        defaultLane: 'ghost',
+        defaultCard: 'Nope!',
+        bouncePatterns: [{ code: 'Bad Code', pattern: '(', label: '' }],
+      },
+    };
+    const errors = validateDrafts(bad);
+    expect(errors['policy.stallAfterMinutes']).toBe('停摆阈值必须是正整数（分钟）');
+    expect(errors['policy.laneConcurrency.0.lane']).toBe('通道「ghost」不在接入方式里');
+    expect(errors['policy.laneConcurrency.0.limit']).toBe('并发上限必须是正整数');
+    expect(errors['policy.laneConcurrency.2.lane']).toBe('通道「codex」重复');
+    expect(errors['policy.defaultLane']).toBe('默认通道「ghost」不在接入方式里');
+    expect(errors['policy.defaultCard']).toBe('默认卡 ID 只能用小写字母、数字和连字符，1-48 个字符');
+    expect(errors['policy.bouncePatterns.0.code']).toBe('code 只能用小写字母、数字、下划线，且以字母开头');
+    expect(errors['policy.bouncePatterns.0.pattern']).toMatch(/^正则不合法：/);
+    expect(errors['policy.bouncePatterns.0.label']).toBe('标签不能为空');
+    const ok = {
+      ...drafts,
+      policy: {
+        ...drafts.policy,
+        stallAfterMinutes: '45',
+        laneConcurrency: [{ lane: 'codex', limit: '2' }],
+        defaultLane: 'codex',
+        defaultCard: 'oc-mimo',
+        bouncePatterns: [{ code: 'quota_5h', pattern: 'resets (at|in)', label: '额度用尽' }],
+      },
+    };
+    expect(validateDrafts(ok)).toEqual({});
+  });
+
   it('clearing optional fields removes their keys', () => {
     const rawWithOptionals = {
       ...exampleConfig,

@@ -70,7 +70,7 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
 
   function fileWorker(entry, lane, now) {
     const basePath = path.join(config.root, lane.outputDir, entry.name);
-    Object.assign(entry, workerState(basePath, now, { editCounter: lane.editCounter }));
+    Object.assign(entry, workerState(basePath, now, { editCounter: lane.editCounter, stallAfterMinutes: config.policy.stallAfterMinutes, bouncePatterns: config.policy.bouncePatterns }));
     if (['bounced', 'delivered', 'failed'].includes(entry.state)) {
       const observed = mtime(`${basePath}.exit`) || mtime(`${basePath}.out`);
       if (observed) {
@@ -159,7 +159,7 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
     const laneEvidence = {};
     for (const [id, lane] of Object.entries(config.lanes)) {
       if (!lane.outputDir) continue;
-      const options = { identityByName: (name) => identitiesByName.get(name) || null };
+      const options = { identityByName: (name) => identitiesByName.get(name) || null, bouncePatterns: config.policy.bouncePatterns };
       const limit = laneLimit(path.join(config.root, lane.outputDir), now, options);
       if (limit) laneLimits[id] = limit;
       const evidence = readLaneEvidence(path.join(config.root, lane.outputDir), now, options);

@@ -242,6 +242,8 @@ export function SettingsView({ roster }: SettingsViewProps) {
           <SettingsPolicySection
             draft={drafts.policy}
             roster={roster}
+            lanes={drafts.lanes}
+            errors={errors}
             onChange={updatePolicy}
           />
         );

@@ -74,9 +74,25 @@ export interface ReviewDraft {
   dir: string;
 }
 
+export interface LaneConcurrencyDraft {
+  lane: string;
+  limit: string;
+}
+
+export interface BouncePatternDraft {
+  code: string;
+  pattern: string;
+  label: string;
+}
+
 export interface PolicyDraft {
   bannedModelPatterns: string[];
   bannedAgents: string[];
+  stallAfterMinutes: string;
+  laneConcurrency: LaneConcurrencyDraft[];
+  defaultLane: string;
+  defaultCard: string;
+  bouncePatterns: BouncePatternDraft[];
 }
 
 export interface UsageDraft {
@@ -95,6 +111,10 @@ export interface SettingsDrafts {
 }
 
 const LANE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+// Roster card ids (src/core/roster.js ID_PATTERN); the form only checks the shape — the roster itself is machine-level.
+const CARD_ID_PATTERN = /^[a-z0-9-]{1,48}$/;
+// Structured bounce codes (src/core/config.js BOUNCE_CODE).
+const BOUNCE_CODE_PATTERN = /^[a-z][a-z0-9_]*$/;
 // Matches the service contract in config.js: a single leading slash, never a second slash, no backslash and
 // no whitespace. The path is joined onto the lane's own `api` by plain concatenation (`${api}${path}`), so a
 // path that cannot start a new host (no `//`) or hide one behind an escape (no `\`) can never redirect the
@@ -330,6 +350,15 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
     policy: {
       bannedModelPatterns: strList(policy?.bannedModelPatterns),
       bannedAgents: strList(policy?.bannedAgents),
+      stallAfterMinutes: str(policy?.stallAfterMinutes),
+      laneConcurrency: isPlainObject(policy?.laneConcurrency)
+        ? Object.entries(policy.laneConcurrency).map(([lane, limit]) => ({ lane, limit: str(limit) }))
+        : [],
+      defaultLane: str(policy?.defaultLane),
+      defaultCard: str(policy?.defaultCard),
+      bouncePatterns: Array.isArray(policy?.bouncePatterns)
+        ? policy.bouncePatterns.map((entry) => (isPlainObject(entry) ? { code: str(entry.code), pattern: str(entry.pattern), label: str(entry.label) } : { code: '', pattern: '', label: '' }))
+        : [],
     },
     review: { dir: str(review?.dir) },
     usage: {
@@ -461,7 +490,24 @@ export function toRaw(raw: Record<string, unknown> | null | undefined, drafts: S
   next.lanes = newLanes;
 
   const origPolicy = typeof raw?.policy === 'object' && raw.policy !== null ? (raw.policy as Record<string, unknown>) : {};
-  next.policy = { ...origPolicy, bannedModelPatterns: [...drafts.policy.bannedModelPatterns], bannedAgents: [...drafts.policy.bannedAgents] };
+  const nextPolicy: Record<string, unknown> = { ...origPolicy, bannedModelPatterns: [...drafts.policy.bannedModelPatterns], bannedAgents: [...drafts.policy.bannedAgents] };
+  setIntOrDelete(nextPolicy, 'stallAfterMinutes', drafts.policy.stallAfterMinutes);
+  const laneConcurrencyRaw: Record<string, number> = {};
+  for (const row of drafts.policy.laneConcurrency) {
+    const lane = row.lane.trim();
+    const limit = Number(row.limit.trim());
+    if (lane && Number.isInteger(limit)) laneConcurrencyRaw[lane] = limit;
+  }
+  if (Object.keys(laneConcurrencyRaw).length > 0) nextPolicy.laneConcurrency = laneConcurrencyRaw;
+  else delete nextPolicy.laneConcurrency;
+  setOrDelete(nextPolicy, 'defaultLane', drafts.policy.defaultLane);
+  setOrDelete(nextPolicy, 'defaultCard', drafts.policy.defaultCard);
+  const bouncePatternsRaw = drafts.policy.bouncePatterns
+    .map((row) => ({ code: row.code.trim(), pattern: row.pattern.trim(), label: row.label.trim() }))
+    .filter((row) => row.code || row.pattern || row.label);
+  if (bouncePatternsRaw.length > 0) nextPolicy.bouncePatterns = bouncePatternsRaw;
+  else delete nextPolicy.bouncePatterns;
+  next.policy = nextPolicy;
 
   // usage: spread the original section first, like every other section, so keys this form does not know
   // about survive a save. The Alibaba pair is written together or not at all (validateDrafts refuses a
@@ -657,6 +703,51 @@ export function validateDrafts(drafts: SettingsDrafts): Record<string, string> {
         errors[`lanes.${i}.healthJson`] = parsedHealth.error; if (laneId) errors[`lanes.${laneId}.healthJson`] = parsedHealth.error;
       }
     }
+  }
+
+  const laneIdSet = new Set(drafts.lanes.map((lane) => lane.id.trim()).filter(Boolean));
+  const stallStr = drafts.policy.stallAfterMinutes.trim();
+  if (stallStr) {
+    const stallNum = Number(stallStr);
+    if (!Number.isInteger(stallNum) || stallNum < 1) errors['policy.stallAfterMinutes'] = '停摆阈值必须是正整数（分钟）';
+  }
+
+  const seenPolicyLanes = new Set<string>();
+  for (const [i, row] of drafts.policy.laneConcurrency.entries()) {
+    const lane = row.lane.trim();
+    if (!lane) {
+      errors[`policy.laneConcurrency.${i}.lane`] = '通道不能为空';
+    } else if (!laneIdSet.has(lane)) {
+      errors[`policy.laneConcurrency.${i}.lane`] = `通道「${lane}」不在接入方式里`;
+    } else if (seenPolicyLanes.has(lane)) {
+      errors[`policy.laneConcurrency.${i}.lane`] = `通道「${lane}」重复`;
+    } else {
+      seenPolicyLanes.add(lane);
+    }
+    const limitStr = row.limit.trim();
+    if (!limitStr || !Number.isInteger(Number(limitStr)) || Number(limitStr) < 1) errors[`policy.laneConcurrency.${i}.limit`] = '并发上限必须是正整数';
+  }
+
+  const defaultLaneDraft = drafts.policy.defaultLane.trim();
+  if (defaultLaneDraft && !laneIdSet.has(defaultLaneDraft)) errors['policy.defaultLane'] = `默认通道「${defaultLaneDraft}」不在接入方式里`;
+
+  const defaultCardDraft = drafts.policy.defaultCard.trim();
+  if (defaultCardDraft && !CARD_ID_PATTERN.test(defaultCardDraft)) errors['policy.defaultCard'] = '默认卡 ID 只能用小写字母、数字和连字符，1-48 个字符';
+
+  for (const [i, row] of drafts.policy.bouncePatterns.entries()) {
+    const code = row.code.trim();
+    if (!BOUNCE_CODE_PATTERN.test(code)) errors[`policy.bouncePatterns.${i}.code`] = 'code 只能用小写字母、数字、下划线，且以字母开头';
+    const pattern = row.pattern.trim();
+    if (!pattern) {
+      errors[`policy.bouncePatterns.${i}.pattern`] = '正则不能为空';
+    } else {
+      try {
+        new RegExp(pattern);
+      } catch (error) {
+        errors[`policy.bouncePatterns.${i}.pattern`] = `正则不合法：${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    if (!row.label.trim()) errors[`policy.bouncePatterns.${i}.label`] = '标签不能为空';
   }
 
   return errors;
