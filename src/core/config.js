@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isBrowserUnsafePort } from './browserUnsafePorts.js';
+import { ALIBABA_EDITIONS, ALIBABA_REGIONS, MANUAL_PROVIDERS } from '../usage/manualProviders.js';
 
 export const CONFIG_FILE = 'questboard.config.json';
 const PLACEHOLDER = /\{([a-z]+)\}/g;
@@ -24,6 +25,8 @@ const MAX_OMIT_WHEN = 20;
 // Comfortably longer than any real flag value (a path, a model name, a short id) yet far short of Windows'
 // ~32K total command-line length, so one oversized argument can never by itself blow past that OS limit.
 const MAX_ARG_LENGTH = 4096;
+
+const KNOWN_MANUAL_PROVIDER_IDS = new Set(MANUAL_PROVIDERS.map((provider) => provider.id));
 
 function fail(message) {
   throw new Error(`questboard config: ${message}`);
@@ -214,6 +217,54 @@ function checkBriefDirs(base, dirs, field) {
   return dirs;
 }
 
+// An Alibaba choice must be exactly one of the fixed allowlisted values (trimmed, case-folded) or the
+// whole config is refused: a value the owner wrote that is not accepted is never silently turned into
+// "unknown" — the failure names the field in Chinese so the settings page can point at it. The rejected
+// value itself is never repeated back.
+function validateAlibabaChoice(value, allowlist, field, label) {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : null;
+  if (normalized === null || !allowlist.has(normalized)) {
+    fail(`${field} 不是有效的${label}，可选：${[...allowlist].join('、')}`);
+  }
+  return normalized;
+}
+
+function validateUsageConfig(rawUsage) {
+  if (rawUsage === undefined) return { manualProviders: [] };
+  if (!rawUsage || typeof rawUsage !== 'object' || Array.isArray(rawUsage)) {
+    fail('usage must be an object');
+  }
+  let manualProviders = [];
+  if (rawUsage.manualProviders !== undefined) {
+    if (!Array.isArray(rawUsage.manualProviders)) {
+      fail('usage.manualProviders must be an array');
+    }
+    for (const item of rawUsage.manualProviders) {
+      if (typeof item !== 'string' || !item.trim()) {
+        fail('usage.manualProviders entries must be non-empty strings');
+      }
+      const id = item.trim();
+      if (!KNOWN_MANUAL_PROVIDER_IDS.has(id)) {
+        fail(`未知的用量来源：${id}`);
+      }
+      if (!manualProviders.includes(id)) {
+        manualProviders.push(id);
+      }
+    }
+  }
+  const result = { manualProviders };
+  if (rawUsage.alibaba !== undefined) {
+    if (!rawUsage.alibaba || typeof rawUsage.alibaba !== 'object' || Array.isArray(rawUsage.alibaba)) {
+      fail('usage.alibaba must be an object');
+    }
+    result.alibaba = {
+      edition: validateAlibabaChoice(rawUsage.alibaba.edition, ALIBABA_EDITIONS, 'usage.alibaba.edition', '阿里云版本'),
+      region: validateAlibabaChoice(rawUsage.alibaba.region, ALIBABA_REGIONS, 'usage.alibaba.region', '阿里云区域'),
+    };
+  }
+  return result;
+}
+
 export function resolveConfig(root, raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('the file must hold a JSON object');
   const base = path.resolve(root);
@@ -252,6 +303,7 @@ export function resolveConfig(root, raw) {
       bannedModelPatterns: stringList(raw.policy && raw.policy.bannedModelPatterns, 'policy.bannedModelPatterns', []),
       bannedAgents: stringList(raw.policy && raw.policy.bannedAgents, 'policy.bannedAgents', []),
     },
+    usage: validateUsageConfig(raw.usage),
   };
 }
 

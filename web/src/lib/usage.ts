@@ -161,3 +161,22 @@ export function providerGuidanceText(provider: UsageProvider): string {
   const { state } = usageStateInfo(provider);
   return STATE_GUIDANCE_TEXT[state] || UNCONFIGURED_FALLBACK_TEXT;
 }
+
+export const PROVIDER_STATE_LABEL: Record<string, string> = {
+  ok: '正常',
+  not_subscribed: '未订阅',
+  unknown: '未知',
+  manual_only: '手动查看',
+};
+
+export function formatProviderStateLabel(state: string): string {
+  return PROVIDER_STATE_LABEL[state] ?? state;
+}
+
+export const WINDOW_STATE_LABEL: Record<string, string> = {
+  reset: '已重置',
+};
+
+export function formatWindowStateLabel(state: string): string {
+  return WINDOW_STATE_LABEL[state] ?? state;
+}

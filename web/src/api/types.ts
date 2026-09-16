@@ -279,11 +279,16 @@ export interface UsageWindow {
   label: string;
   usedPercent: number | null;
   resetsAt: string | null;
+  state?: 'reset';
+  resetDerived?: boolean;
 }
 
 export interface UsageBalance {
   currency: string;
   amount: number;
+  isAvailable?: boolean | null;
+  granted?: number;
+  toppedUp?: number;
 }
 
 export type UsageProviderState = 'pending' | 'fresh' | 'stale' | 'unconfigured' | 'unavailable' | 'expired' | 'failed';
@@ -324,6 +329,12 @@ export interface UsageProvider {
   attemptedAt?: string | null;
   lastSuccessAt?: string | null;
   lastRefreshAt?: string | null;
+  providerState?: 'ok' | 'not_subscribed' | 'unknown' | 'manual_only';
+  asOfDerived?: boolean;
+  access?: string;
+  credentialType?: string;
+  docsUrl?: string;
+  setupCommand?: string;
 }
 
 export interface UsageReport {

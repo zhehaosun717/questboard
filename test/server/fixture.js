@@ -28,8 +28,8 @@ export async function listenOnSafePort(server, { maxAttempts = MAX_PORT_ATTEMPTS
   throw error;
 }
 
-export async function startFixture({ runResult = () => ({ code: 0 }), writeDelivery, checkLaneServers, runners, usage } = {}) {
-  const project = makeProject({ reviewPages: { dir: 'docs/art' } });
+export async function startFixture({ runResult = () => ({ code: 0 }), writeDelivery, checkLaneServers, runners, usage, projectOverrides } = {}) {
+  const project = makeProject({ reviewPages: { dir: 'docs/art' }, ...(projectOverrides || {}) });
   project.write('docs/briefs/RUN-4-the-way-back.md', 'RUN-4 — the way back');
   project.write('docs/briefs/REVIEW-26-review-run-4.md', 'review');
   project.write('docs/briefs/RUN-9-not-posted.md', 'RUN-9 — nobody posted this');

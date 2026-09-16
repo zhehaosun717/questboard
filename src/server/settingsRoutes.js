@@ -27,6 +27,7 @@ export function describeProject(config) {
       defaultModel: lane.defaultModel || null,
     })),
     policy: config.policy,
+    usage: config.usage,
   };
 }
 

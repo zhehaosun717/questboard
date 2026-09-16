@@ -19,7 +19,9 @@ import { validateBoardPort } from '../core/config.js';
 export const HOST = '127.0.0.1';
 const POLL_MS = 15000;
 
-export function createServer({ config, home = homePaths(), runners, getLanes, evidenceWaitMs, writeDelivery, fetchImpl, webDist, usage = createUsageService(), omo = createOmoRoutes(), settingsEnv, checkLaneServers } = {}) {
+// The default usage service reads the project config (usage.manualProviders and the Alibaba choices), so a
+// manual card enabled in settings reaches the running board; an injected `usage` still wins for tests.
+export function createServer({ config, home = homePaths(), runners, getLanes, evidenceWaitMs, writeDelivery, fetchImpl, webDist, usage = createUsageService({ config }), omo = createOmoRoutes(), settingsEnv, checkLaneServers } = {}) {
   if (!config) throw new Error('createServer needs a project config');
   const boardStore = new BoardStore(config.paths.data);
   const store = new QuestStore(config);

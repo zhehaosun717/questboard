@@ -17,6 +17,43 @@ import os from 'node:os';
 import { runCommand, trustedUsageErrorText, trustedResultText } from './common.js';
 import { createCredentials, describeKeySources } from './credentials.js';
 import { PROVIDERS } from './providers.js';
+import {
+  ALIBABA_EDITIONS,
+  ALIBABA_REGIONS,
+  MANUAL_PROVIDERS,
+  createAlibabaTokenPlan,
+  createAlibabaCodingPlan,
+} from './manualProviders.js';
+import { catalogMetadata } from './display.js';
+
+const KNOWN_MANUAL_PROVIDER_IDS = new Set(MANUAL_PROVIDERS.map((provider) => provider.id));
+const MANUAL_PROVIDER_BY_ID = new Map(MANUAL_PROVIDERS.map((provider) => [provider.id, provider]));
+
+const ALLOWED_PROVIDER_STATES = new Set(['ok', 'not_subscribed', 'unknown', 'manual_only']);
+
+function safeChoice(value, allowlist) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase();
+    if (allowlist.has(trimmed)) return trimmed;
+  }
+  return 'unknown';
+}
+
+function buildManualProvider(id, alibabaCfg) {
+  if (id === 'alibaba-token-plan') {
+    const edition = safeChoice(alibabaCfg?.edition, ALIBABA_EDITIONS);
+    const region = safeChoice(alibabaCfg?.region, ALIBABA_REGIONS);
+    return createAlibabaTokenPlan({ edition, region });
+  }
+  if (id === 'alibaba-coding-plan') {
+    const edition = safeChoice(alibabaCfg?.edition, ALIBABA_EDITIONS);
+    const region = safeChoice(alibabaCfg?.region, ALIBABA_REGIONS);
+    return createAlibabaCodingPlan({ edition, region });
+  }
+  const provider = MANUAL_PROVIDER_BY_ID.get(id);
+  if (provider) return provider;
+  throw new Error(`未知的用量来源：${id}`);
+}
 
 const CACHE_MS = 60000;
 const COOLDOWN_MS = 15000;
@@ -148,14 +185,37 @@ function sanitizeWindow(raw) {
   if (!isPlainResult(raw)) return null;
   const label = boundedString(readOwnDataValue(raw, 'label'));
   if (label === null) return null;
-  return { label, usedPercent: sanitizeUsedPercent(readOwnDataValue(raw, 'usedPercent')), resetsAt: boundedString(readOwnDataValue(raw, 'resetsAt')) };
+  const stateRaw = readOwnDataValue(raw, 'state');
+  const isReset = stateRaw === 'reset';
+  const usedPercent = isReset ? null : sanitizeUsedPercent(readOwnDataValue(raw, 'usedPercent'));
+  const resetDerivedRaw = readOwnDataValue(raw, 'resetDerived');
+  const resetDerived = typeof resetDerivedRaw === 'boolean' ? resetDerivedRaw : undefined;
+  return {
+    label,
+    usedPercent,
+    resetsAt: boundedString(readOwnDataValue(raw, 'resetsAt')),
+    ...(isReset ? { state: 'reset' } : {}),
+    ...(resetDerived !== undefined ? { resetDerived } : {}),
+  };
 }
 
 function sanitizeBalance(raw) {
   if (!isPlainResult(raw)) return null;
   const currency = boundedString(readOwnDataValue(raw, 'currency'));
+  if (currency === null) return null;
   const amount = sanitizeNumberOrNull(readOwnDataValue(raw, 'amount'));
-  return currency === null || amount === null ? null : { currency, amount };
+  const granted = sanitizeNumberOrNull(readOwnDataValue(raw, 'granted'));
+  const toppedUp = sanitizeNumberOrNull(readOwnDataValue(raw, 'toppedUp'));
+  const isAvailableRaw = readOwnDataValue(raw, 'isAvailable');
+  const isAvailable = typeof isAvailableRaw === 'boolean' || isAvailableRaw === null ? isAvailableRaw : undefined;
+  if (amount === null && granted === null && toppedUp === null) return null;
+  return {
+    currency,
+    ...(amount !== null ? { amount } : {}),
+    ...(granted !== null ? { granted } : {}),
+    ...(toppedUp !== null ? { toppedUp } : {}),
+    ...(isAvailable !== undefined ? { isAvailable } : {}),
+  };
 }
 
 // A list is only ever read through its own, ordinary, plain-Array-prototype shape — never through `for…of`
@@ -258,8 +318,8 @@ function sanitizeAsOf(value) {
 // consistent snapshot through, and can never hide behind some *other* genuinely valid field (a plain `note`
 // string, say) to still reach the page as a fresh, if partial, success. That one snapshot is what
 // hasRecognizedShape, the size bounds, sanitizing and the gutted-payload check all see.
-function evaluateResult(result) {
-  const fields = ['windows', 'balances', 'plan', 'note', 'asOf'];
+function evaluateResult(result, provider = null) {
+  const fields = ['windows', 'balances', 'plan', 'note', 'asOf', 'state', 'manual_only', 'asOfDerived', 'isAvailable'];
   const raw = {};
   for (const key of fields) {
     const field = readCriticalField(result, key);
@@ -292,6 +352,15 @@ function evaluateResult(result) {
   const plan = sanitizeString(raw.plan) ?? '';
   const note = sanitizeString(raw.note) ?? '';
   const asOf = sanitizeAsOf(raw.asOf);
+
+  let providerState = undefined;
+  if (typeof raw.state === 'string' && ALLOWED_PROVIDER_STATES.has(raw.state)) {
+    providerState = raw.state;
+  } else if (raw.manual_only === true || (provider && provider.manual_only === true)) {
+    providerState = 'manual_only';
+  }
+  const asOfDerived = typeof raw.asOfDerived === 'boolean' ? raw.asOfDerived : undefined;
+  const isAvailable = typeof raw.isAvailable === 'boolean' || raw.isAvailable === null ? raw.isAvailable : undefined;
   // A recognised list field whose every entry failed validation is corrupted data, not an intentional empty
   // result — that distinction only shows before sanitizing: a list that started at length 0 (or a non-empty
   // plan/note) is an explicit, legitimate "nothing to show"; one that had entries but lost every one of them
@@ -302,7 +371,19 @@ function evaluateResult(result) {
   const balancesWiped = balanceStats.seen > 0 && balances.length === 0;
   const numericSurvived = windows.length > 0 || balances.length > 0;
   if ((windowsWiped || balancesWiped) && !numericSurvived) return { kind: 'gutted' };
-  return { kind: 'ok', data: { windows, balances, plan, note, asOf } };
+  return {
+    kind: 'ok',
+    data: {
+      windows,
+      balances,
+      plan,
+      note,
+      asOf,
+      ...(providerState !== undefined ? { providerState } : {}),
+      ...(asOfDerived !== undefined ? { asOfDerived } : {}),
+      ...(isAvailable !== undefined ? { isAvailable } : {}),
+    },
+  };
 }
 
 function checkSpan(name, value, min, max) {
@@ -312,15 +393,40 @@ function checkSpan(name, value, min, max) {
 }
 
 export function createUsageService({
-  fetchImpl = fetch, env = process.env, homedir = os.homedir(), exec = runCommand, providers = PROVIDERS,
+  fetchImpl = fetch, env = process.env, homedir = os.homedir(), exec = runCommand,
+  providers, manualProviders, config, alibaba,
   cacheMs = CACHE_MS, cooldownMs = COOLDOWN_MS, timeoutMs = TIMEOUT_MS, now = () => Date.now(),
 } = {}) {
+  let providersList;
+  if (providers !== undefined) {
+    providersList = [...providers];
+  } else {
+    providersList = [...PROVIDERS];
+  }
+  const enabledManualIds = manualProviders ?? config?.usage?.manualProviders ?? [];
+  if (!Array.isArray(enabledManualIds)) {
+    throw new TypeError('manualProviders 必须是数组');
+  }
+  const alibabaCfg = alibaba ?? config?.usage?.alibaba;
+  for (const id of enabledManualIds) {
+    if (typeof id !== 'string' || !id.trim()) {
+      throw new Error(`未知的用量来源：${String(id)}`);
+    }
+    const cleanId = id.trim();
+    if (!KNOWN_MANUAL_PROVIDER_IDS.has(cleanId)) {
+      throw new Error(`未知的用量来源：${cleanId}`);
+    }
+    const manualProvider = buildManualProvider(cleanId, alibabaCfg);
+    if (!providersList.some((p) => p.id === cleanId)) {
+      providersList.push(manualProvider);
+    }
+  }
   checkSpan('cacheMs', cacheMs, 1000, MAX_SPAN_MS);
   checkSpan('cooldownMs', cooldownMs, 0, MAX_SPAN_MS);
   checkSpan('timeoutMs', timeoutMs, 10, MAX_SPAN_MS);
   if (typeof now !== 'function') throw new Error('now 必须是一个返回毫秒时间戳的函数');
   const providerIds = [];
-  for (const one of providers) {
+  for (const one of providersList) {
     if (!one || typeof one.id !== 'string' || !one.id) throw new Error('每个用量 provider 都需要一个非空的 id');
     if (!PROVIDER_ID_PATTERN.test(one.id)) throw new Error(`provider id 格式不对，只能是小写字母开头的短名：${one.id}`);
     if (providerIds.includes(one.id)) throw new Error(`provider id 重复：${one.id}`);
@@ -400,7 +506,7 @@ export function createUsageService({
       if (okFlag.state === 'value' && okFlag.value !== true) {
         return { ...base, kind: 'failed', configured: true, error: `${provider.name} 没有给出可显示的失败原因` };
       }
-      const evaluated = evaluateResult(result);
+      const evaluated = evaluateResult(result, provider);
       if (evaluated.kind === 'unrecognized' || evaluated.kind === 'blocked') {
         // 'blocked' covers a top-level field or a list that could not be read safely at all (an accessor, a
         // tampered array shape, a descriptor trap throwing) — same fixed message as a genuinely unrecognised
@@ -475,7 +581,16 @@ export function createUsageService({
 
   function display(provider, slot, { cooling = false } = {}) {
     const refreshing = Boolean(slot.inflight);
-    const base = { id: provider.id, name: provider.name, source: provider.source, refreshing, cooling, lastRefreshAt: slot.lastRefreshAt === null ? null : iso(slot.lastRefreshAt) };
+    const catalogMeta = catalogMetadata(provider.id);
+    const base = {
+      id: provider.id,
+      name: provider.name,
+      source: provider.source,
+      ...catalogMeta,
+      refreshing,
+      cooling,
+      lastRefreshAt: slot.lastRefreshAt === null ? null : iso(slot.lastRefreshAt),
+    };
     const meta = { attemptedAt: slot.attemptedAt === null ? null : iso(slot.attemptedAt), lastSuccessAt: slot.lastSuccessAt === null ? null : iso(slot.lastSuccessAt) };
     const o = slot.outcome;
     if (!o) {
@@ -497,21 +612,79 @@ export function createUsageService({
     }
     if (o.kind === 'ok') {
       const fresh = isFresh(slot);
-      const numbers = { windows: slot.record.windows, balances: slot.record.balances, plan: slot.record.plan, note: slot.record.note, asOf: slot.record.asOf };
+      const isManual = slot.record.providerState === 'manual_only';
+      const isNotSubscribed = slot.record.providerState === 'not_subscribed';
+      const windows = isManual ? [] : slot.record.windows;
+      // A provider that reports its own state as unknown while showing no windows and no balances has given
+      // nothing real to read: `ok` stays true only for real readings, so this is displayed as a failure with
+      // the provider's own plan/note text (or a fixed sentence naming the state) as the visible text.
+      const unknownWithoutNumbers = slot.record.providerState === 'unknown' && windows.length === 0 && slot.record.balances.length === 0;
+      const ok = (isManual || isNotSubscribed || unknownWithoutNumbers) ? false : true;
+      const numbers = {
+        windows,
+        balances: slot.record.balances,
+        plan: slot.record.plan,
+        note: slot.record.note,
+        asOf: slot.record.asOf,
+        ...(slot.record.providerState ? { providerState: slot.record.providerState } : {}),
+        ...(slot.record.asOfDerived !== undefined ? { asOfDerived: slot.record.asOfDerived } : {}),
+        ...(slot.record.isAvailable !== undefined ? { isAvailable: slot.record.isAvailable } : {}),
+      };
       if (fresh) {
-        const entry = { ...base, ...numbers, ok: true, configured: true, state: 'fresh', fresh: true, stale: false, fetchedAt: slot.record.fetchedAt, ...meta };
+        const entry = {
+          ...base,
+          ...numbers,
+          ok,
+          configured: true,
+          state: 'fresh',
+          fresh: true,
+          stale: false,
+          fetchedAt: slot.record.fetchedAt,
+          ...meta,
+        };
+        if (isManual) {
+          entry.error = slot.record.note;
+        } else if (isNotSubscribed) {
+          entry.error = slot.record.note || slot.record.plan || '未订阅';
+        } else if (unknownWithoutNumbers) {
+          entry.error = slot.record.note || slot.record.plan || '状态未知';
+        }
         if (slot.record.keyFrom) entry.keyFrom = slot.record.keyFrom;
         return entry;
       }
       return {
-        ...base, ...numbers, ok: false, configured: true, state: 'stale', fresh: false, stale: true,
-        error: refreshing ? timeoutNote : cooling ? coolingNote : '缓存已过期，正在后台重新读取',
-        fetchedAt: slot.record.fetchedAt, ...meta,
+        ...base,
+        ...numbers,
+        ok: false,
+        configured: true,
+        state: 'stale',
+        fresh: false,
+        stale: true,
+        error: isManual
+          ? slot.record.note
+          : (isNotSubscribed
+            ? (slot.record.note || slot.record.plan || '未订阅')
+            : (unknownWithoutNumbers
+              ? (slot.record.note || slot.record.plan || '状态未知')
+              : (refreshing ? timeoutNote : cooling ? coolingNote : '缓存已过期，正在后台重新读取'))),
+        fetchedAt: slot.record.fetchedAt,
+        ...meta,
         ...(slot.record.keyFrom ? { keyFrom: slot.record.keyFrom } : {}),
       };
     }
     if (slot.record) {
-      const numbers = { windows: slot.record.windows, balances: slot.record.balances, plan: slot.record.plan, note: slot.record.note, asOf: slot.record.asOf };
+      const isManual = slot.record.providerState === 'manual_only';
+      const windows = isManual ? [] : slot.record.windows;
+      const numbers = {
+        windows,
+        balances: slot.record.balances,
+        plan: slot.record.plan,
+        note: slot.record.note,
+        asOf: slot.record.asOf,
+        ...(slot.record.providerState ? { providerState: slot.record.providerState } : {}),
+        ...(slot.record.asOfDerived !== undefined ? { asOfDerived: slot.record.asOfDerived } : {}),
+        ...(slot.record.isAvailable !== undefined ? { isAvailable: slot.record.isAvailable } : {}),
+      };
       return {
         ...base, ...numbers, ok: false, configured: o.configured, state: 'stale', fresh: false, stale: true,
         error: o.error, fetchedAt: slot.record.fetchedAt, ...meta,
@@ -531,7 +704,7 @@ export function createUsageService({
     // display-only here: its cache may be fresh, expired or still unresolved, but this request neither
     // begins a read for it nor waits on one already running.
     const targeted = provider !== null;
-    const plan = providers.map((def) => {
+    const plan = providersList.map((def) => {
       const slot = slotOf(def);
       if (targeted && def.id !== provider) {
         return { def, slot, attempt: null, cooling: false };

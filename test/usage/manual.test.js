@@ -116,7 +116,9 @@ describe('manual-only providers', () => {
         });
         const report = await service.report();
         const [entry] = report.providers;
-        assert.equal(entry.ok, true);
+        assert.equal(entry.ok, false, 'manual-only readings are not successful quota readings');
+        assert.equal(entry.providerState, 'manual_only');
+        assert.equal(entry.state, 'fresh', 'cache state stays separate from provider state');
         assert.deepEqual(entry.windows, []);
         assert.deepEqual(entry.balances, []);
         assert.equal(entry.keyFrom, undefined, 'No keyFrom should be looked up');
