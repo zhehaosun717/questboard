@@ -1,7 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createUsageService } from '../../src/usage/service.js';
 import { resolveConfig } from '../../src/core/config.js';
+import { claudeSubscription } from '../../src/usage/providers.js';
+import { getClaudeSnapshotPath, readClaudeSnapshot } from '../../src/usage/claudeStatusline.js';
 import { tmpDir } from '../helpers.js';
 
 function provider(id, result, extra = {}) {
@@ -18,6 +22,12 @@ function provider(id, result, extra = {}) {
 
 function reportFor(providers) {
   return createUsageService({ providers, env: {}, homedir: tmpDir('qb-usage-wiring-') }).report();
+}
+
+function writeClaudeSnapshot(homedir, snapshot) {
+  const filePath = getClaudeSnapshotPath({ homedir, env: {} });
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(snapshot));
 }
 
 describe('usage service wiring', () => {
@@ -78,6 +88,52 @@ describe('usage service wiring', () => {
     assert.equal(unsubscribed.error, '当前账号未订阅');
   });
 
+  it('uses the injected service clock when one Claude snapshot is fresh versus stale', async () => {
+    const capturedAt = '2026-09-16T12:00:00.000Z';
+    const capturedMs = Date.parse(capturedAt);
+    const homedir = tmpDir('qb-usage-claude-clock-');
+    writeClaudeSnapshot(homedir, {
+      schema: 1,
+      capturedAt,
+      rate_limits: {
+        five_hour: { used_percentage: 42, resets_at: 2100000000 },
+      },
+    });
+
+    const freshNow = capturedMs + 60 * 60 * 1000;
+    const staleNow = capturedMs + 25 * 60 * 60 * 1000;
+    const readerFresh = readClaudeSnapshot({ homedir, env: {}, now: freshNow });
+    const readerStale = readClaudeSnapshot({ homedir, env: {}, now: staleNow });
+    const realDateNow = Date.now;
+    Date.now = () => { throw new Error('real clock must not be consulted'); };
+    try {
+      const freshService = createUsageService({ providers: [claudeSubscription], env: {}, homedir, now: () => freshNow });
+      const [fresh] = (await freshService.report()).providers;
+      assert.equal(readerFresh.stale, undefined);
+      assert.equal(fresh.ok, true);
+      assert.equal(fresh.state, 'fresh');
+      assert.equal(fresh.fresh, true);
+      assert.equal(fresh.stale, false);
+      assert.equal(fresh.asOf, capturedAt);
+      assert.deepEqual(fresh.windows, readerFresh.windows);
+      assert.equal(fresh.error, undefined);
+
+      const staleService = createUsageService({ providers: [claudeSubscription], env: {}, homedir, now: () => staleNow });
+      const [stale] = (await staleService.report()).providers;
+      assert.equal(readerStale.stale, true);
+      assert.equal(stale.ok, false);
+      assert.equal(stale.state, 'stale');
+      assert.equal(stale.fresh, false);
+      assert.equal(stale.stale, true);
+      assert.equal(stale.asOf, capturedAt);
+      assert.deepEqual(stale.windows, readerStale.windows, 'last known Claude numbers stay visible');
+      assert.equal(stale.note, readerStale.note);
+      assert.equal(stale.error, readerStale.note);
+    } finally {
+      Date.now = realDateNow;
+    }
+  });
+
   it('does not present an unknown provider state with no numbers as a fresh reading', async () => {
     const report = await reportFor([
       provider('volcano-unknown', { windows: [], balances: [], plan: '订阅状态未知', note: '', asOf: null, state: 'unknown' }),
@@ -93,6 +149,47 @@ describe('usage service wiring', () => {
     assert.equal(silent.error, '状态未知', 'a fixed Chinese sentence when the provider gave neither plan nor note');
     assert.equal(withNumbers.ok, true, 'a real numeric reading stays a success');
     assert.equal(withNumbers.state, 'fresh');
+  });
+
+  it('shows a not-configured account as failed and carries a safe stale source override', async () => {
+    const report = await reportFor([
+      provider('not-configured', {
+        windows: [],
+        balances: [],
+        plan: '',
+        note: 'Codex 没有使用 ChatGPT 登录；API key 登录没有订阅额度。',
+        asOf: null,
+        state: 'not_configured',
+      }),
+      provider('codex-app-server', {
+        source: 'local-log',
+        stale: true,
+        state: 'stale',
+        windows: [],
+        balances: [],
+        plan: '',
+        note: '本次由 local-log 路径回答，数据可能过期。',
+        asOf: null,
+      }),
+      provider('invalid-source', {
+        source: 'not-a-catalog-access',
+        windows: [{ label: 'quota', usedPercent: 12, resetsAt: null }],
+        balances: [],
+        plan: '',
+        note: '',
+        asOf: null,
+      }),
+    ]);
+    const [notConfigured, fallback, invalidSource] = report.providers;
+    assert.equal(notConfigured.providerState, 'not_configured');
+    assert.equal(notConfigured.ok, false);
+    assert.equal(notConfigured.error, notConfigured.note);
+    assert.equal(fallback.source, 'local-log');
+    assert.equal(fallback.state, 'stale');
+    assert.equal(fallback.ok, false);
+    assert.equal(fallback.stale, true);
+    assert.equal(fallback.note.includes('local-log'), true);
+    assert.equal(invalidSource.source, 'official-api');
   });
 
   it('keeps DeepSeek balance components without fabricating amount', async () => {
@@ -158,6 +255,21 @@ describe('usage service wiring', () => {
     assert.equal(report.providers[0].ok, false);
     assert.match(report.providers[0].plan, /team · cn-beijing/);
     assert.equal(fetchCalls, 0);
+  });
+
+  it('keeps the app-server opt-in off by default and adds it only from the validated switch', () => {
+    const root = tmpDir('qb-usage-experimental-config-');
+    const base = {
+      name: 'Usage',
+      lanes: { files: { run: ['node', 'worker.js'], outputDir: 'out' } },
+    };
+    const offConfig = resolveConfig(root, base);
+    const off = createUsageService({ providers: [], config: offConfig, env: {}, homedir: tmpDir('qb-usage-experimental-off-') });
+    assert.deepEqual(off.listProviderIds(), []);
+
+    const onConfig = resolveConfig(root, { ...base, usage: { experimentalProviders: ['codex-app-server'] } });
+    const on = createUsageService({ providers: [], config: onConfig, env: {}, homedir: tmpDir('qb-usage-experimental-on-') });
+    assert.deepEqual(on.listProviderIds(), ['codex-app-server']);
   });
 
   it('re-validates a hand-built config at the service boundary and never echoes a rejected choice', async () => {

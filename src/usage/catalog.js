@@ -99,6 +99,15 @@ export const codexCatalog = makeEntry({
   setupCommand: 'codex login',
 });
 
+export const codexAppServerCatalog = makeEntry({
+  id: 'codex-app-server',
+  name: 'OpenAI Codex app-server',
+  access: 'official-cli',
+  credentialType: 'codex-chatgpt-session',
+  docsUrl: 'https://learn.chatgpt.com/docs/app-server',
+  setupCommand: 'codex login',
+});
+
 export const kimiCatalog = makeEntry({
   id: 'kimi',
   name: 'Kimi for Coding',
@@ -206,6 +215,7 @@ export const openaiSpendCatalog = makeEntry({
 
 export const PROVIDER_CATALOG = Object.freeze({
   codex: codexCatalog,
+  'codex-app-server': codexAppServerCatalog,
   kimi: kimiCatalog,
   cursor: cursorCatalog,
   volcano: volcanoCatalog,

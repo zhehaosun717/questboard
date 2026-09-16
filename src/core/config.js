@@ -27,6 +27,7 @@ const MAX_OMIT_WHEN = 20;
 const MAX_ARG_LENGTH = 4096;
 
 const KNOWN_MANUAL_PROVIDER_IDS = new Set(MANUAL_PROVIDERS.map((provider) => provider.id));
+const KNOWN_EXPERIMENTAL_PROVIDER_IDS = new Set(['codex-app-server']);
 
 function fail(message) {
   throw new Error(`questboard config: ${message}`);
@@ -235,7 +236,7 @@ function validateAlibabaChoice(value, allowlist, field, label) {
 }
 
 function validateUsageConfig(rawUsage) {
-  if (rawUsage === undefined) return { manualProviders: [] };
+  if (rawUsage === undefined) return { manualProviders: [], experimentalProviders: [] };
   if (!rawUsage || typeof rawUsage !== 'object' || Array.isArray(rawUsage)) {
     fail('usage must be an object');
   }
@@ -257,7 +258,25 @@ function validateUsageConfig(rawUsage) {
       }
     }
   }
-  const result = { manualProviders };
+  let experimentalProviders = [];
+  if (rawUsage.experimentalProviders !== undefined) {
+    if (!Array.isArray(rawUsage.experimentalProviders)) {
+      fail('usage.experimentalProviders 必须是数组');
+    }
+    for (const item of rawUsage.experimentalProviders) {
+      if (typeof item !== 'string' || !item.trim()) {
+        fail('usage.experimentalProviders 条目必须是非空字符串');
+      }
+      const id = item.trim();
+      if (!KNOWN_EXPERIMENTAL_PROVIDER_IDS.has(id)) {
+        fail(`未知的用量来源：${id}`);
+      }
+      if (!experimentalProviders.includes(id)) {
+        experimentalProviders.push(id);
+      }
+    }
+  }
+  const result = { manualProviders, experimentalProviders };
   if (rawUsage.alibaba !== undefined) {
     if (!rawUsage.alibaba || typeof rawUsage.alibaba !== 'object' || Array.isArray(rawUsage.alibaba)) {
       fail('usage.alibaba must be an object');

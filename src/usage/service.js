@@ -16,7 +16,7 @@
 import os from 'node:os';
 import { runCommand, trustedUsageErrorText, trustedResultText } from './common.js';
 import { createCredentials, describeKeySources } from './credentials.js';
-import { PROVIDERS } from './providers.js';
+import { EXPERIMENTAL_PROVIDERS, PROVIDERS } from './providers.js';
 import {
   ALIBABA_EDITIONS,
   ALIBABA_REGIONS,
@@ -24,12 +24,15 @@ import {
   createAlibabaTokenPlan,
   createAlibabaCodingPlan,
 } from './manualProviders.js';
+import { ALLOWED_ACCESS_TYPES } from './catalog.js';
 import { catalogMetadata } from './display.js';
 
 const KNOWN_MANUAL_PROVIDER_IDS = new Set(MANUAL_PROVIDERS.map((provider) => provider.id));
 const MANUAL_PROVIDER_BY_ID = new Map(MANUAL_PROVIDERS.map((provider) => [provider.id, provider]));
+const KNOWN_EXPERIMENTAL_PROVIDER_IDS = new Set(EXPERIMENTAL_PROVIDERS.map((provider) => provider.id));
+const EXPERIMENTAL_PROVIDER_BY_ID = new Map(EXPERIMENTAL_PROVIDERS.map((provider) => [provider.id, provider]));
 
-const ALLOWED_PROVIDER_STATES = new Set(['ok', 'not_subscribed', 'unknown', 'manual_only']);
+const ALLOWED_PROVIDER_STATES = new Set(['ok', 'not_configured', 'not_subscribed', 'unknown', 'manual_only']);
 
 function safeChoice(value, allowlist) {
   if (typeof value === 'string') {
@@ -319,7 +322,7 @@ function sanitizeAsOf(value) {
 // string, say) to still reach the page as a fresh, if partial, success. That one snapshot is what
 // hasRecognizedShape, the size bounds, sanitizing and the gutted-payload check all see.
 function evaluateResult(result, provider = null) {
-  const fields = ['windows', 'balances', 'plan', 'note', 'asOf', 'state', 'manual_only', 'asOfDerived', 'isAvailable'];
+  const fields = ['windows', 'balances', 'plan', 'note', 'asOf', 'state', 'source', 'stale', 'manual_only', 'asOfDerived', 'isAvailable'];
   const raw = {};
   for (const key of fields) {
     const field = readCriticalField(result, key);
@@ -352,6 +355,8 @@ function evaluateResult(result, provider = null) {
   const plan = sanitizeString(raw.plan) ?? '';
   const note = sanitizeString(raw.note) ?? '';
   const asOf = sanitizeAsOf(raw.asOf);
+  const source = typeof raw.source === 'string' && ALLOWED_ACCESS_TYPES.has(raw.source) ? raw.source : undefined;
+  const resultStale = raw.stale === true;
 
   let providerState = undefined;
   if (typeof raw.state === 'string' && ALLOWED_PROVIDER_STATES.has(raw.state)) {
@@ -380,6 +385,8 @@ function evaluateResult(result, provider = null) {
       note,
       asOf,
       ...(providerState !== undefined ? { providerState } : {}),
+      ...(source !== undefined ? { source } : {}),
+      ...(resultStale ? { resultStale: true } : {}),
       ...(asOfDerived !== undefined ? { asOfDerived } : {}),
       ...(isAvailable !== undefined ? { isAvailable } : {}),
     },
@@ -419,6 +426,23 @@ export function createUsageService({
     const manualProvider = buildManualProvider(cleanId, alibabaCfg);
     if (!providersList.some((p) => p.id === cleanId)) {
       providersList.push(manualProvider);
+    }
+  }
+  const enabledExperimentalIds = config?.usage?.experimentalProviders ?? [];
+  if (!Array.isArray(enabledExperimentalIds)) {
+    throw new TypeError('experimentalProviders 必须是数组');
+  }
+  for (const id of enabledExperimentalIds) {
+    if (typeof id !== 'string' || !id.trim()) {
+      throw new Error('未知的用量来源：' + String(id));
+    }
+    const cleanId = id.trim();
+    if (!KNOWN_EXPERIMENTAL_PROVIDER_IDS.has(cleanId)) {
+      throw new Error('未知的用量来源：' + cleanId);
+    }
+    const experimentalProvider = EXPERIMENTAL_PROVIDER_BY_ID.get(cleanId);
+    if (!providersList.some((p) => p.id === cleanId)) {
+      providersList.push(experimentalProvider);
     }
   }
   checkSpan('cacheMs', cacheMs, 1000, MAX_SPAN_MS);
@@ -486,7 +510,7 @@ export function createUsageService({
         base.keyFrom = found.from;
       }
       if (typeof provider.fetch !== 'function') return { ...base, kind: 'unconfigured', configured: false, error: `${provider.name} 还没有可自动读取的来源，只能手动核对` };
-      const result = await provider.fetch({ fetchImpl, key, exec, env, homedir });
+      const result = await provider.fetch({ fetchImpl, key, exec, env, homedir, now: now() });
       if (!isPlainResult(result)) {
         return { ...base, kind: 'failed', configured: true, error: `${provider.name} 没有给出可显示的失败原因` };
       }
@@ -582,10 +606,11 @@ export function createUsageService({
   function display(provider, slot, { cooling = false } = {}) {
     const refreshing = Boolean(slot.inflight);
     const catalogMeta = catalogMetadata(provider.id);
+    const recordSource = slot.record && typeof slot.record.source === 'string' ? slot.record.source : provider.source;
     const base = {
       id: provider.id,
       name: provider.name,
-      source: provider.source,
+      source: recordSource,
       ...catalogMeta,
       refreshing,
       cooling,
@@ -611,15 +636,17 @@ export function createUsageService({
       return entry;
     }
     if (o.kind === 'ok') {
-      const fresh = isFresh(slot);
+      const resultStale = slot.record.resultStale === true;
+      const fresh = !resultStale && isFresh(slot);
       const isManual = slot.record.providerState === 'manual_only';
+      const isNotConfigured = slot.record.providerState === 'not_configured';
       const isNotSubscribed = slot.record.providerState === 'not_subscribed';
       const windows = isManual ? [] : slot.record.windows;
       // A provider that reports its own state as unknown while showing no windows and no balances has given
       // nothing real to read: `ok` stays true only for real readings, so this is displayed as a failure with
       // the provider's own plan/note text (or a fixed sentence naming the state) as the visible text.
       const unknownWithoutNumbers = slot.record.providerState === 'unknown' && windows.length === 0 && slot.record.balances.length === 0;
-      const ok = (isManual || isNotSubscribed || unknownWithoutNumbers) ? false : true;
+      const ok = (isManual || isNotConfigured || isNotSubscribed || unknownWithoutNumbers) ? false : true;
       const numbers = {
         windows,
         balances: slot.record.balances,
@@ -644,7 +671,7 @@ export function createUsageService({
         };
         if (isManual) {
           entry.error = slot.record.note;
-        } else if (isNotSubscribed) {
+        } else if (isNotConfigured || isNotSubscribed) {
           entry.error = slot.record.note || slot.record.plan || '未订阅';
         } else if (unknownWithoutNumbers) {
           entry.error = slot.record.note || slot.record.plan || '状态未知';
@@ -660,13 +687,15 @@ export function createUsageService({
         state: 'stale',
         fresh: false,
         stale: true,
-        error: isManual
-          ? slot.record.note
-          : (isNotSubscribed
+        error: resultStale
+          ? (slot.record.note || '数据可能已经过期')
+          : (isManual
+            ? slot.record.note
+            : (isNotConfigured || isNotSubscribed
             ? (slot.record.note || slot.record.plan || '未订阅')
             : (unknownWithoutNumbers
               ? (slot.record.note || slot.record.plan || '状态未知')
-              : (refreshing ? timeoutNote : cooling ? coolingNote : '缓存已过期，正在后台重新读取'))),
+              : (refreshing ? timeoutNote : cooling ? coolingNote : '缓存已过期，正在后台重新读取')))),
         fetchedAt: slot.record.fetchedAt,
         ...meta,
         ...(slot.record.keyFrom ? { keyFrom: slot.record.keyFrom } : {}),

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { CURRENCY_PATTERN, UsageError, getJson, isoOrNull, parseJsonDocuments, percent, safeLabel, toNumber, windowLabel } from './common.js';
 import { createAntigravityProvider } from './antigravity.js';
 import { readClaudeSnapshot } from './claudeStatusline.js';
+import { CODEX_NOT_FOUND_NOTE, FALLBACK_NOTE, readCodexAppServer } from './codexAppServer.js';
 
 export const KIMI_BASE_URL = 'https://api.kimi.com/coding/v1';
 
@@ -49,6 +50,33 @@ export const codex = {
       }
     }
     return { ok: false, configured: true, code: 'no_rate_limit_data' };
+  },
+};
+
+export const codexAppServer = {
+  id: 'codex-app-server',
+  name: 'OpenAI Codex app-server',
+  source: 'official-cli',
+  access: 'official-cli',
+  credentialType: 'codex-chatgpt-session',
+  async fetch({ env = process.env, homedir, now = Date.now(), ...options } = {}) {
+    try {
+      return await readCodexAppServer({ ...options, env, now });
+    } catch (error) {
+      let local = null;
+      try { local = await codex.fetch({ env, homedir, now }); } catch { /* use the fixed fallback note */ }
+      const usable = local && local.ok !== false && Array.isArray(local.windows) ? local : null;
+      return {
+        source: 'local-log',
+        state: 'stale',
+        stale: true,
+        windows: usable ? local.windows : [],
+        balances: usable && Array.isArray(local.balances) ? local.balances : [],
+        plan: usable && typeof local.plan === 'string' ? local.plan : '',
+        asOf: usable && typeof local.asOf === 'string' ? local.asOf : null,
+        note: `${error?.code === 'not_found' ? `${CODEX_NOT_FOUND_NOTE}；` : ''}${FALLBACK_NOTE}${usable && local.note ? ` ${local.note}` : ' local-log 没有可用的额度快照。'}`,
+      };
+    }
   },
 };
 
@@ -472,5 +500,7 @@ export const claudeSubscription = {
     return res;
   },
 };
+
+export const EXPERIMENTAL_PROVIDERS = [codexAppServer];
 
 export const PROVIDERS = [codex, kimi, deepseek, openrouter, cursor, antigravity, volcano, siliconflow, mimo, claudeSubscription];

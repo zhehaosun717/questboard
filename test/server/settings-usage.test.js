@@ -20,6 +20,7 @@ describe('usage settings validation', () => {
     }));
     assert.deepEqual(config.usage, {
       manualProviders: ['nvidia', 'alibaba-token-plan'],
+      experimentalProviders: [],
       alibaba: { edition: 'enterprise', region: 'cn-beijing' },
     });
     assert.deepEqual(describeProject(config).usage, config.usage);
@@ -57,9 +58,37 @@ describe('usage settings validation', () => {
     );
   });
 
-  it('defaults the validated usage setting to no manual providers', () => {
+  it('normalizes the experimental opt-in and rejects unknown ids by name in Chinese', () => {
+    const config = resolveConfig(tmpDir('qb-config-usage-experimental-'), rawProject({
+      experimentalProviders: [' codex-app-server ', 'codex-app-server'],
+    }));
+    assert.deepEqual(config.usage, {
+      manualProviders: [],
+      experimentalProviders: ['codex-app-server'],
+    });
+    assert.throws(
+      () => resolveConfig(tmpDir('qb-config-usage-unknown-experimental-'), rawProject({
+        experimentalProviders: ['future-provider'],
+      })),
+      (error) => /future-provider/.test(String(error && error.message)) && /用量来源/.test(String(error && error.message)),
+    );
+    assert.throws(
+      () => resolveConfig(tmpDir('qb-config-usage-experimental-not-array-'), rawProject({
+        experimentalProviders: 'codex-app-server',
+      })),
+      (error) => /必须是数组/.test(String(error && error.message)) && !/must be an array/.test(String(error && error.message)),
+    );
+    assert.throws(
+      () => resolveConfig(tmpDir('qb-config-usage-experimental-not-string-'), rawProject({
+        experimentalProviders: [42],
+      })),
+      (error) => /条目必须是非空字符串/.test(String(error && error.message)) && !/must be non-empty strings/.test(String(error && error.message)),
+    );
+  });
+
+  it('defaults the validated usage setting to no manual or experimental providers', () => {
     const config = resolveConfig(tmpDir('qb-config-usage-default-'), rawProject(undefined));
-    assert.deepEqual(config.usage, { manualProviders: [] });
-    assert.deepEqual(describeProject(config).usage, { manualProviders: [] });
+    assert.deepEqual(config.usage, { manualProviders: [], experimentalProviders: [] });
+    assert.deepEqual(describeProject(config).usage, { manualProviders: [], experimentalProviders: [] });
   });
 });
