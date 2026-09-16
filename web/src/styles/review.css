@@ -35,6 +35,34 @@
   font: 400 23px/1.15 var(--han);
   letter-spacing: .05em;
 }
+.review-search {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  color: var(--cream);
+  font: 12px var(--mono);
+  background: var(--hall-edge);
+  border: 1px solid var(--steel);
+  border-radius: 2px;
+}
+.review-search:focus-visible { outline: none; border-color: var(--amber); }
+.review-stats-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.review-chip {
+  padding: 4px 9px;
+  color: var(--cable);
+  font: 11px var(--mono);
+  background: var(--hall-edge);
+  border: 1px solid var(--steel);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.review-chip:hover, .review-chip:focus-visible { border-color: var(--amber); }
+.review-chip.is-active { color: var(--tag); border-color: var(--rust); background: var(--soil2); }
 .review-filter {
   display: flex;
   align-items: center;
@@ -49,6 +77,22 @@
   color: var(--amber);
   font: 11px var(--mono);
   border-bottom: 1px dashed var(--steel);
+  overflow-wrap: anywhere;
+}
+.review-sidebar-scoped-summary {
+  padding: 0 15px 9px;
+  color: var(--cable);
+  font: 11px var(--mono);
+  border-bottom: 1px dashed var(--steel);
+  overflow-wrap: anywhere;
+}
+.review-sidebar-note {
+  padding: 8px 15px;
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.6;
+  border-bottom: 1px dashed var(--steel);
+  overflow-wrap: anywhere;
 }
 .review-page-list {
   display: flex;
@@ -83,9 +127,19 @@ button.review-page:hover, button.review-page:focus-visible {
   background: var(--soil2);
 }
 .review-page.is-disabled { opacity: .55; cursor: not-allowed; }
-.review-page-title { color: var(--tag); font-weight: 700; line-height: 1.35; }
-.review-page-label { color: var(--cable); font: 11px var(--mono); }
-.review-page-label.is-error { color: var(--wax-lt); }
+.review-page-title {
+  color: var(--tag);
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.review-page-secondary {
+  color: var(--dim);
+  font: 10px var(--mono);
+  overflow-wrap: anywhere;
+}
+.review-page-label { color: var(--cable); font: 11px var(--mono); overflow-wrap: anywhere; }
+.review-page-label.is-unknown { color: var(--wax-lt); }
 .review-progress-track {
   display: block;
   height: 7px;
@@ -165,6 +219,7 @@ button.review-page:hover, button.review-page:focus-visible {
 
 @media (max-width: 1050px) {
   .review-toolbar { align-items: flex-start; flex-direction: column; }
+  .review-toolbar-title { width: 100%; }
   .review-toolbar-actions { justify-content: flex-start; width: 100%; }
 }
 @media (max-width: 720px) {

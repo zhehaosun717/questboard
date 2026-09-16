@@ -1,14 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReviewPage } from '../api/types';
 import { isSafeReviewUrl } from '../lib/board';
 import {
+  filterReviewPagesByQuery,
+  filterReviewPagesByStats,
   getAdjacentReviewPage,
+  getLaterPendingBreakdown,
+  getNextUnansweredHint,
   getNextUnansweredPage,
+  getReviewDisplayTitle,
+  getReviewListEmptyMessage,
   getReviewProgressLabel,
   getReviewProgressPercent,
+  getReviewScopedSummaryText,
+  getReviewSecondaryText,
+  getReviewSummaryText,
   hasReviewError,
   isReviewPageIncomplete,
   sortReviewPages,
+  summarizeReviewStats,
+  type ReviewStatsFilter,
 } from '../lib/reviewList';
 import './../styles/review.css';
 
@@ -18,42 +29,98 @@ interface ReviewViewProps {
   onSelectPage: (url: string | null) => void;
 }
 
+const STATS_FILTER_OPTIONS: { value: ReviewStatsFilter; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'available', label: '有统计' },
+  { value: 'unavailable', label: '统计不可用' },
+];
+
 export function ReviewView({
   reviewPages = [],
   selectedUrl,
   onSelectPage,
 }: ReviewViewProps) {
   const [onlyUnanswered, setOnlyUnanswered] = useState(false);
+  const [statsFilter, setStatsFilter] = useState<ReviewStatsFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [frameVersion, setFrameVersion] = useState(0);
+  const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
   const orderedPages = sortReviewPages(reviewPages);
-  const filteredPages = onlyUnanswered
-    ? orderedPages.filter(isReviewPageIncomplete)
-    : orderedPages;
+  const statsFiltered = filterReviewPagesByStats(orderedPages, statsFilter);
+  const searchFiltered = filterReviewPagesByQuery(statsFiltered, searchQuery);
+  const filteredPages = onlyUnanswered ? searchFiltered.filter(isReviewPageIncomplete) : searchFiltered;
   const navigablePages = filteredPages.filter((page) => isSafeReviewUrl(page.url));
   const selectedPage = reviewPages.find((page) => page.url === selectedUrl);
+  const isSelectedHidden = Boolean(selectedPage) && !filteredPages.some((page) => page.url === selectedUrl);
   const nextUnanswered = getNextUnansweredPage(navigablePages, selectedUrl);
-  const pendingCount = filteredPages.filter(isReviewPageIncomplete).length;
+  const isFilterScoped = searchQuery.trim().length > 0 || statsFilter !== 'all' || onlyUnanswered;
+  // The completion claim and the "还有多少" hints must come from the whole list, never from whatever a
+  // search or filter happens to leave on screen (feedback 26, R1/R2/R3) — a filter only changes what is
+  // drawn, not what is actually pending.
+  const fullStats = summarizeReviewStats(reviewPages);
+  const fullOrderIndex = orderedPages.findIndex((page) => page.url === selectedUrl);
+  const earlierPendingCount =
+    fullOrderIndex < 0 ? 0 : orderedPages.slice(0, fullOrderIndex).filter(isReviewPageIncomplete).length;
+  // Same whole-list rule applies forward: a pending page later in the order must not vanish into "都处理完
+  // 了" just because the current search/stats/unanswered filter hides its row (feedback 26, B1).
+  const laterPendingBreakdown = getLaterPendingBreakdown(orderedPages, navigablePages, selectedUrl);
+  const nextUnansweredHint = getNextUnansweredHint(Boolean(nextUnanswered), fullStats.unknown, earlierPendingCount, {
+    filterHiddenLaterPendingCount: laterPendingBreakdown.filterHiddenCount,
+    unsafeLaterPendingCount: laterPendingBreakdown.unsafeCount,
+  });
+  const selectedRowAvailable = filteredPages.some((page) => page.url === selectedUrl);
+
+  useEffect(() => {
+    // Depends on booleans/strings, not on `filteredPages` itself: an SSE snapshot repaint that changes
+    // none of these must not steal the reader's scroll position (feedback 26, R7). It re-fires exactly
+    // when a deep-linked row's data finally arrives, when a fold/unfold remounts the row, or when a
+    // filter/search stops hiding the selected row (feedback 26, R6) — not on every repaint.
+    if (!selectedUrl || !selectedRowAvailable) return;
+    const row = rowRefs.current.get(selectedUrl);
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [selectedUrl, selectedRowAvailable, isSidebarOpen]);
 
   const goToAdjacent = (direction: 'previous' | 'next') => {
     const page = getAdjacentReviewPage(navigablePages, selectedUrl, direction);
     if (page) onSelectPage(page.url);
   };
 
+  // Explicit, on-click only — never fires on its own, so it never contradicts "do not silently reset
+  // search" (feedback 26). Offered only when a filter is the actual reason a later pending page is hidden.
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatsFilter('all');
+    setOnlyUnanswered(false);
+  };
+
+  const handleListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      goToAdjacent('next');
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      goToAdjacent('previous');
+    }
+  };
+
   const renderPage = (page: ReviewPage) => {
     const progress = getReviewProgressPercent(page);
     const isSelected = page.url === selectedUrl;
+    const key = `${page.url}-${page.title}`;
     const content = (
       <>
-        <span className="review-page-title">{page.title}</span>
-        <span className={hasReviewError(page) ? 'review-page-label is-error' : 'review-page-label'}>
+        <span className="review-page-title">{getReviewDisplayTitle(page)}</span>
+        <span className="review-page-secondary">{getReviewSecondaryText(page)}</span>
+        <span className={hasReviewError(page) ? 'review-page-label is-unknown' : 'review-page-label'}>
           {getReviewProgressLabel(page)}
         </span>
         {progress !== null && (
           <span
             className="review-progress-track"
             role="progressbar"
-            aria-label={`${page.title} 批注进度`}
+            aria-label={`${getReviewDisplayTitle(page)} 批注进度`}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={progress}
@@ -66,7 +133,7 @@ export function ReviewView({
 
     if (!isSafeReviewUrl(page.url)) {
       return (
-        <div key={`${page.url}-${page.title}`} className="review-page is-disabled">
+        <div key={key} className="review-page is-disabled" role="option" aria-selected={false} aria-disabled="true">
           {content}
         </div>
       );
@@ -74,9 +141,15 @@ export function ReviewView({
 
     return (
       <button
-        key={`${page.url}-${page.title}`}
+        key={key}
+        ref={(node) => {
+          if (node) rowRefs.current.set(page.url, node);
+          else rowRefs.current.delete(page.url);
+        }}
         className={isSelected ? 'review-page is-selected' : 'review-page'}
         type="button"
+        role="option"
+        aria-selected={isSelected}
         aria-current={isSelected ? 'page' : undefined}
         onClick={() => onSelectPage(page.url)}
       >
@@ -95,6 +168,27 @@ export function ReviewView({
                 <span className="eyebrow">评审列表</span>
                 <h2>评审顺序</h2>
               </div>
+              <input
+                className="review-search"
+                type="search"
+                placeholder="搜索标题或页面 ID"
+                aria-label="搜索评审页"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+              <div className="review-stats-filter" role="group" aria-label="按统计可用性筛选">
+                {STATS_FILTER_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={statsFilter === option.value ? 'review-chip is-active' : 'review-chip'}
+                    aria-pressed={statsFilter === option.value}
+                    onClick={() => setStatsFilter(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
               <label className="review-filter">
                 <input
                   type="checkbox"
@@ -105,15 +199,35 @@ export function ReviewView({
               </label>
             </div>
             <div className="review-sidebar-summary">
-              {filteredPages.length === 0 || pendingCount === 0
-                ? '都处理完了'
-                : `${pendingCount} 份未处理，未处理优先`}
+              {reviewPages.length === 0 ? '暂无评审页' : getReviewSummaryText(reviewPages)}
             </div>
-            <div className="review-page-list">
+            {isFilterScoped && reviewPages.length > 0 && (
+              <div className="review-sidebar-scoped-summary">{getReviewScopedSummaryText(filteredPages)}</div>
+            )}
+            {isSelectedHidden && (
+              <div className="review-sidebar-note">
+                当前选中的页面不在筛选结果中，右侧仍可继续查看；调整筛选或搜索可以重新看到它。
+              </div>
+            )}
+            <div
+              className="review-page-list"
+              role="listbox"
+              aria-label="评审页顺序"
+              onKeyDown={handleListKeyDown}
+            >
               {reviewPages.length === 0 ? (
                 <p className="review-list-empty">暂无评审页，页面加载后会显示在这里。</p>
               ) : filteredPages.length === 0 ? (
-                <p className="review-list-empty">都处理完了。可以取消筛选查看全部页面。</p>
+                <p className="review-list-empty">
+                  {getReviewListEmptyMessage({
+                    totalCount: reviewPages.length,
+                    hasQuery: searchQuery.trim().length > 0,
+                    onlyUnanswered,
+                    statsFilter,
+                    fullPendingCount: fullStats.pending,
+                    fullUnknownCount: fullStats.unknown,
+                  })}
+                </p>
               ) : (
                 filteredPages.map(renderPage)
               )}
@@ -125,7 +239,7 @@ export function ReviewView({
           <div className="review-toolbar">
             <div className="review-toolbar-title">
               <span className="eyebrow">当前评审</span>
-              <h2>{selectedPage?.title ?? '还没有选择评审页'}</h2>
+              <h2>{selectedPage ? getReviewDisplayTitle(selectedPage) : '还没有选择评审页'}</h2>
             </div>
             <div className="review-toolbar-actions">
               {selectedUrl && isSafeReviewUrl(selectedUrl) && (
@@ -159,11 +273,16 @@ export function ReviewView({
                       type="button"
                       onClick={() => onSelectPage(nextUnanswered?.url ?? null)}
                       disabled={!nextUnanswered}
-                      title={nextUnanswered ? '跳到下一份未处理页面' : '都处理完了'}
+                      title={nextUnansweredHint}
                     >
                       下一份未处理
-                      {!nextUnanswered && <span className="review-disabled-note">都处理完了</span>}
+                      {!nextUnanswered && <span className="review-disabled-note">{nextUnansweredHint}</span>}
                     </button>
+                    {!nextUnanswered && laterPendingBreakdown.filterHiddenCount > 0 && (
+                      <button className="btn ghost" type="button" onClick={clearFilters}>
+                        清空筛选
+                      </button>
+                    )}
                     <button
                       className="btn ghost"
                       type="button"
@@ -192,7 +311,7 @@ export function ReviewView({
                 key={frameVersion}
                 className="review-iframe"
                 src={selectedUrl}
-                title={selectedPage?.title ?? '美术评审页'}
+                title={selectedPage ? getReviewDisplayTitle(selectedPage) : '美术评审页'}
               />
             </div>
           ) : (
