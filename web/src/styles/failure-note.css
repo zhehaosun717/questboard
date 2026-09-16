@@ -1,0 +1,40 @@
+/* Recent execution-failure context for one card (see src/core/failureContext.js). Historical and
+   project-specific: this note never means the card is unavailable — availability, quota and the
+   owner's own reason stay in their own lines above it. Scoped to the guild badge and the ID-card
+   modal; only existing theme variables are used. */
+
+.adv .a-note.fail-flag {
+  color: var(--dim);
+  border-left: 3px solid var(--rust-dk);
+  padding-left: 7px;
+  overflow-wrap: anywhere;
+}
+
+.order .fail-block {
+  margin-top: 12px;
+  padding: 8px 10px 10px;
+  background: var(--tag);
+  border: 1px dashed rgba(36, 28, 19, .45);
+}
+
+.order .fail-block .fail-title {
+  margin: 0;
+  font: 400 11px var(--display);
+  letter-spacing: .2em;
+  color: var(--rust-dk);
+}
+
+.order .fail-block .fail-lines {
+  margin: 2px 0 0;
+}
+
+.order .fail-block .fail-summary {
+  margin: 6px 0 0;
+  font: 12px/1.5 var(--body);
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.order .fail-block .fail-open {
+  margin-top: 8px;
+}

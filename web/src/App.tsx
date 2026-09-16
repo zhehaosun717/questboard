@@ -17,6 +17,7 @@ import { Toasts } from './components/Toasts';
 import { UsageView } from './components/UsageView';
 import { WorkOrderModal } from './components/WorkOrderModal';
 import { useBoard } from './hooks/useBoard';
+import { failureForCard, failureQuestExists } from './api/failureTypes';
 import { formatRoute, parseRoute, type Route, type Tab } from './lib/route';
 import './styles/tabs.css';
 import './styles/config.css';
@@ -101,6 +102,8 @@ export function App() {
   const workOrderCard = snap?.roster.find((c) => c.id === workOrder?.cardId);
   const editingCard = snap?.roster.find((c) => c.id === editingCardId);
   const selectedQuest = snap?.quests.find((q) => q.id === selectedQuestId);
+  const editingFailure = editingCard ? failureForCard(snap, editingCard.id) : null;
+  const canOpenEditingFailure = failureQuestExists(snap, editingFailure);
 
   return (
     <>
@@ -189,6 +192,7 @@ export function App() {
                 snap={snap}
                 refresh={refresh}
                 pushToast={pushToast}
+                onOpenQuest={(questId) => setSelectedQuestId(questId)}
               />
             )}
             {route.tab === 'usage' && (
@@ -229,6 +233,15 @@ export function App() {
       {editingCard && (
         <CardModal
           card={editingCard}
+          failure={editingFailure}
+          onOpenQuest={
+            canOpenEditingFailure
+              ? (questId) => {
+                  setEditingCardId(null);
+                  setSelectedQuestId(questId);
+                }
+              : undefined
+          }
           onClose={() => setEditingCardId(null)}
           onSuccess={() => {
             setEditingCardId(null);

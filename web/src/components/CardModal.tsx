@@ -1,16 +1,26 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import type { Card, CardStatus } from '../api/types';
+import type { RecentFailure } from '../api/failureTypes';
+import { formatClock, formatMonthDay } from '../lib/board';
 import { CARD_STATUS } from '../lib/labels';
+import '../styles/failure-note.css';
 
 interface CardModalProps {
   card: Card;
+  failure?: RecentFailure | null;
+  onOpenQuest?: (questId: string) => void;
   onClose: () => void;
   onSuccess: () => void;
   onError: (msg: string) => void;
 }
 
-export function CardModal({ card, onClose, onSuccess, onError }: CardModalProps) {
+function failureTimeLabel(iso: string): string {
+  if (!Number.isFinite(Date.parse(iso))) return iso.slice(0, 40);
+  return `${formatMonthDay(iso)} ${formatClock(iso)}`;
+}
+
+export function CardModal({ card, failure, onOpenQuest, onClose, onSuccess, onError }: CardModalProps) {
   const [status, setStatus] = useState<CardStatus>(card.status);
   const [reason, setReason] = useState<string>(card.statusReason || '');
   const [saving, setSaving] = useState(false);
@@ -48,6 +58,29 @@ export function CardModal({ card, onClose, onSuccess, onError }: CardModalProps)
             {card.provider} · {card.lane}
           </dd>
         </dl>
+        {failure ? (
+          <section className="fail-block" aria-label="最近一次执行失败">
+            <p className="fail-title">最近一次执行失败</p>
+            <dl className="order-lines fail-lines">
+              <dt>任务</dt>
+              <dd>
+                <code>{failure.questId}</code>
+              </dd>
+              <dt>时间</dt>
+              <dd>{failureTimeLabel(failure.at)}</dd>
+            </dl>
+            {failure.summary ? <p className="fail-summary">{failure.summary}</p> : null}
+            {onOpenQuest ? (
+              <button
+                className="btn ghost fail-open"
+                type="button"
+                onClick={() => onOpenQuest(failure.questId)}
+              >
+                查看任务
+              </button>
+            ) : null}
+          </section>
+        ) : null}
         <label htmlFor="advStatus">STATUS 状态</label>
         <select
           id="advStatus"

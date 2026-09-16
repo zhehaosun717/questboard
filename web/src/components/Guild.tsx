@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Card, CardStatus, Snapshot } from '../api/types';
 import { busyQuests } from '../lib/board';
+import { failureForCard } from '../api/failureTypes';
 import {
   EMPTY_ROSTER_FILTER,
   buildRosterFilterOptions,
@@ -187,6 +188,7 @@ export function Guild({
                       key={card.id}
                       card={card}
                       busyQuests={busyQuests(snap, card.id)}
+                      failure={failureForCard(snap, card.id)}
                       isDragging={draggingCardId === card.id}
                       onEdit={onEditCard}
                       onHover={onHoverCard}

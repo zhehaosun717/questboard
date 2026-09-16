@@ -1,11 +1,14 @@
 import type { Card, CardStatus, Quest } from '../api/types';
+import type { RecentFailure } from '../api/failureTypes';
 import { cardLabel, formatMonthDay } from '../lib/board';
 import { BILLING, CARD_STATUS } from '../lib/labels';
 import { cardProvider } from '../lib/rosterFilter';
+import '../styles/failure-note.css';
 
 interface CardBadgeProps {
   card: Card;
   busyQuests: Quest[];
+  failure?: RecentFailure | null;
   isDragging: boolean;
   onEdit: (cardId: string) => void;
   onHover: (cardId: string | null) => void;
@@ -24,6 +27,7 @@ const LED: Record<CardStatus, string> = {
 export function CardBadge({
   card,
   busyQuests,
+  failure,
   isDragging,
   onEdit,
   onHover,
@@ -137,6 +141,9 @@ export function CardBadge({
             </div>
           ) : null}
           {card.notes ? <div className="a-note">{card.notes}</div> : null}
+          {failure ? (
+            <div className="a-note fail-flag">最近一次执行失败 · {failure.questId}</div>
+          ) : null}
         </div>
       </div>
     </article>

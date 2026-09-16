@@ -9,6 +9,7 @@ import { liveByName } from './sync.js';
 import { effectiveRoster } from './overlay.js';
 import { withFileSets, unpostedBriefs } from './briefs.js';
 import { isReviewable, reviewEligibility } from './reviewRequest.js';
+import { recentFailuresByCard } from './failureContext.js';
 
 // tools/review embeds the manifest as <script type="application/json" id="review-data">.
 const MANIFEST_PATTERN = /<script[^>]*\bid="review-data"[^>]*>([\s\S]*?)<\/script>/;
@@ -87,6 +88,8 @@ export function threadsByPackage(boardStore, packageIds) {
 
 export function buildSnapshot({ config, store, adventurers, boardStore, lanes, downLanes = null }) {
   const quests = withFileSets(config, store.list());
+  // Historical context only: the latest failed or bounced attempt per exact card id, omitted when empty.
+  const recentFailures = recentFailuresByCard(quests);
   const roster = effectiveRoster(adventurers, lanes);
   const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), ...(downLanes ? { downLanes } : {}) };
   const byQuest = {};
@@ -103,6 +106,7 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
     generatedAt: new Date().toISOString(),
     project: { name: config.name, id: projectId(config.root), lanes: Object.keys(config.lanes) },
     quests,
+    ...(Object.keys(recentFailures).length ? { recentFailures } : {}),
     roster,
     eligibility: byQuest,
     reviewEligibility: forReview,

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Card, Snapshot } from '../api/types';
+import { failureForCard, failureQuestExists } from '../api/failureTypes';
 import {
   EMPTY_ROSTER_FILTER,
   buildRosterFilterOptions,
@@ -18,9 +19,10 @@ interface RosterViewProps {
   snap: Snapshot;
   refresh: () => void;
   pushToast: (msg: string) => void;
+  onOpenQuest?: (questId: string) => void;
 }
 
-export function RosterView({ snap, refresh, pushToast }: RosterViewProps) {
+export function RosterView({ snap, refresh, pushToast, onOpenQuest }: RosterViewProps) {
   const [statusCard, setStatusCard] = useState<Card | null>(null);
   const [formModal, setFormModal] = useState<{
     isOpen: boolean;
@@ -35,6 +37,11 @@ export function RosterView({ snap, refresh, pushToast }: RosterViewProps) {
   const options = useMemo(() => buildRosterFilterOptions(roster), [roster]);
   const visible = useMemo(() => filterRosterCards(roster, filter), [roster, filter]);
   const filterActive = rosterFilterActive(filter);
+
+  // The recent-failure note is offered only for the card being opened, and the drawer link only when
+  // that quest is part of this project — an entry from another project opens nothing.
+  const statusFailure = statusCard ? failureForCard(snap, statusCard.id) : null;
+  const canOpenStatusFailure = failureQuestExists(snap, statusFailure);
 
   return (
     <div className="roster-view-container">
@@ -95,6 +102,15 @@ export function RosterView({ snap, refresh, pushToast }: RosterViewProps) {
       {statusCard ? (
         <CardModal
           card={statusCard}
+          failure={statusFailure}
+          onOpenQuest={
+            onOpenQuest && canOpenStatusFailure
+              ? (questId) => {
+                  setStatusCard(null);
+                  onOpenQuest(questId);
+                }
+              : undefined
+          }
           onClose={() => setStatusCard(null)}
           onSuccess={() => {
             setStatusCard(null);
