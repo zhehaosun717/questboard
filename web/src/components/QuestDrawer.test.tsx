@@ -71,4 +71,17 @@ describe('QuestDrawer 修改委托 hook-in', () => {
     expect(html).toContain('确认已停止并人工释放');
     expect(html).toContain('ON QUEST');
   });
+
+  it('shows the binding source and counts for a linked review page (feedback 11)', () => {
+    const quest = makeQuest({ id: 'A-2', kind: 'art', reviewPage: 'p1' });
+    const snap = makeSnapshot({
+      quests: [quest],
+      reviewPages: [
+        { page: 'p1', title: '角色A', url: '/review/art/charA/final.html', total: 2, answered: 1 },
+      ],
+    });
+    const html = render(quest, snap);
+    expect(html).toContain('绑定来源：评审目录/art/charA/final.html');
+    expect(html).toContain('已批注 1/2');
+  });
 });

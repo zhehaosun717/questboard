@@ -1,6 +1,6 @@
 import { api } from '../api/client';
 import type { Quest, Snapshot } from '../api/types';
-import { formatAgo, formatClock, isSafeReviewUrl, relatedQuestIds } from '../lib/board';
+import { formatAgo, formatClock, isSafeReviewUrl, relatedQuestIds, reviewSourcePath } from '../lib/board';
 import { evidenceFor } from '../lib/evidence';
 import { KIND, STATUS } from '../lib/labels';
 import { nextStep } from '../lib/nextStep';
@@ -64,6 +64,7 @@ export function QuestDrawer({
   const reviewPage = quest.reviewPage
     ? (snap.reviewPages || []).find((p) => p.page === quest.reviewPage)
     : null;
+  const reviewSource = reviewPage ? reviewSourcePath(reviewPage.url) : null;
 
   const step = nextStep(quest, snap);
   const rungs = evidenceFor(quest, snap);
@@ -235,11 +236,17 @@ export function QuestDrawer({
             <a className="rv" href={reviewPage.url} target="_blank" rel="noreferrer">
               <span className="rv-title">{reviewPage.title}</span>
               <span className="rv-count">已批注 {reviewPage.answered}/{reviewPage.total}</span>
+              {reviewSource ? (
+                <span className="rv-source">绑定来源：评审目录/{reviewSource}</span>
+              ) : null}
             </a>
           ) : (
             <div className="rv">
               <span className="rv-title">{reviewPage.title}</span>
               <span className="rv-count">已批注 {reviewPage.answered}/{reviewPage.total}</span>
+              {reviewSource ? (
+                <span className="rv-source">绑定来源：评审目录/{reviewSource}</span>
+              ) : null}
             </div>
           )}
         </DrawerSection>

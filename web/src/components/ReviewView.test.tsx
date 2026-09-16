@@ -56,7 +56,10 @@ describe('ReviewView (real render)', () => {
     const html = render({ reviewPages: pages });
     expect(html).toContain('角色A 最终稿');
     expect(html).toContain('统计不可用 · 仅查看页面');
-    expect(html).not.toContain('手工页面');
+    // The old legacy label must never leak into a row. (The redo slice adds its own '手工页面，没有可绑定的
+    // 页面编号' note under manual rows — a different string with its own meaning — so anchor on the exact
+    // legacy error text instead of the bare substring.)
+    expect(html).not.toContain(REVIEW_NO_MANIFEST_ERROR);
     expect(html).not.toContain('已批注 0 / 共 0');
   });
 
@@ -116,5 +119,34 @@ describe('ReviewView (real render)', () => {
     ];
     const html = render({ reviewPages: pages, selectedUrl: '/review/a.html' });
     expect(html).toContain('<h2>A</h2>');
+  });
+
+  it('manifest pages offer 发起重做委托, manual pages say why no redo can be bound', () => {
+    const pages = [
+      generated({ path: 'a.html', id: 'a', title: 'A', answered: 0, total: 1 }),
+      legacy('b.html'),
+    ];
+    const html = render({ reviewPages: pages });
+    expect(html).toContain('发起重做委托');
+    expect(html).toContain('手工页面，没有可绑定的页面编号');
+  });
+
+  it('a manual page gets no redo action at all', () => {
+    const html = render({ reviewPages: [legacy('only.html')] });
+    expect(html).not.toContain('发起重做委托');
+    expect(html).toContain('手工页面，没有可绑定的页面编号');
+  });
+
+  it('row action names its page in the aria-label (L1)', () => {
+    const pages = [generated({ path: 'a.html', id: 'art/page-9', title: 'A', answered: 0, total: 1 })];
+    const html = render({ reviewPages: pages });
+    expect(html).toContain('aria-label="为 art/page-9 发起重做委托"');
+  });
+
+  it('no redo dialog is rendered until the row action is used', () => {
+    const pages = [generated({ path: 'a.html', id: 'a', title: 'A', answered: 0, total: 1 })] as ReviewPage[];
+    const html = render({ reviewPages: pages });
+    expect(html).not.toContain('redo-overlay');
+    expect(html).not.toContain('将要提交的内容');
   });
 });

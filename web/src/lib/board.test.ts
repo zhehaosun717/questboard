@@ -12,6 +12,7 @@ import {
   projectScopedKey,
   questsInColumn,
   relatedQuestIds,
+  reviewSourcePath,
 } from './board';
 import { COLUMNS, type Column } from './labels';
 import { inTrayItems } from './inTray';
@@ -276,6 +277,19 @@ describe('board pure helpers', () => {
       expect(isSafeReviewUrl('/review/%2e%2e/secret')).toBe(false);
       expect(isSafeReviewUrl('/review/test?page=..')).toBe(false);
       expect(isSafeReviewUrl('/review/test#..')).toBe(false);
+    });
+  });
+
+  describe('reviewSourcePath', () => {
+    it('把评审目录地址转成相对清单路径', () => {
+      expect(reviewSourcePath('/review/art/charA/final.html')).toBe('art/charA/final.html');
+      expect(reviewSourcePath('/review/nested/dir/page.html')).toBe('nested/dir/page.html');
+    });
+
+    it('目录外地址和空地址返回 null', () => {
+      expect(reviewSourcePath('/other/page.html')).toBeNull();
+      expect(reviewSourcePath('/review/')).toBeNull();
+      expect(reviewSourcePath('')).toBeNull();
     });
   });
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ReviewPage } from '../api/types';
+import type { Quest, ReviewPage, UnpostedBrief } from '../api/types';
 import { isSafeReviewUrl } from '../lib/board';
 import {
   filterReviewPagesByQuery,
@@ -21,12 +21,22 @@ import {
   summarizeReviewStats,
   type ReviewStatsFilter,
 } from '../lib/reviewList';
+import { RedoArtDialog } from './review/RedoArtDialog';
 import './../styles/review.css';
+import './../styles/review-redo.css';
 
 interface ReviewViewProps {
   reviewPages?: ReviewPage[];
   selectedUrl: string | null;
   onSelectPage: (url: string | null) => void;
+  // Feedback 11: the redo dialog posts an art quest bound to one review page. Optional so older callers and
+  // tests keep working; the dialog degrades honestly when the snapshot has no brief list (old server).
+  redoBriefs?: UnpostedBrief[];
+  // Feedback 11 round 2 (F1): the board's quests, so the dialog can refuse a package id that already
+  // exists (POST /api/quests upserts it and would silently rewrite that quest).
+  boardQuests?: Quest[];
+  projectId?: string;
+  onRedoPosted?: (questId: string) => void;
 }
 
 const STATS_FILTER_OPTIONS: { value: ReviewStatsFilter; label: string }[] = [
@@ -39,13 +49,19 @@ export function ReviewView({
   reviewPages = [],
   selectedUrl,
   onSelectPage,
+  redoBriefs,
+  boardQuests,
+  projectId,
+  onRedoPosted,
 }: ReviewViewProps) {
   const [onlyUnanswered, setOnlyUnanswered] = useState(false);
+  const [redoPage, setRedoPage] = useState<ReviewPage | null>(null);
   const [statsFilter, setStatsFilter] = useState<ReviewStatsFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [frameVersion, setFrameVersion] = useState(0);
   const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const redoActionRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   const orderedPages = sortReviewPages(reviewPages);
   const statsFiltered = filterReviewPagesByStats(orderedPages, statsFilter);
@@ -82,6 +98,13 @@ export function ReviewView({
     row?.scrollIntoView({ block: 'nearest' });
   }, [selectedUrl, selectedRowAvailable, isSidebarOpen]);
 
+  // Feedback 11 round 2 (M1): a project switch replaces the whole board, so a dialog opened from the
+  // previous project closes instead of lingering (possibly mid-submit, with cancel disabled) over the
+  // new project's list. The dialog's own stillCurrent() guard keeps the stale result from being applied.
+  useEffect(() => {
+    setRedoPage(null);
+  }, [projectId]);
+
   const goToAdjacent = (direction: 'previous' | 'next') => {
     const page = getAdjacentReviewPage(navigablePages, selectedUrl, direction);
     if (page) onSelectPage(page.url);
@@ -105,10 +128,19 @@ export function ReviewView({
     }
   };
 
+  // L1: closing the dialog returns focus to the row action that opened it, so keyboard users are not
+  // dropped to <body>.
+  const closeRedo = () => {
+    const openingUrl = redoPage?.url;
+    setRedoPage(null);
+    if (openingUrl) redoActionRefs.current.get(openingUrl)?.focus();
+  };
+
   const renderPage = (page: ReviewPage) => {
     const progress = getReviewProgressPercent(page);
     const isSelected = page.url === selectedUrl;
     const key = `${page.url}-${page.title}`;
+    const pageId = page.page ?? '';
     const content = (
       <>
         <span className="review-page-title">{getReviewDisplayTitle(page)}</span>
@@ -131,17 +163,8 @@ export function ReviewView({
       </>
     );
 
-    if (!isSafeReviewUrl(page.url)) {
-      return (
-        <div key={key} className="review-page is-disabled" role="option" aria-selected={false} aria-disabled="true">
-          {content}
-        </div>
-      );
-    }
-
-    return (
+    const row = isSafeReviewUrl(page.url) ? (
       <button
-        key={key}
         ref={(node) => {
           if (node) rowRefs.current.set(page.url, node);
           else rowRefs.current.delete(page.url);
@@ -155,6 +178,32 @@ export function ReviewView({
       >
         {content}
       </button>
+    ) : (
+      <div className="review-page is-disabled" role="option" aria-selected={false} aria-disabled="true">
+        {content}
+      </div>
+    );
+
+    return (
+      <div key={key} className="review-page-slot" role="presentation">
+        {row}
+        {pageId ? (
+          <button
+            ref={(node) => {
+              if (node) redoActionRefs.current.set(page.url, node);
+              else redoActionRefs.current.delete(page.url);
+            }}
+            className="review-redo-action"
+            type="button"
+            aria-label={`为 ${pageId} 发起重做委托`}
+            onClick={() => setRedoPage(page)}
+          >
+            发起重做委托
+          </button>
+        ) : (
+          <span className="review-redo-note">手工页面，没有可绑定的页面编号</span>
+        )}
+      </div>
     );
   };
 
@@ -322,6 +371,19 @@ export function ReviewView({
           )}
         </section>
       </div>
+      {redoPage ? (
+        <RedoArtDialog
+          page={redoPage}
+          briefs={redoBriefs}
+          existingQuests={boardQuests}
+          projectId={projectId}
+          onClose={closeRedo}
+          onPosted={(questId) => {
+            setRedoPage(null);
+            onRedoPosted?.(questId);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

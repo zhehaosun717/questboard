@@ -206,3 +206,15 @@ export function isSafeReviewUrl(url: string | null | undefined): boolean {
   }
 }
 
+// A review page URL minus the /review/ prefix, i.e. its path relative to the review directory:
+// /review/art/charA/final.html → art/charA/final.html. Null when the URL is not under /review/.
+// Lives in this shared module (not the redo dialog) so the drawer and the dialog label the same binding
+// source from one function.
+export const REVIEW_URL_PREFIX = '/review/';
+
+export function reviewSourcePath(url: string): string | null {
+  if (!url.startsWith(REVIEW_URL_PREFIX)) return null;
+  const relative = url.slice(REVIEW_URL_PREFIX.length);
+  return relative.length > 0 ? relative : null;
+}
+

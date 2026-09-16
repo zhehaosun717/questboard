@@ -616,3 +616,17 @@ export interface RosterBulkResponse {
   results: RosterBulkResult[];
   counts: RosterBulkCounts;
 }
+
+// Feedback 11: an art redo posted from the 评审 view, bound to one explicit review page id. Sent to the same
+// POST /api/quests the CLI and MCP use; the page id travels with the quest so a dispatch cannot bind the
+// wrong image.
+export interface ArtRedoRequest {
+  package: string;
+  brief: string;
+  kind: 'art';
+  reviewPage: string;
+}
+
+export interface ArtRedoResponse {
+  quest: Quest;
+}

@@ -1,0 +1,282 @@
+/* 重做委托对话框与评审页行内操作（QB-FB-ART-REDO-UI 切片样式）。 */
+
+.review-page-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.review-redo-action {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 12px;
+  color: var(--dim);
+  background: transparent;
+  border: 1px solid var(--steel);
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.review-redo-action:hover,
+.review-redo-action:focus-visible {
+  color: var(--cream);
+  border-color: var(--amber);
+}
+
+.review-redo-note {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.redo-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 5vh 16px 24px;
+  overflow: auto;
+  background: rgba(12, 9, 5, 0.6);
+}
+
+.redo-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(640px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  padding: 18px 20px 16px;
+  background: var(--soil2);
+  border: 1px solid var(--steel);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  color: var(--cream);
+}
+
+.redo-dialog:focus {
+  outline: none;
+}
+
+.redo-dialog:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.redo-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.redo-kicker {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--amber);
+}
+
+.redo-title {
+  margin: 0;
+  font-size: 18px;
+  color: var(--cream);
+}
+
+.redo-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--amber);
+}
+
+.redo-target,
+.redo-section,
+.redo-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--steel);
+  background: var(--hall-edge);
+}
+
+.redo-row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.redo-label {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.redo-value {
+  font-size: 13px;
+  color: var(--cream);
+  overflow-wrap: anywhere;
+}
+
+.redo-path {
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.redo-brief-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.redo-brief-option {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--steel);
+  background: var(--soil);
+  cursor: pointer;
+}
+
+.redo-brief-option:hover {
+  border-color: var(--steel2);
+}
+
+.redo-brief-option.is-picked {
+  border-color: var(--amber);
+}
+
+.redo-brief-option:focus-within {
+  border-color: var(--amber);
+}
+
+.redo-brief-radio {
+  width: auto;
+  flex: none;
+  margin: 3px 0 0;
+  accent-color: var(--amber);
+}
+
+.redo-brief-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.redo-brief-package {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--amber);
+}
+
+.redo-brief-title {
+  font-size: 13px;
+  color: var(--cream);
+}
+
+.redo-brief-path {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.redo-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.redo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.redo-input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--cream);
+  background: var(--soil);
+  border: 1px solid var(--steel);
+  padding: 6px 8px;
+}
+
+.redo-input::placeholder {
+  color: var(--dim);
+}
+
+.redo-input:focus-visible {
+  outline: none;
+  border-color: var(--amber);
+}
+
+.redo-field-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--rust);
+}
+
+.redo-problem {
+  margin: 0;
+  font-size: 12px;
+  color: var(--rust);
+  border: 1px solid var(--rust);
+  padding: 6px 8px;
+}
+
+.redo-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.redo-cancel {
+  font: inherit;
+  font-size: 13px;
+  color: var(--dim);
+  background: transparent;
+  border: 1px solid var(--steel);
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.redo-cancel:hover:not(:disabled),
+.redo-cancel:focus-visible {
+  color: var(--cream);
+  border-color: var(--steel2);
+}
+
+.redo-confirm {
+  font: inherit;
+  font-size: 13px;
+  color: var(--oak-deep);
+  background: var(--amber);
+  border: 1px solid var(--amber);
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.redo-confirm:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.redo-confirm:focus-visible {
+  outline: 2px solid var(--cream);
+  outline-offset: 1px;
+}
+
+.redo-confirm:disabled,
+.redo-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .redo-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

@@ -1,6 +1,6 @@
 // The only module that talks to the board server. Errors carry the server's refusal reasons.
 import type {
-  AdventurerInput, Card, CardStatus, LanePreviewRequest, LanePreviewResponse, LaneServerStatus, LanesReport, Message, MetadataUpdateInput, OmoChange, OmoConfig, Quest, QuestEvent,
+  AdventurerInput, ArtRedoResponse, Card, CardStatus, LanePreviewRequest, LanePreviewResponse, LaneServerStatus, LanesReport, Message, MetadataUpdateInput, OmoChange, OmoConfig, Quest, QuestEvent,
   QuestStatus, Reason, SettingsReport, Snapshot, Thread, ThreadDetail, ThreadStatusFilter, UsageReport,
   RosterBulkRequest, RosterBulkResponse,
 } from './types';
@@ -120,6 +120,16 @@ export const api = {
     call<RosterBulkResponse>('/api/roster/bulk/preview', 'POST', input),
   rosterBulkApply: (input: RosterBulkRequest) =>
     call<RosterBulkResponse>('/api/roster/bulk/apply', 'POST', input),
+  // Posts an art redo quest bound to an explicit review page (feedback 11) through the same POST /api/quests
+  // the CLI and MCP use; the server stays authoritative. 400 field refusals arrive as ApiError.fields, a
+  // running or already-posted package as fields.package, and everything else as the server's own message.
+  postArtRedo: (input: { package: string; brief: string; reviewPage: string }) =>
+    call<ArtRedoResponse>('/api/quests', 'POST', {
+      package: input.package,
+      brief: input.brief,
+      kind: 'art',
+      reviewPage: input.reviewPage,
+    }),
 };
 
 // Live events. Returns a function that closes the stream.

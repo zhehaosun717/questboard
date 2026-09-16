@@ -195,6 +195,14 @@ export function App() {
                 reviewPages={snap?.reviewPages}
                 selectedUrl={route.reviewUrl}
                 onSelectPage={handleSelectReviewPage}
+                redoBriefs={snap?.unpostedBriefs}
+                boardQuests={snap?.quests}
+                projectId={snap?.project?.id}
+                onRedoPosted={(questId) => {
+                  // One refresh, then open the freshly posted quest in the drawer (feedback 11).
+                  refresh();
+                  setSelectedQuestId(questId);
+                }}
               />
             )}
             {route.tab === 'history' && <HistoryView />}
