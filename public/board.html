@@ -174,27 +174,27 @@
   <div class="shell">
     <header class="masthead">
       <div>
-        <p class="eyebrow">local field notes / 本地讨论板</p>
+        <p class="eyebrow">本地讨论板</p>
         <h1>questboard 留言板</h1>
       </div>
-      <p class="subtitle">A quiet place for decisions, discoveries, and the things that should not be lost.</p>
-      <p class="subtitle"><a href="/dashboard">→ 悬赏板 / Quest board</a></p>
+      <p class="subtitle">记录决策、发现与不该遗忘之事的清净之所。</p>
+      <p class="subtitle"><a href="/dashboard">→ 悬赏板</a></p>
     </header>
     <main class="board">
-      <aside class="sidebar" aria-label="Threads">
+      <aside class="sidebar" aria-label="主题列表">
         <div class="sidebar-head">
           <div class="head-row">
-            <h2>Threads</h2>
+            <h2>主题列表</h2>
             <span id="thread-count" class="count">0</span>
           </div>
           <div class="filters">
-            <input id="search" type="search" placeholder="Search / 搜索" aria-label="Search threads">
-            <select id="status-filter" aria-label="Thread status">
-              <option value="open">Open / 开放</option>
-              <option value="all">All / 全部</option>
-              <option value="closed">Closed / 已关闭</option>
+            <input id="search" type="search" placeholder="搜索主题..." aria-label="搜索主题">
+            <select id="status-filter" aria-label="主题状态">
+              <option value="open">开放</option>
+              <option value="all">全部</option>
+              <option value="closed">已关闭</option>
             </select>
-            <button id="new-thread" class="button primary" type="button">+ New thread / 新主题</button>
+            <button id="new-thread" class="button primary" type="button">+ 新主题</button>
           </div>
         </div>
         <div id="thread-list" class="thread-list" aria-live="polite"></div>
@@ -202,9 +202,9 @@
       <section class="main" aria-live="polite">
         <div id="thread-view" class="welcome">
           <div>
-            <p class="eyebrow">start here / 从这里开始</p>
-            <h2>Choose a thread</h2>
-            <p>Select a note from the left, or open a new one.</p>
+            <p class="eyebrow">从这里开始</p>
+            <h2>选一个主题</h2>
+            <p>从左侧选一个主题，或者开一个新的。</p>
           </div>
         </div>
       </section>
@@ -213,25 +213,25 @@
 
   <div id="new-thread-modal" class="modal-backdrop" hidden>
     <form id="new-thread-form" class="modal">
-      <h2>New thread / 新主题</h2>
+      <h2>新主题</h2>
       <div class="field">
-        <label for="new-title">Title / 标题</label>
+        <label for="new-title">标题</label>
         <input id="new-title" name="title" maxlength="120" required>
         <div id="error-title" class="field-error"></div>
       </div>
       <div class="field">
-        <label for="new-body">First note / 第一条消息</label>
+        <label for="new-body">第一条消息</label>
         <textarea id="new-body" name="body" maxlength="20000" required></textarea>
         <div id="error-body" class="field-error"></div>
       </div>
       <div class="field">
-        <label for="new-tags">Tags / 标签 <span class="hint">comma separated</span></label>
-        <input id="new-tags" name="tags" placeholder="research, playtest">
+        <label for="new-tags">标签 <span class="hint">逗号分隔</span></label>
+        <input id="new-tags" name="tags" placeholder="如：research, playtest">
         <div id="error-tag" class="field-error"></div>
       </div>
       <div class="modal-foot">
-        <button id="cancel-new" class="button" type="button">Cancel / 取消</button>
-        <button class="button primary" type="submit">Post thread / 发布</button>
+        <button id="cancel-new" class="button" type="button">取消</button>
+        <button class="button primary" type="submit">发布</button>
       </div>
     </form>
   </div>
@@ -262,25 +262,25 @@
       };
       const renderList = () => {
         document.querySelector('#thread-count').textContent = String(state.threads.length);
-        if (!state.threads.length) { list.innerHTML = '<div class="empty">No threads yet.<br>还没有主题。</div>'; return; }
+        if (!state.threads.length) { list.innerHTML = '<div class="empty">还没有主题。</div>'; return; }
         list.innerHTML = state.threads.map((thread) => `
           <button class="thread-card ${thread.id === state.activeId ? 'active' : ''} ${isUnread(thread) ? 'unread' : ''}" data-thread-id="${escapeHtml(thread.id)}" type="button">
-            <strong>${thread.pinned ? '<span class="pin" aria-label="Pinned">●</span> ' : ''}${escapeHtml(thread.title)}</strong>
-            <div class="thread-meta"><span>${escapeHtml(thread.author)} · ${shortDate(thread.updatedAt)}</span><span>${thread.messageCount} msg</span></div>
+            <strong>${thread.pinned ? '<span class="pin" aria-label="置顶">●</span> ' : ''}${escapeHtml(thread.title)}</strong>
+            <div class="thread-meta"><span>${escapeHtml(thread.author)} · ${shortDate(thread.updatedAt)}</span><span>${thread.messageCount} 条</span></div>
             <div class="thread-tags">${thread.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>
           </button>`).join('');
         list.querySelectorAll('[data-thread-id]').forEach((button) => button.addEventListener('click', () => openThread(button.dataset.threadId)));
       };
       const renderThread = (thread) => {
-        if (!thread) { view.className = 'welcome'; view.innerHTML = '<div><p class="eyebrow">start here / 从这里开始</p><h2>Choose a thread</h2><p>Select a note from the left, or open a new one.</p></div>'; return; }
+        if (!thread) { view.className = 'welcome'; view.innerHTML = '<div><p class="eyebrow">从这里开始</p><h2>选一个主题</h2><p>从左侧选一个主题，或者开一个新的。</p></div>'; return; }
         view.className = 'main';
         view.innerHTML = `
           <header class="thread-head">
-            <div><p class="eyebrow">thread / 主题</p><h2>${escapeHtml(thread.title)}</h2><div class="thread-info">${escapeHtml(thread.author)} · ${formatDate(thread.createdAt)}${thread.closed ? ' · closed / 已关闭' : ''}${thread.tags.length ? ` · ${thread.tags.map(escapeHtml).join(', ')}` : ''}</div></div>
-            <div class="actions"><button id="pin-thread" class="icon-button" type="button">${thread.pinned ? 'Unpin' : 'Pin'} / ${thread.pinned ? '取消置顶' : '置顶'}</button><button id="close-thread" class="icon-button" type="button">${thread.closed ? 'Reopen' : 'Close'} / ${thread.closed ? '重新打开' : '关闭'}</button></div>
+            <div><p class="eyebrow">主题</p><h2>${escapeHtml(thread.title)}</h2><div class="thread-info">${escapeHtml(thread.author)} · ${formatDate(thread.createdAt)}${thread.closed ? ' · 已关闭' : ''}${thread.tags.length ? ` · ${thread.tags.map(escapeHtml).join(', ')}` : ''}</div></div>
+            <div class="actions"><button id="pin-thread" class="icon-button" type="button">${thread.pinned ? '取消置顶' : '置顶'}</button><button id="close-thread" class="icon-button" type="button">${thread.closed ? '重新打开' : '关闭'}</button></div>
           </header>
           <div class="messages">${thread.messages.map((message) => `<article class="message"><div class="message-bar"><span class="message-author">${escapeHtml(message.author)}</span><time class="message-time" datetime="${escapeHtml(message.createdAt)}">${formatDate(message.createdAt)}</time></div><p class="message-body">${linkify(message.body)}</p></article>`).join('')}</div>
-          ${thread.closed ? '<div class="composer"><div class="composer-inner"><div class="status">This thread is closed. / 此主题已关闭。</div></div></div>' : `<form id="reply-form" class="composer"><div class="composer-inner"><div class="composer-top"><span class="composer-label">Reply / 回复</span><span class="hint">Ctrl + Enter to send</span></div><textarea name="body" maxlength="20000" placeholder="Write a reply... / 写下回复..." required></textarea><div class="composer-foot"><div id="reply-status" class="status"></div><button class="button primary" type="submit">Send / 发送</button></div></div></form>`}`;
+          ${thread.closed ? '<div class="composer"><div class="composer-inner"><div class="status">此主题已关闭。</div></div></div>' : `<form id="reply-form" class="composer"><div class="composer-inner"><div class="composer-top"><span class="composer-label">回复</span><span class="hint">Ctrl + Enter 发送</span></div><textarea name="body" maxlength="20000" placeholder="写下回复..." required></textarea><div class="composer-foot"><div id="reply-status" class="status"></div><button class="button primary" type="submit">发送</button></div></div></form>`}`;
         document.querySelector('#pin-thread').addEventListener('click', () => mutateThread(`/api/threads/${thread.id}/pin`, { pinned: !thread.pinned }));
         document.querySelector('#close-thread').addEventListener('click', () => mutateThread(`/api/threads/${thread.id}/close`, { closed: !thread.closed }));
         const replyForm = document.querySelector('#reply-form');
@@ -291,7 +291,7 @@
             event.preventDefault();
             const status = replyForm.querySelector('.status');
             if (!ensureAuthor()) return;
-            setStatus(status, 'Sending...');
+            setStatus(status, '发送中…');
             try { await api(`/api/threads/${thread.id}/messages`, { method: 'POST', body: JSON.stringify({ body: textarea.value, author: state.author }) }); await openThread(thread.id); } catch (error) { setStatus(status, error.message, true); }
           });
           textarea.focus();
@@ -313,7 +313,7 @@
       const mutateThread = async (path, payload) => { try { await api(path, { method: 'POST', body: JSON.stringify(payload) }); await loadThreads(); await openThread(state.activeId); } catch (error) { window.alert(error.message); } };
       const ensureAuthor = () => {
         if (state.author) return true;
-        const author = window.prompt('Name / 昵称');
+        const author = window.prompt('昵称');
         if (!author || !author.trim()) return false;
         state.author = author.trim(); localStorage.setItem('board.author', state.author); return true;
       };
@@ -334,7 +334,7 @@
         const linked = new URLSearchParams(window.location.search).get('thread');
         if (linked) return openThread(linked);
         return null;
-      }).catch((error) => { list.innerHTML = `<div class="empty">${escapeHtml(error.message)}<br>Start the board server first.</div>`; });
+      }).catch((error) => { list.innerHTML = `<div class="empty">${escapeHtml(error.message)}<br>请先启动看板服务。</div>`; });
     })();
   </script>
 </body>

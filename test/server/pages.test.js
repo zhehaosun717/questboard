@@ -56,4 +56,15 @@ describe('page routes', () => {
     const routes = createPageRoutes({ config, webDist: tmpDir('no-dist-') });
     assert.match((await get(routes, '/')).text, /assets\/quests\.app\.js/);
   });
+
+  it('serves public/board.html with translated Chinese headings and no English placeholders', async () => {
+    const { config } = makeProject();
+    const routes = createPageRoutes({ config, webDist: tmpDir('no-dist-') });
+    const page = await get(routes, '/board');
+    assert.equal(page.status, 200);
+    assert.match(page.text, /选一个主题/);
+    assert.doesNotMatch(page.text, /Choose a thread/);
+    assert.match(page.text, /主题列表/);
+    assert.doesNotMatch(page.text, /<h2>Threads<\/h2>/);
+  });
 });
