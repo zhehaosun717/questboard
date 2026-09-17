@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createUsageService, ALIBABA_PLAN_TEXT } from '../../src/usage/service.js';
 import { resolveConfig } from '../../src/core/config.js';
-import { claudeSubscription } from '../../src/usage/providers.js';
+import { EXPERIMENTAL_PROVIDERS, claudeSubscription } from '../../src/usage/providers.js';
 import { getClaudeSnapshotPath, readClaudeSnapshot } from '../../src/usage/claudeStatusline.js';
 import { tmpDir } from '../helpers.js';
 
@@ -334,5 +334,24 @@ describe('usage service wiring', () => {
     assert.equal(entry.error, config.usage.alibabaIssue);
     assert.equal(entry.plan, ALIBABA_PLAN_TEXT);
     assert.ok(!JSON.stringify(report).includes('hacked-edition'));
+  });
+
+  it('refuses an unknown experimental provider id naming the id and every accepted id', () => {
+    const unknownId = 'zzz-unknown';
+    const expectedAccepted = EXPERIMENTAL_PROVIDERS.map((p) => p.id).join('、');
+    assert.throws(
+      () => createUsageService({
+        providers: [],
+        config: { usage: { experimentalProviders: [unknownId] } },
+      }),
+      (err) => {
+        assert.equal(err.message, `未知的用量来源：${unknownId}（可选：${expectedAccepted}）`);
+        assert.ok(err.message.includes(unknownId));
+        for (const provider of EXPERIMENTAL_PROVIDERS) {
+          assert.ok(err.message.includes(provider.id));
+        }
+        return true;
+      },
+    );
   });
 });

@@ -477,7 +477,7 @@ export function createUsageService({
     }
     const cleanId = id.trim();
     if (!KNOWN_EXPERIMENTAL_PROVIDER_IDS.has(cleanId)) {
-      throw new Error('未知的用量来源：' + cleanId);
+      throw new Error(`未知的用量来源：${cleanId}（可选：${[...KNOWN_EXPERIMENTAL_PROVIDER_IDS].join('、')}）`);
     }
     const experimentalProvider = EXPERIMENTAL_PROVIDER_BY_ID.get(cleanId);
     if (!providersList.some((p) => p.id === cleanId)) {
