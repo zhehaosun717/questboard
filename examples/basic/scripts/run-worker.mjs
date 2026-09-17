@@ -341,7 +341,7 @@ function closeOut() {
 // target on Windows), fall back to one full overwrite rather than leave no terminal evidence at all.
 function publishExit(code) {
   const tmpPath = `${exitPath}.${process.pid}.tmp`;
-  const content = `${code}\n${cancelRequestId && cancelAcknowledged ? JSON.stringify({ requestId: cancelRequestId, scope: 'direct-child' }) + '\n' : ''}`;
+  const content = `${code}\n${cancelRequestId && cancelAcknowledged ? JSON.stringify({ requestId: cancelRequestId, scope: 'direct-child', treeKill: treeKillResult }) + '\n' : ''}`;
   try {
     fs.writeFileSync(tmpPath, content, 'utf8');
     try {
@@ -486,6 +486,7 @@ const controlAttemptId = process.env.QUESTBOARD_ATTEMPT_ID || '';
 const controlToken = process.env.QUESTBOARD_CONTROL_TOKEN || '';
 let cancelRequestId = null;
 let cancelAcknowledged = false;
+let treeKillResult = 'skipped';
 
 // The board's cooperative stop boundary is intentionally narrow: verify the per-attempt IPC payload,
 // acknowledge that exact request, and kill only the process tree this wrapper created. The direct child
@@ -494,11 +495,15 @@ let cancelAcknowledged = false;
 // wrapper did not spawn. Breakaway descendants cannot be ruled out generically, so the wrapper still
 // reports exactly what it did, never a universal "all stopped".
 function killTree() {
-  if (process.platform !== 'win32' || !child || child.exitCode !== null || typeof child.pid !== 'number') return;
+  if (process.platform !== 'win32') { treeKillResult = 'skipped'; return; }
+  if (!child || child.exitCode !== null || typeof child.pid !== 'number') { treeKillResult = 'failed'; return; }
   try {
     const { spawnSync } = require('node:child_process');
-    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: 5000 });
-  } catch {}
+    const result = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: 5000 });
+    treeKillResult = result.status === 0 ? 'ok' : 'failed';
+  } catch {
+    treeKillResult = 'failed';
+  }
 }
 
 function receiveControl(message) {

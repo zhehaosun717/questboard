@@ -17,6 +17,17 @@ function exitEvidence(config, laneId, name, requestId) {
   } catch { return null; }
 }
 
+// The wrapper reports exactly what it did to the process tree it created: 'ok' means the OS tree kill
+// returned success on its still-alive direct child, 'failed' means the bounded attempt did not succeed,
+// 'skipped' means the platform or timing made the attempt inapplicable. Breakaway descendants cannot be
+// ruled out generically, so none of these ever claims a universal "all stopped".
+function wrapperStopDetail(evidence) {
+  const treeKill = evidence && evidence.treeKill;
+  if (treeKill === 'ok') return '包装脚本已确认并记下：它直接启动的进程及其进程树已停止';
+  if (treeKill === 'failed') return '包装脚本已确认它直接启动的进程已停止；进程树清理未成功，脱离子进程无法排除';
+  return '包装脚本已确认并记下：它直接启动的进程已停止';
+}
+
 export function createGenericWrapperAdapter({ config, timeoutMs = 5000 } = {}) {
   return ({ attempt, request, handle }) => new Promise((resolve) => {
     const child = handle?.child;
@@ -43,15 +54,15 @@ export function createGenericWrapperAdapter({ config, timeoutMs = 5000 } = {}) {
       // The wrapper sends the ack immediately before killing its direct child. The exit event and the
       // exit-file write are the second, independent fact; ack alone never frees the reservation.
       if (exitEvidence(config, attempt.lane, attempt.name, request.requestId)) finish({
-        result: 'stopped_by_wrapper', detail: '包装脚本已确认并记下：它直接启动的进程已停止',
-        evidence: { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: request.requestId, scope: 'direct-child' },
+        result: 'stopped_by_wrapper', detail: wrapperStopDetail(exitEvidence(config, attempt.lane, attempt.name, request.requestId)),
+        evidence: { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: request.requestId, scope: 'direct-child', treeKill: exitEvidence(config, attempt.lane, attempt.name, request.requestId).treeKill ?? null },
       });
     };
     const onExit = () => {
       const evidence = exitEvidence(config, attempt.lane, attempt.name, request.requestId);
       if (acknowledged && evidence) finish({
-        result: 'stopped_by_wrapper', detail: '包装脚本已确认并记下：它直接启动的进程已停止',
-        evidence: { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: evidence.requestId, scope: evidence.scope },
+        result: 'stopped_by_wrapper', detail: wrapperStopDetail(evidence),
+        evidence: { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: evidence.requestId, scope: evidence.scope, treeKill: evidence.treeKill ?? null },
       });
       else finish({ result: 'unknown', detail: 'worker 已退出，但没有对应的取消确认和退出记录' });
     };
