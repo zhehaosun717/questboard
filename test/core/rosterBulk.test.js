@@ -22,10 +22,19 @@ describe('roster bulk request validation', () => {
   it('bounds ids, accepts explicit env removal and does not accept an empty operation', () => {
     assert.throws(() => validateRosterBulkRequest({ ids: [], patch: { variant: 'x' } }), /non-empty array/);
     assert.throws(() => validateRosterBulkRequest({ ids: ['a'], patch: {} }), /must contain a change/);
-    assert.throws(() => validateRosterBulkRequest({ ids: ['a'], patch: { env: { set: { bad: 'x' } } } }), /UPPER_SNAKE_CASE/);
-    assert.throws(() => validateRosterBulkRequest({ ids: ['a'], patch: { env: { set: { TOKEN: 'sk-secret' } } } }), /looks like a key/);
-    assert.throws(() => validateRosterBulkRequest({ ids: ['a'], patch: { env: { set: { OLD: 'x' }, remove: ['OLD'] } } }), /set and remove/);
+    assert.throws(
+      () => validateRosterBulkRequest({ ids: ['a'], patch: { env: { set: { bad: 'x' } } } }),
+      (err) => /UPPER_SNAKE_CASE/.test(err.message) && /[一-鿿]/u.test(err.message) && err.message.includes('bad'),
+    );
+    assert.throws(() => validateRosterBulkRequest({ ids: ['a'], patch: { env: { set: { OPENAI_MODEL: 'sk-secret' } } } }), /OPENAI_MODEL 的值看起来像密钥/);
+    assert.throws(() => validateRosterBulkRequest({ ids: ['a'], patch: { env: { set: { TOKEN: 'x' } } } }), /TOKEN 不是卡片可以设置的/);
+    assert.equal(validateRosterBulkRequest({ ids: ['a'], patch: { env: { set: { OC_AGENT: 'build' } } } }, { cardEnvAllow: ['OC_AGENT'] }).patch.env.set.OC_AGENT, 'build');
+    assert.throws(() => validateRosterBulkRequest({ ids: ['a'], patch: { env: { set: { OLD_MODEL: 'x' }, remove: ['OLD_MODEL'] } } }), /既设置又删除环境变量 OLD_MODEL/);
     assert.equal(validateRosterBulkRequest({ ids: ['a'], patch: { env: { remove: ['OLD'] } } }).patch.env.remove[0], 'OLD');
+    assert.throws(
+      () => validateRosterBulkRequest({ ids: ['a'], patch: { env: { remove: ['ld_audit'] } } }),
+      (err) => /UPPER_SNAKE_CASE/.test(err.message) && /[一-鿿]/u.test(err.message) && err.message.includes('ld_audit'),
+    );
     assert.equal(validateRosterBulkRequest({ ids: ['a'], patch: { variant: '' } }).patch.variant, '');
     assert.equal(validateRosterBulkRequest({ ids: ['a'], action: 'delete' }).patch.action, 'delete');
   });
@@ -33,14 +42,14 @@ describe('roster bulk request validation', () => {
 
 describe('roster bulk preview and apply', () => {
   it('shows changed/preserved fields, protects canonical held and unresolved attempts, and never returns env values', () => {
-    const roster = { adventurers: [card('one', { variant: 'high', env: { BASE_URL: 'https://old.test' } }), card('two')] };
+    const roster = { adventurers: [card('one', { variant: 'high', env: { OPENAI_BASE_URL: 'https://old.test' } }), card('two')] };
     const preview = previewRosterBulk({
       roster,
       quests: [
         { id: 'RUN-1', status: 'stalled', assignee: { adventurerId: 'one' } },
         { id: 'RUN-2', status: 'failed', assignee: { adventurerId: 'two', unresolved: true } },
       ],
-      request: { ids: ['one', 'two'], patch: { variant: '', env: { set: { BASE_URL: 'https://new.test' }, remove: ['MISSING'] } } },
+      request: { ids: ['one', 'two'], patch: { variant: '', env: { set: { OPENAI_BASE_URL: 'https://new.test' }, remove: ['MISSING'] } } },
     });
     assert.deepEqual(preview.results.map((r) => r.ok), [false, false]);
     assert.match(preview.deniedActiveCards[0].reasons[0].message, /RUN-1/);
@@ -411,7 +420,7 @@ describe('roster bulk preview and apply', () => {
         request: { ids: ['one'], patch: { status: 'paused', env: { set: Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`E${i}`, 'x'])) } } },
         save: () => { writes += 1; },
       }),
-      /at most 10/,
+      /最多只能设置 10 个环境变量/,
     );
     assert.equal(writes, 0);
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), roster);
@@ -421,20 +430,20 @@ describe('roster bulk preview and apply', () => {
     const dir = tmp('qb-roster-bulk-apply-');
     const file = path.join(dir, 'roster.json');
     const statusFile = path.join(dir, 'status.jsonl');
-    const roster = { adventurers: [card('one', { variant: 'high', env: { BASE_URL: 'https://old.test', KEEP: 'yes' } })] };
+    const roster = { adventurers: [card('one', { variant: 'high', env: { OPENAI_BASE_URL: 'https://old.test', KEEP_MODEL: 'yes' } })] };
     fs.writeFileSync(file, `${JSON.stringify(roster)}\n`);
     const log = new StatusLog(statusFile);
     const fingerprint = rosterFingerprint(roster, []);
     const result = await applyRosterBulk({
       rosterFile: file,
       statusLog: log,
-      request: { ids: ['one'], fingerprint, actor: 'owner', patch: { status: 'paused', reason: 'manual pause', variant: '', env: { set: { BASE_URL: 'https://new.test' }, remove: ['KEEP'] } } },
+      request: { ids: ['one'], fingerprint, actor: 'owner', patch: { status: 'paused', reason: 'manual pause', variant: '', env: { set: { OPENAI_BASE_URL: 'https://new.test' }, remove: ['KEEP_MODEL'] } } },
       now: () => '2026-09-16T10:00:00.000Z',
     });
     assert.equal(result.counts.changed, 1);
     assert.equal(result.counts.failed, 0);
     const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
-    assert.deepEqual(saved.adventurers[0].env, { BASE_URL: 'https://new.test' });
+    assert.deepEqual(saved.adventurers[0].env, { OPENAI_BASE_URL: 'https://new.test' });
     assert.equal('variant' in saved.adventurers[0], false);
     assert.equal('status' in saved.adventurers[0], false);
     assert.deepEqual(log.records(), [{ at: '2026-09-16T10:00:00.000Z', adventurerId: 'one', status: 'paused', reason: 'manual pause', setBy: 'owner' }]);

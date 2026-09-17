@@ -439,7 +439,10 @@ export const commands = {
       }
       if (option(args, '--max-parallel') !== undefined) entry.maxParallel = Number(option(args, '--max-parallel'));
       if (option(args, '--strengths') !== undefined) entry.strengths = String(option(args, '--strengths')).split(',').map((s) => s.trim()).filter(Boolean);
-      saveRoster(home.roster, upsertAdventurer(loadRosterOrEmpty(home.roster), entry));
+      // upsertAdventurer already checks this entry strictly (built-in allowed shapes only, since this CLI has
+      // no project's policy.cardEnvAllow); lenient here only means an unrelated, untouched card already on
+      // the roster — allowed only by some project's cardEnvAllow — is not re-judged by this project-blind caller.
+      saveRoster(home.roster, upsertAdventurer(loadRosterOrEmpty(home.roster), entry), { lenientEnv: true });
       out(`${entry.id}  ${entry.lane}  ${entry.model} -> ${home.roster}`);
       return;
     }
@@ -496,7 +499,10 @@ export const commands = {
       // this point: a crash or disk error between the roster save and the last status append can leave some
       // of this import's status records unwritten even though the roster itself saved — recoverable from the
       // backup written above, but not atomic as a whole.
-      if (rosterChanges) saveRoster(home.roster, plan.roster);
+      // plan.roster already passed planRosterImport's strict check on every changed/added card; lenient here
+      // only means a card this import never touched (e.g. one allowed solely by some other project's
+      // policy.cardEnvAllow, which this CLI never reads) is not re-judged by a caller with no project list.
+      if (rosterChanges) saveRoster(home.roster, plan.roster, { lenientEnv: true });
       for (const record of plan.toAppend) appendJsonLine(home.status, record);
       for (const line of importDetailLines(plan)) out(line);
       out(`imported ${plan.roster.adventurers.length} cards into ${home.roster}; ${plan.toAppend.length} status records into ${home.status}${rosterChanges ? '' : ' (roster unchanged)'}`);

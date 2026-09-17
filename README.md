@@ -89,12 +89,30 @@ yet and the app offers to set it up for you, then opens the board — no command
 
 | Where | What | Shared by |
 |:---|:---|:---|
-| `~/.questboard/roster.json` (or `QUESTBOARD_HOME`) | Cards: id, name, provider, lane, model, family, variant, variants, agent, billing, parallel limit, strengths, generic notes | every project on the machine |
+| `~/.questboard/roster.json` (or `QUESTBOARD_HOME`) | Cards: id, name, provider, lane, model, family, variant, variants, agent, billing, parallel limit, strengths, generic notes, `env` | every project on the machine |
 | `~/.questboard/status.jsonl` | Status records: `{at, adventurerId, status, reason, setBy}`. A card without records is available | every project |
 | `<project>/questboard.config.json` | Brief folders and id pattern, lane commands, output folders, events/registry/lock paths, banned models | one project |
 
 Dated decisions ("paused on 9/12 because it costs too much") are status records, never roster text, so the
 roster stays reusable.
+
+A card's `env` is for provider settings only, and only non-secret values. A name is accepted only if it
+ends with `_BASE_URL`, `_API_BASE`, `_API_URL`, `_MODEL`, `_MODEL_NAME`, `_MODEL_ID`, `_REGION`,
+`_ACCOUNT_ID`, `_PROJECT_ID`, `_ORG_ID`, `_ORGANIZATION`, `_TIMEOUT_MS`, `_MAX_TOKENS`, `_TEMPERATURE`,
+`_EFFORT`, `_VARIANT`, `_PROVIDER`, `_DEPLOYMENT` or `_API_VERSION`; is one of `MAX_TOKENS`, `MODEL_NAME`,
+`MODEL`, `PROVIDER_REGION`, `API_TIMEOUT_MS`; or is listed in the project's `policy.cardEnvAllow` (exact
+UPPER_SNAKE_CASE names). Every other name is refused. A base URL does more than receive the key the lane
+inherits from the machine environment: a model base URL decides who answers the model, and therefore
+decides what the worker acts on. Some non-model URLs also fit the allowed shape (for example
+`GITHUB_API_URL`, which receives `GITHUB_TOKEN`-style keys), and the browser-download mirror families
+(`PUPPETEER_`, `PLAYWRIGHT_`, `CYPRESS_`, `ELECTRON_`) are denied by prefix because they make a worker
+download and run a binary from that host. Card `env` is trusted configuration: only put hosts you trust
+there, and review every value before saving. **Names you add to `policy.cardEnvAllow` widen that trust
+deliberately and are your responsibility**: the board cannot tell what a program does with them. Even an
+allowed name is still
+refused if it is shaped like a loader, search path, config/home directory, or build-tool switch (including
+`*_HOME`/`*_CONFIG_DIR`), because it would change where the lane reads config or loads code from. A card
+saved before a rule existed still loads, with a note, but cannot be dispatched until its `env` is fixed.
 
 ## Project config
 
@@ -135,6 +153,7 @@ Every field below is optional; a config that never mentions one keeps the behavi
 | `policy.stallAfterMinutes` (default 20) | How long a lane goes quiet before the board calls it `stalled` |
 | `policy.laneConcurrency.<lane>` | A per-lane cap on attempts running at once, on top of each card's own `maxParallel` |
 | `policy.defaultLane`, `policy.defaultCard` | Neither pre-selects anything on the board. `defaultCard` is read only by the CLI's `questboard assign` when no card is named; `defaultLane` is only validated, shown in preferences, and edited on the settings page |
+| `policy.cardEnvAllow[]` | Extra exact `env` names a card may carry on top of the built-in allowed shapes; the deny list still wins over names listed here |
 | `policy.bouncePatterns[{code,pattern,label}]` | Regexes matched against an exit line that turn a failure into a labelled `bounced` status |
 | `policy.reviewRequires[report\|project-verification\|hook]` | Which upstream evidence kinds a review must show before it may be dispatched (warns only when empty, the default) |
 | `usage.manualProviders[]` | Turns on usage cards for providers with no confirmed public usage API (Alibaba token/coding plan, NVIDIA, OpenAI spend) — each shows a "check the console" note instead of a fetched number (see the 用量 settings tab). `claude-subscription` is still accepted here, but the Claude card is always shown regardless — it can show live status-line numbers, so listing it does nothing |

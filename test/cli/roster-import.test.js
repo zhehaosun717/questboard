@@ -62,14 +62,14 @@ async function rosterImport(home, args) {
 describe('roster import merges by card id instead of replacing', () => {
   it('keeps local env, variant and unrelated cards when the file omits them', async () => {
     const home = homeFixture([
-      card('codex-astra', { env: { OC_BASE: 'https://gw.example.com' }, variant: 'high', agent: 'build' }),
+      card('codex-astra', { env: { OC_BASE_URL: 'https://gw.example.com' }, variant: 'high', agent: 'build' }),
       card('local-only', { provider: '别家' }),
     ]);
     const rosterBefore = home.bytes(home.roster);
     const { output, error } = await rosterImport(home, [legacyFile([card('codex-astra')]), '--force']);
     assert.equal(error, undefined, output);
     const astra = home.card('codex-astra');
-    assert.deepEqual(astra.env, { OC_BASE: 'https://gw.example.com' }, 'a file that omits env must not drop the local env');
+    assert.deepEqual(astra.env, { OC_BASE_URL: 'https://gw.example.com' }, 'a file that omits env must not drop the local env');
     assert.equal(astra.variant, 'high', 'a file that omits variant must not drop it');
     assert.equal(astra.agent, 'build');
     assert.ok(home.card('local-only'), 'cards the file never mentions are kept, not erased');
@@ -80,12 +80,12 @@ describe('roster import merges by card id instead of replacing', () => {
   });
 
   it('overlays only explicitly supplied values, and merges env per key', async () => {
-    const home = homeFixture([card('agi-1', { env: { OC_BASE: 'https://old.example.com', KEEP_ME: 'x' } })]);
-    const { error } = await rosterImport(home, [legacyFile([card('agi-1', { model: '新模型', env: { OC_BASE: 'https://new.example.com' } })]), '--force']);
+    const home = homeFixture([card('agi-1', { env: { OC_BASE_URL: 'https://old.example.com', KEEP_MODEL: 'x' } })]);
+    const { error } = await rosterImport(home, [legacyFile([card('agi-1', { model: '新模型', env: { OC_BASE_URL: 'https://new.example.com' } })]), '--force']);
     assert.equal(error, undefined);
     const agi = home.card('agi-1');
     assert.equal(agi.model, '新模型', 'an explicitly supplied value is overlaid');
-    assert.deepEqual(agi.env, { OC_BASE: 'https://new.example.com', KEEP_ME: 'x' }, 'the supplied key updates, the other key survives');
+    assert.deepEqual(agi.env, { OC_BASE_URL: 'https://new.example.com', KEEP_MODEL: 'x' }, 'the supplied key updates, the other key survives');
     assert.equal(agi.variant, undefined, 'no blanket high default for a card that never had a variant');
   });
 
@@ -106,16 +106,16 @@ describe('roster import merges by card id instead of replacing', () => {
 
 describe('roster import validates before touching any file', () => {
   it('a dry run names fields only and writes nothing', async () => {
-    const home = homeFixture([card('agi-1', { env: { OC_BASE: 'https://local.example.com' }, variant: 'high' })]);
+    const home = homeFixture([card('agi-1', { env: { OC_BASE_URL: 'https://local.example.com' }, variant: 'high' })]);
     const rosterBefore = home.bytes(home.roster);
-    const file = legacyFile([card('agi-1', { model: '换模型', env: { OC_BASE: 'https://other.example.com', EXTRA_KEY: 'v' }, status: 'limited', statusChangedAt: '2026-09-01T00:00:00.000Z' }), card('brand-new')]);
+    const file = legacyFile([card('agi-1', { model: '换模型', env: { OC_BASE_URL: 'https://other.example.com', EXTRA_MODEL: 'v' }, status: 'limited', statusChangedAt: '2026-09-01T00:00:00.000Z' }), card('brand-new')]);
     const { output, error } = await rosterImport(home, [file, '--dry-run']);
     assert.equal(error, undefined, output);
     assert.match(output, /merge plan/, 'the preview says which mode it planned');
     assert.match(output, /agi-1: model, env/, 'changed field names are reported');
     assert.match(output, /brand-new/, 'added ids are reported');
     assert.ok(!output.includes('https://'), 'no values in the preview');
-    assert.ok(!output.includes('OC_BASE') && !output.includes('EXTRA_KEY'), 'no env key names in the preview');
+    assert.ok(!output.includes('OC_BASE_URL') && !output.includes('EXTRA_MODEL'), 'no env key names in the preview');
     assert.equal(home.bytes(home.roster), rosterBefore);
     assert.equal(home.bytes(home.status), null, 'a dry run appends no status records either');
     assert.deepEqual(home.backups(), [], 'a dry run writes no backup either');
@@ -128,7 +128,7 @@ describe('roster import validates before touching any file', () => {
     const statusBefore = home.bytes(home.status);
     const badStatus = await rosterImport(home, [legacyFile([card('agi-1', { status: 'sleeping' })]), '--force']);
     assert.match(String(badStatus.error), /status must be one of/, 'the failure names the bad status');
-    const secretEnv = await rosterImport(home, [legacyFile([card('agi-1', { env: { API_TOKEN: 'sk-live-abcdef' } })]), '--force']);
+    const secretEnv = await rosterImport(home, [legacyFile([card('agi-1', { env: { OC_MODEL: 'sk-live-abcdef' } })]), '--force']);
     assert.match(String(secretEnv.error), /roster/, 'the secret-shaped env fails validation');
     assert.equal(home.bytes(home.roster), rosterBefore, 'the roster is untouched by either failure');
     assert.equal(home.bytes(home.status), statusBefore, 'and the status log never got a partial record');
@@ -166,7 +166,7 @@ describe('roster import backups and explicit modes', () => {
   });
 
   it('backs up the exact previous roster, recoverably, before a real merge', async () => {
-    const home = homeFixture([card('agi-1', { env: { KEEP: 'yes' } })]);
+    const home = homeFixture([card('agi-1', { env: { KEEP_MODEL: 'yes' } })]);
     const previous = home.bytes(home.roster);
     const { output, error } = await rosterImport(home, [legacyFile([card('agi-1', { model: '换模型' })]), '--force']);
     assert.equal(error, undefined, output);
@@ -320,6 +320,28 @@ describe('roster import contains its diagnostics', () => {
     assert.ok(!output.includes('SECRET-PATTERN') && !output.includes('SECRET-AGENT'), 'policy values are never echoed, only counts');
     assert.match(output, /astra/, 'the affected id is still named');
     assert.match(output, /1 banned model pattern/, 'policy is summarized by count');
+  });
+});
+
+describe('roster import with project-allowed card env (round 6 M1)', () => {
+  it('merges normally when an untouched existing card carries an env allowed only by some project list', async () => {
+    const home = homeFixture([card('project-card', { env: { OC_AGENT: 'build' } })]);
+    const file = legacyFile([card('incoming-card')]);
+    const { output, error } = await rosterImport(home, [file, '--force']);
+    assert.equal(error, undefined, output);
+    assert.match(output, /imported 2 cards/);
+    assert.equal(home.card('project-card').env.OC_AGENT, 'build');
+    assert.ok(home.card('incoming-card'));
+  });
+
+  it('still refuses an incoming card whose env name is outside the allowed shapes, in Chinese', async () => {
+    const home = homeFixture([]);
+    const file = legacyFile([card('bad-card', { env: { MY_TOOL_FLAG: 'enabled' } })]);
+    const { output, error } = await rosterImport(home, [file, '--force']);
+    assert.ok(error, 'the import must be refused');
+    assert.match(String(error), /不是卡片可以设置的/);
+    assert.match(String(error), /MY_TOOL_FLAG/);
+    assert.equal(home.bytes(home.roster), JSON.stringify({ adventurers: [] }), 'a refused import writes nothing');
   });
 });
 

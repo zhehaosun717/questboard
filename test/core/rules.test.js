@@ -53,6 +53,17 @@ describe('canDispatch', () => {
     assert.ok(codes(check(quest({ allowedLanes: ['agy'] }))).includes('lane_not_allowed'));
   });
 
+  it('refuses a legacy card whose saved env now breaks the deny policy, in Chinese, like a banned model', () => {
+    const envPolicy = { variable: 'LD_AUDIT', reason: '环境变量 LD_AUDIT 会改变程序加载方式，这张卡不能设置它' };
+    const result = check(quest(), card('codex-luna', { envPolicy }));
+    assert.ok(codes(result).includes('env_policy'));
+    const reason = result.reasons.find((r) => r.code === 'env_policy');
+    assert.match(reason.message, /LD_AUDIT/);
+    assert.match(reason.message, /[一-鿿]/u);
+    // A clean card (no envPolicy) is unaffected.
+    assert.ok(!codes(check(quest(), card('codex-luna'))).includes('env_policy'));
+  });
+
   it('refuses a card whose lane server is down and shows the server address', () => {
     const downEnv = { ...env, downLanes: new Map([['opencode', 'http://127.0.0.1:6096']]) };
     const ocResult = check(quest(), card('oc-mimo'), [quest()], downEnv);

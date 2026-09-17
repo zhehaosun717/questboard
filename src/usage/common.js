@@ -1,6 +1,7 @@
 // Shared pieces for usage providers: a safe error type, window labels, number parsing, and splitting CLI output
 // that holds several JSON documents in a row.
 import { execFile } from 'node:child_process';
+import os from 'node:os';
 
 // A hostname shape only — never a full URL, path or query string, so nothing after the host can ride along.
 // At least two labels (api.example.com, not a bare word): every real caller's host has a dot, and requiring
@@ -238,15 +239,15 @@ export function childEnvironment(env = process.env) {
 
 // Runs a fixed CLI command (never user input). On Windows npm installs CLIs as .cmd shims, which need cmd.exe.
 // A failed command yields nothing: partial output is not trusted.
-export function runCommand(command, args, { timeoutMs = 30000, env = process.env } = {}) {
+export function runCommand(command, args, { timeoutMs = 30000, env = process.env, execFileImpl = execFile } = {}) {
   return new Promise((resolve, reject) => {
     const windows = process.platform === 'win32';
     const file = windows ? env.ComSpec || 'cmd.exe' : command;
     // Verbatim on Windows: Node would otherwise re-quote the joined line and cmd.exe would run something else.
     // `/s` makes cmd strip exactly the outer quotes we add here.
     const argv = windows ? ['/d', '/s', '/c', `"${[command, ...args].join(' ')}"`] : args;
-    const options = { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024, env: childEnvironment(env), windowsVerbatimArguments: windows };
-    execFile(file, argv, options, (error, stdout, stderr) => {
+    const options = { timeout: timeoutMs, cwd: os.homedir(), windowsHide: true, maxBuffer: 1024 * 1024, env: { ...childEnvironment(env), NoDefaultCurrentDirectoryInExePath: '1' }, windowsVerbatimArguments: windows };
+    execFileImpl(file, argv, options, (error, stdout, stderr) => {
       if (error) {
         const missing = error.code === 'ENOENT' || /not recognized|not found|不是内部或外部命令/i.test(String(stderr));
         reject(missing ? new UsageError('command_missing', { command }) : new UsageError('command_failed', { command, exitCode: error.code }));

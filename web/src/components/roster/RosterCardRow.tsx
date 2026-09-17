@@ -90,6 +90,11 @@ export function RosterCardRow({ card, onOpenStatus, onEdit, onDuplicate, onDelet
             </span>
           ) : null}
           {isDerived ? <span className="derived-hint">{t('rosterRow.derivedHint')}</span> : null}
+          {card.envPolicy ? (
+            <span className="status-reason envpolicy-note" title={card.envPolicy.reason}>
+              {t('rosterRow.envPolicy', { reason: card.envPolicy.reason })}
+            </span>
+          ) : null}
         </div>
       </td>
       <td className="adv-cell-actions">

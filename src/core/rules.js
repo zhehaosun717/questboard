@@ -15,6 +15,10 @@ const MESSAGES = {
   adventurer_paused: () => '这个模型被暂停使用',
   adventurer_disabled: () => '这个模型已停用',
   model_banned: (quest, adventurer) => `模型 ${adventurer.model} 在禁用名单里`,
+  // A legacy card whose saved env now breaks the env policy (roster.js envPolicyViolation): the roster
+  // still loads and shows the card, but it is refused for dispatch exactly like a banned model, never
+  // silently stripped or run with that env.
+  env_policy: (quest, adventurer) => `${adventurer.envPolicy.reason}，这张卡不能派遣`,
   agent_banned: (quest, adventurer) => `人格 ${adventurer.agent} 在禁用名单里`,
   lane_not_allowed: (quest) => `coordinator 只允许这些通道：${quest.allowedLanes.join('、')}`,
   lane_server_down: (quest, adventurer, detail) => `${adventurer.lane} 通道的服务没开（${detail} 连不上）：先到 设置 → 执行通道 点「一键启动服务」`,
@@ -272,6 +276,7 @@ function adventurerReasons(quest, adventurer, policy, env) {
       : undefined;
     reasons.push(reason(code, quest, adventurer, detail));
   }
+  if (adventurer.envPolicy) reasons.push(reason('env_policy', quest, adventurer));
   if (matchesAny(adventurer.model, policy && policy.bannedModelPatterns)) reasons.push(reason('model_banned', quest, adventurer));
   if (matchesAny(adventurer.agent, policy && policy.bannedAgents)) reasons.push(reason('agent_banned', quest, adventurer));
   if ((quest.allowedLanes || []).length && !quest.allowedLanes.includes(adventurer.lane)) reasons.push(reason('lane_not_allowed', quest, adventurer));

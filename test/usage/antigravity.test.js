@@ -26,7 +26,7 @@ const userStatus = {
 
 // exec sees only fixed PowerShell commands; the test answers by which command it was.
 const execFor = ({ processes = processList, ports = '10745\n10746\n' } = {}) => async (command, args) => {
-  assert.equal(command, 'powershell');
+  assert.match(command, /powershell\.exe$/i);
   const script = args.at(-1);
   if (script.includes('Get-CimInstance')) return processes;
   if (script.includes('Get-NetTCPConnection')) { assert.match(script, /OwningProcess 4242/); return ports; }

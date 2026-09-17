@@ -67,28 +67,38 @@ function refOf(root, file) {
 
 // A candidate must stay inside the project both lexically and after symlinks resolve, and must be a plain
 // file. Anything else (missing, a directory, a symlink pointing out of the project) is refused.
-function realFileWithin(root, candidate) {
+function realFileWithin(root, laneDir, candidate) {
   const rootAbs = path.resolve(root);
+  const laneAbs = path.resolve(laneDir);
   const resolved = path.resolve(candidate);
-  const lexical = path.relative(rootAbs, resolved);
-  if (lexical === '' || lexical.startsWith('..') || path.isAbsolute(lexical)) return null;
+  const lexical = path.relative(laneAbs, resolved);
+  if (lexical === '' || lexical.startsWith('..') || path.isAbsolute(lexical)) return { ok: false, reason: '报告文件不在 lane 自己的目录内' };
+  try {
+    if (fs.lstatSync(resolved).isSymbolicLink()) return { ok: false, reason: '报告文件是链接，不作为报告读取' };
+  } catch {
+    return { ok: false, reason: '报告文件不存在或不是普通文件' };
+  }
   let realRoot;
+  let realLane;
   let realFile;
   try {
     realRoot = fs.realpathSync(rootAbs);
+    realLane = fs.realpathSync(laneAbs);
     realFile = fs.realpathSync(resolved);
   } catch {
-    return null;
+    return { ok: false, reason: '报告文件不存在或不是普通文件' };
   }
-  const realRel = path.relative(realRoot, realFile);
-  if (realRel === '' || realRel.startsWith('..') || path.isAbsolute(realRel)) return null;
+  const laneRel = path.relative(realRoot, realLane);
+  if (laneRel === '' || laneRel.startsWith('..') || path.isAbsolute(laneRel)) return { ok: false, reason: '报告目录不在项目内' };
+  const realRel = path.relative(realLane, realFile);
+  if (realRel === '' || realRel.startsWith('..') || path.isAbsolute(realRel)) return { ok: false, reason: '报告文件不在 lane 自己的目录内' };
   let stats;
   try {
     stats = fs.statSync(realFile);
   } catch {
-    return null;
+    return { ok: false, reason: '报告文件不存在或不是普通文件' };
   }
-  return stats.isFile() ? realFile : null;
+  return stats.isFile() ? { ok: true, real: realFile } : { ok: false, reason: '报告文件不存在或不是普通文件' };
 }
 
 // Reads at most `cap` bytes from the start of the file. The digest and `bytes` describe exactly that slice;
@@ -126,13 +136,16 @@ function reportCandidates(config, attempt, only) {
   const tries = [];
   if (!lane) return { lane: null, tries };
   if (lane.deliveryDir && (!only || only.has('delivery'))) {
-    tries.push({ source: 'delivery', file: path.join(config.root, lane.deliveryDir, `${attempt.name}.md`) });
+    const dir = path.resolve(config.root, lane.deliveryDir);
+    tries.push({ source: 'delivery', dir, file: path.join(dir, `${attempt.name}.md`) });
   }
   if (lane.outputDir && (!only || only.has('exit-file'))) {
-    tries.push({ source: 'exit-file', file: path.join(config.root, lane.outputDir, `${attempt.name}.md`) });
+    const dir = path.resolve(config.root, lane.outputDir);
+    tries.push({ source: 'exit-file', dir, file: path.join(dir, `${attempt.name}.md`) });
   }
   if (lane.outputDir && (!only || only.has('summary'))) {
-    tries.push({ source: 'summary', file: path.join(config.root, lane.outputDir, `${attempt.name}.out`) });
+    const dir = path.resolve(config.root, lane.outputDir);
+    tries.push({ source: 'summary', dir, file: path.join(dir, `${attempt.name}.out`) });
   }
   return { lane, tries };
 }
@@ -158,12 +171,13 @@ export function resolveAttemptReport({ config, quest, only = null }) {
   if (!lane) return { ...empty, reason: `找不到 lane ${attempt.lane} 的配置，无法确定报告目录` };
   if (!tries.length) return { ...empty, reason: `lane ${attempt.lane} 既没有交付目录也没有输出目录，没有地方可以找报告` };
   const notes = [];
-  for (const { source, file } of tries) {
-    const real = realFileWithin(config.root, file);
-    if (!real) {
-      notes.push(`${refOf(config.root, file)} 不存在、不是普通文件，或指向了项目外`);
+  for (const { source, dir, file } of tries) {
+    const checked = realFileWithin(config.root, dir, file);
+    if (!checked.ok) {
+      notes.push(`${refOf(config.root, file)}：${checked.reason}`);
       continue;
     }
+    const real = checked.real;
     let read;
     try {
       read = readBounded(real);

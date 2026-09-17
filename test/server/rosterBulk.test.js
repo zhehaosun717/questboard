@@ -8,7 +8,7 @@ import { rosterFingerprint } from '../../src/core/rosterBulk.js';
 let fx;
 const baseCards = {
   adventurers: [
-    { id: 'bulk-one', name: 'Bulk One', provider: 'synthetic', lane: 'codex', model: 'model-one', family: 'family', variant: 'high', env: { BASE_URL: 'https://old.test', KEEP: 'yes' } },
+    { id: 'bulk-one', name: 'Bulk One', provider: 'synthetic', lane: 'codex', model: 'model-one', family: 'family', variant: 'high', env: { OPENAI_BASE_URL: 'https://old.test', KEEP_MODEL: 'yes' } },
     { id: 'bulk-two', name: 'Bulk Two', provider: 'synthetic', lane: 'codex', model: 'model-two', family: 'family' },
   ],
 };
@@ -24,7 +24,7 @@ describe('roster bulk routes', () => {
   it('previews through the quest route delegation and exposes only safe field summaries', async () => {
     const response = await fx.api('/api/roster/bulk/preview', 'POST', {
       ids: ['bulk-one', 'bulk-two'],
-      patch: { status: 'paused', reason: 'batch pause', variant: '', env: { set: { BASE_URL: 'https://new.test' }, remove: ['KEEP'] } },
+      patch: { status: 'paused', reason: 'batch pause', variant: '', env: { set: { OPENAI_BASE_URL: 'https://new.test' }, remove: ['KEEP_MODEL'] } },
     });
     assert.equal(response.status, 200, response.text);
     assert.deepEqual(response.body.ids, ['bulk-one', 'bulk-two']);
@@ -167,12 +167,12 @@ describe('roster bulk routes', () => {
       ids: ['bulk-one'],
       fingerprint,
       actor: 'owner',
-      patch: { status: 'paused', reason: 'manual batch', variant: '', env: { set: { BASE_URL: 'https://new.test' }, remove: ['KEEP'] } },
+      patch: { status: 'paused', reason: 'manual batch', variant: '', env: { set: { OPENAI_BASE_URL: 'https://new.test' }, remove: ['KEEP_MODEL'] } },
     });
     assert.equal(response.status, 200, response.text);
     assert.equal(response.body.counts.changed, 1);
     const saved = loadRoster(fx.home.roster).adventurers.find((card) => card.id === 'bulk-one');
-    assert.deepEqual(saved.env, { BASE_URL: 'https://new.test' });
+    assert.deepEqual(saved.env, { OPENAI_BASE_URL: 'https://new.test' });
     assert.equal('variant' in saved, false);
     assert.equal('status' in saved, false);
     const status = fs.readFileSync(fx.home.status, 'utf8');

@@ -51,6 +51,18 @@ describe('cli', () => {
     assert.match(status, /codex-astra available since .* — owner lifted the pause/);
   });
 
+  it('card add succeeds when another card carries an env allowed only by some project list, and leaves that card untouched', () => {
+    const home = tmpDir('cli-cardadd-env-');
+    fs.writeFileSync(path.join(home, 'roster.json'), JSON.stringify({ adventurers: [
+      { id: 'project-card', name: '项目卡', provider: 'p', lane: 'codex', model: 'm', family: 'm', env: { OC_AGENT: 'build' } },
+    ] }));
+    const output = run(['card', 'add', '--id', 'new-card', '--name', '新卡', '--provider', 'p', '--lane', 'codex', '--model', 'm'], { QUESTBOARD_HOME: home });
+    assert.match(output, /new-card/);
+    const roster = loadRoster(path.join(home, 'roster.json'));
+    assert.equal(roster.adventurers.find((a) => a.id === 'project-card').env.OC_AGENT, 'build');
+    assert.ok(roster.adventurers.find((a) => a.id === 'new-card'));
+  });
+
   it('explains how to point at a project when none is found', () => {
     assert.throws(() => execFileSync(process.execPath, [CLI, 'list'], { cwd: tmpDir('noproj-'), encoding: 'utf8', stdio: 'pipe', env: { ...process.env, QUESTBOARD_PROJECT: '' } }), /no questboard\.config\.json/);
   });

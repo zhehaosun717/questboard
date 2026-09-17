@@ -113,7 +113,11 @@ export function planRosterImport({ existing, incoming, statusRecords = [], curre
 
   return {
     mode: replace ? 'replace' : 'merge',
-    roster: validateRoster({ adventurers: merged }),
+    // Every changed or added card here is `incomingCard` (already checked strictly above, in `incomingRoster`)
+    // merged over `existing`; only a card this import never touched can still carry a name that policy now
+    // rejects only without this project's `policy.cardEnvAllow`, which this planner never receives. Lenient
+    // here matches `upsertAdventurer`: the entries this call actually changes are already checked in full.
+    roster: validateRoster({ adventurers: merged }, { lenientEnv: true }),
     toAppend,
     statusSkipped,
     added,

@@ -440,6 +440,9 @@ export const TRANSLATIONS = {
   'rosterRow.since': { zh: '{date} 起', en: 'since {date}' },
   'rosterRow.baseReason': { zh: '基础原因：{reason}', en: 'Base reason: {reason}' },
   'rosterRow.resetUnknown': { zh: '（重置时间未知）', en: ' (reset time unknown)' },
+  // Round 3: a legacy card whose saved env now breaks the deny policy still shows on the board with this
+  // note (src/core/roster.js envPolicyViolation); it is refused for dispatch instead of being stripped.
+  'rosterRow.envPolicy': { zh: '名册问题：{reason}', en: 'Roster issue: {reason}' },
   'rosterRow.setStatus': { zh: '改状态', en: 'Set status' },
   'rosterRow.edit': { zh: '编辑', en: 'Edit' },
   'rosterRow.duplicateHint': {

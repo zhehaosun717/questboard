@@ -33,7 +33,7 @@ export function createOmoRoutes({ file = omoConfigFile(), exec = runCommand, now
         sendJson(response, 405, { error: 'method not allowed' });
       }
     } catch (error) {
-      if (!response.headersSent) sendJson(response, 400, { error: error.message });
+      if (!response.headersSent) sendJson(response, error.code === 'request_too_large' ? 413 : 400, { error: error.code === 'request_too_large' ? '请求内容太大' : error.message });
     }
     return true;
   }

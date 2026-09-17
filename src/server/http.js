@@ -14,30 +14,68 @@ export function sendJson(response, status, value, headers = {}) {
   response.end(body);
 }
 
+function hostName(host) {
+  const value = String(host || '');
+  if (value.startsWith('[')) return value.slice(1, value.indexOf(']') > 0 ? value.indexOf(']') : undefined).toLowerCase();
+  return value.split(':')[0].toLowerCase();
+}
+
+// Every request enters through server.js, including reads and methods no route currently handles. A missing
+// Host is allowed for the CLI's plain local HTTP requests; an explicit rebinding host is not.
+export function localHostRefusal(request) {
+  const host = request.headers.host;
+  if (host === undefined || host === null || host === '') return null;
+  if (!LOCAL_HOSTS.has(hostName(host))) return `主机 ${host} 不是本机，拒绝读取`;
+  return null;
+}
+
 export function routeParts(pathname) {
-  return pathname.split('/').filter(Boolean).map((part) => decodeURIComponent(part));
+  try {
+    return pathname.split('/').filter(Boolean).map((part) => decodeURIComponent(part));
+  } catch (error) {
+    const malformed = new Error('地址编码不正确');
+    malformed.code = 'malformed_path_encoding';
+    malformed.cause = error;
+    throw malformed;
+  }
 }
 
 export function readJsonBody(request, limit = 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let settled = false;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
     request.on('data', (chunk) => {
+      if (settled) return;
       size += chunk.length;
-      if (size > limit) { reject(new Error('request body is too large')); request.destroy(); return; }
+      if (size > limit) {
+        const error = new Error('请求内容太大');
+        error.code = 'request_too_large';
+        fail(error);
+        // Consume the rest so the response can be written before the request socket closes.
+        request.resume();
+        return;
+      }
       chunks.push(chunk);
     });
     request.on('end', () => {
+      if (settled) return;
       const text = Buffer.concat(chunks).toString('utf8');
       try {
         const value = text.trim() ? JSON.parse(text) : {};
         if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('JSON body must be an object');
+        settled = true;
         resolve(value);
       } catch (error) {
-        reject(error);
+        fail(error);
       }
     });
-    request.on('error', reject);
+    request.on('error', fail);
   });
 }
 

@@ -30,6 +30,15 @@ describe('questboard init', () => {
     }
     assert.ok(fs.existsSync(path.join(dir, 'docs/review')));
 
+    // Round 6 M1: init only ever writes a fresh empty roster, and an existing roster holding a card
+    // allowed only by some project's policy.cardEnvAllow must never be re-judged by this project-blind caller.
+    fs.writeFileSync(home.roster, JSON.stringify({ adventurers: [
+      { id: 'project-card', name: '项目卡', provider: 'p', lane: 'codex', model: 'm', family: 'm', env: { OC_AGENT: 'build' } },
+    ] }));
+    const second = runInit({ dir: path.join(tmpDir('qb-init-env-'), 'second'), home, exists: installed('codex', 'claude') });
+    assert.equal(second.rosterCreated, false, 'an existing roster is never rewritten by init');
+    assert.deepEqual(loadRoster(home.roster).adventurers[0].env, { OC_AGENT: 'build' });
+
     // The real validator, not a copy of the shape: init must not produce a project the server refuses.
     const raw = JSON.parse(fs.readFileSync(result.configFile, 'utf8'));
     const config = resolveConfig(dir, raw);

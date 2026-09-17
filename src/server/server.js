@@ -1,7 +1,7 @@
 // Composes the questboard HTTP server for one project.
 import http from 'node:http';
 import { URL } from 'node:url';
-import { sendJson, routeParts } from './http.js';
+import { localHostRefusal, sendJson, routeParts } from './http.js';
 import { BoardStore } from './boardStore.js';
 import { createBoardRoutes } from './boardRoutes.js';
 import { createQuestRoutes } from './questRoutes.js';
@@ -34,11 +34,18 @@ export function createServer({ config, home = homePaths(), runners, getLanes, ev
 
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${HOST}`);
+    const hostRefusal = localHostRefusal(request);
+    if (hostRefusal) { sendJson(response, 403, { error: hostRefusal }); return; }
     try {
-      for (const route of routes) if (await route.handle(request, response, url, routeParts(url.pathname))) return;
+      const parts = routeParts(url.pathname);
+      for (const route of routes) if (await route.handle(request, response, url, parts)) return;
       sendJson(response, 404, { error: 'not found' });
     } catch (error) {
-      if (!response.headersSent) sendJson(response, 500, { error: error.message });
+      if (!response.headersSent) {
+        if (error.code === 'malformed_path_encoding') sendJson(response, 400, { error: '地址编码不正确' });
+        else if (error.code === 'request_too_large') sendJson(response, 413, { error: '请求内容太大' });
+        else sendJson(response, 500, { error: error.message });
+      }
       else response.destroy();
     }
   });

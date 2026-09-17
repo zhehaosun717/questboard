@@ -92,11 +92,25 @@ cursor-agent）报给你，让你用 `--lane` 自己加。
 
 | 存在哪 | 存什么 | 谁共用 |
 |:---|:---|:---|
-| `~/.questboard/roster.json`（或 `QUESTBOARD_HOME`） | 卡：id、名字、供应商、通道、模型、家族、变体、可选变体列表（variants）、人格、计费方式、并发上限、专长、通用备注 | 这台机器上的所有项目 |
+| `~/.questboard/roster.json`（或 `QUESTBOARD_HOME`） | 卡：id、名字、供应商、通道、模型、家族、变体、可选变体列表（variants）、人格、计费方式、并发上限、专长、通用备注、`env` | 这台机器上的所有项目 |
 | `~/.questboard/status.jsonl` | 状态记录：`{at, adventurerId, status, reason, setBy}`。没有记录的卡就是可用 | 所有项目 |
 | `<项目>/questboard.config.json` | 简报目录和编号规则、通道命令、输出目录、事件/登记/锁文件路径、禁用模型 | 单个项目 |
 
 带日期的决定（「9 月 12 日暂停，太费钱」）永远是**状态记录**，不是名册里的文字——这样名册才能复用。
+
+卡的 `env` 只用来放模型服务的设置，而且只能放非密钥的值。变量名必须以 `_BASE_URL`、`_API_BASE`、
+`_API_URL`、`_MODEL`、`_MODEL_NAME`、`_MODEL_ID`、`_REGION`、`_ACCOUNT_ID`、`_PROJECT_ID`、`_ORG_ID`、
+`_ORGANIZATION`、`_TIMEOUT_MS`、`_MAX_TOKENS`、`_TEMPERATURE`、`_EFFORT`、`_VARIANT`、`_PROVIDER`、
+`_DEPLOYMENT` 或 `_API_VERSION` 结尾；或者就是 `MAX_TOKENS`、`MODEL_NAME`、`MODEL`、`PROVIDER_REGION`、
+`API_TIMEOUT_MS` 之一；或者写在项目设置的 `policy.cardEnvAllow` 里（完整的大写蛇形名字）。其他名字一律拒绝。
+base URL 不只是收到通道从本机环境继承的密钥：模型 base URL 还决定了谁在回答模型，也就是决定了 worker
+照着谁的话做事。有些非模型地址也符合允许的形状（例如 `GITHUB_API_URL`，会收到 `GITHUB_TOKEN` 这类密钥），
+浏览器下载镜像家族（`PUPPETEER_`、`PLAYWRIGHT_`、`CYPRESS_`、`ELECTRON_`）按前缀拒绝，因为它们会让
+worker 从那个地址下载并运行二进制。卡的 `env` 是受信任的配置：只填你信得过的地址，保存前逐条检查。
+**写进 `policy.cardEnvAllow` 的名字等于你有意扩大这份信任，由你自己负责**：任务板没法知道程序会拿它做什么。
+就算名字在允许范围内，只要形似加载器、搜索路径、配置/主目录或构建工具开关
+（包括 `*_HOME`/`*_CONFIG_DIR`），照样拒绝，因为这类变量会改变程序从哪里读配置或加载代码。规则出现之前存下的卡
+照常显示并带一条说明，但在改好 `env` 之前不能派遣。
 
 ## 项目配置
 
@@ -139,6 +153,7 @@ agent 命令，最后写下退出码。`init` 会把它拷到你的项目里。
 | `policy.stallAfterMinutes`（默认 20） | 通道多久没动静就被判定为 `stalled` |
 | `policy.laneConcurrency.<通道>` | 每条通道自己的并发上限，在每张卡自己的 `maxParallel` 之上再加一层限制 |
 | `policy.defaultLane`、`policy.defaultCard` | 两者都不会在看板上预选任何东西。`defaultCard` 只在 CLI 的 `questboard assign` 没指定卡时才读取；`defaultLane` 只会被校验、显示在偏好设置里、在设置页可编辑 |
+| `policy.cardEnvAllow[]` | 在自带允许形状之外，额外允许卡片携带的精确 `env` 名字；拒绝名单仍然优先于这里列出的名字 |
 | `policy.bouncePatterns[{code,pattern,label}]` | 用正则匹配退出行文字，把失败改判成一个带标签的 `bounced` 状态 |
 | `policy.reviewRequires[report\|project-verification\|hook]` | 审核委托派发前，上游必须已经有哪几类证据（默认为空，只警告不拒绝） |
 | `usage.manualProviders[]` | 为暂无公开用量接口的来源打开用量卡片（阿里云 token/编程套餐、NVIDIA、OpenAI 消耗）——每张卡显示「去控制台查看」提示，而不是抓取到的数字（见「用量」设置页）。`claude-subscription` 仍会被接受，但 Claude 卡片始终显示、可展示状态栏实时数字，写不写它都没有区别 |

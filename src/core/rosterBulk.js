@@ -2,7 +2,7 @@
 // this module may change a card's facts or append a status record, but it never writes status into roster.json.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import { loadRosterOrEmpty, saveRoster, validateAdventurer, validateCardEnv, validateRoster } from './roster.js';
+import { invalidEnvNameReason, loadRosterOrEmpty, saveRoster, validateAdventurer, validateCardEnv, validateRoster } from './roster.js';
 import { foldStatuses, validateStatusRecord } from './status.js';
 import { holdsSlot } from './rules.js';
 
@@ -59,32 +59,37 @@ function own(value, key) {
 }
 
 function validateEnvName(name, at) {
-  if (typeof name !== 'string' || !ENV_NAME.test(name)) fail(`${at} must be an UPPER_SNAKE_CASE variable name`);
+  if (typeof name !== 'string' || !ENV_NAME.test(name)) fail(`${at} ${invalidEnvNameReason(name)}`);
 }
 
-function normalizeEnv(source, at) {
+function envObject(value, at) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${at} 必须是「变量名: 值」这样的对象`);
+  return value;
+}
+
+function normalizeEnv(source, at, cardEnvAllow) {
   if (source === undefined) return { set: {}, remove: [] };
-  object(source, at);
+  envObject(source, at);
   const nested = own(source, 'set') || own(source, 'remove');
   const allowed = nested ? new Set(['set', 'remove']) : null;
-  if (nested) for (const key of Object.keys(source)) if (!allowed.has(key)) fail(`${at}.${key} is not supported`);
-  const set = nested ? (source.set === undefined ? {} : object(source.set, `${at}.set`)) : source;
+  if (nested) for (const key of Object.keys(source)) if (!allowed.has(key)) fail(`${at}.${key} 不支持：环境变量的修改只能写 set 和 remove`);
+  const set = nested ? (source.set === undefined ? {} : envObject(source.set, `${at}.set`)) : source;
   const remove = nested ? (source.remove === undefined ? [] : source.remove) : [];
-  if (!Array.isArray(remove)) fail(`${at}.remove must be an array`);
-  validateCardEnv({ env: set }, at);
+  if (!Array.isArray(remove)) fail(`${at}.remove 必须是环境变量名的列表`);
+  validateCardEnv({ env: set }, `${at}.set`, { cardEnvAllow });
   const names = Object.keys(set);
   const seen = new Set();
   for (const name of remove) {
     validateEnvName(name, `${at}.remove`);
-    if (seen.has(name)) fail(`${at}.remove repeats ${name}`);
+    if (seen.has(name)) fail(`${at}.remove 里的环境变量 ${name} 写了两次`);
     seen.add(name);
-    if (own(set, name)) fail(`${at} cannot set and remove ${name} in one request`);
+    if (own(set, name)) fail(`${at} 不能在同一次请求里既设置又删除环境变量 ${name}`);
   }
-  if (remove.length > 10) fail(`${at}.remove may contain at most 10 variables`);
+  if (remove.length > 10) fail(`${at}.remove 最多只能删除 10 个环境变量`);
   return { set: { ...set }, remove: [...remove] };
 }
 
-function normalizePatch(input, body) {
+function normalizePatch(input, body, cardEnvAllow) {
   const source = input === undefined ? body : input;
   object(source, 'patch');
   for (const key of Object.keys(source)) if (!PATCH_FIELDS.has(key)) fail(`patch.${key} is not supported`);
@@ -114,17 +119,17 @@ function normalizePatch(input, body) {
     variant = source.variant.trim();
   }
 
-  const env = normalizeEnv(source.env, 'patch.env');
+  const env = normalizeEnv(source.env, 'patch.env', cardEnvAllow);
   const extraRemove = source.removeEnv ?? source.envRemove ?? [];
-  if (!Array.isArray(extraRemove)) fail('patch.removeEnv must be an array');
+  if (!Array.isArray(extraRemove)) fail('patch.removeEnv 必须是环境变量名的列表');
   const remove = [...env.remove];
   for (const name of extraRemove) {
     validateEnvName(name, 'patch.removeEnv');
-    if (remove.includes(name)) fail(`patch.removeEnv repeats ${name}`);
-    if (own(env.set, name)) fail(`patch.env cannot set and remove ${name} in one request`);
+    if (remove.includes(name)) fail(`patch.removeEnv 里的环境变量 ${name} 写了两次`);
+    if (own(env.set, name)) fail(`patch.env 不能在同一次请求里既设置又删除环境变量 ${name}`);
     remove.push(name);
   }
-  if (remove.length > 10) fail('patch.removeEnv may contain at most 10 variables');
+  if (remove.length > 10) fail('patch.removeEnv 最多只能删除 10 个环境变量');
 
   const deleting = source.delete === true || source.action === 'delete';
   if (source.delete !== undefined && typeof source.delete !== 'boolean') fail('patch.delete must be boolean');
@@ -140,7 +145,8 @@ function normalizePatch(input, body) {
   });
 }
 
-export function validateRosterBulkRequest(input) {
+// `cardEnvAllow` is the project's policy.cardEnvAllow list (see roster.js validateCardEnv).
+export function validateRosterBulkRequest(input, { cardEnvAllow = [] } = {}) {
   object(input, 'request');
   for (const key of Object.keys(input)) if (!REQUEST_FIELDS.has(key)) fail(`request.${key} is not supported`);
   if (!Array.isArray(input.ids) || input.ids.length === 0) fail('request.ids must be a non-empty array');
@@ -155,7 +161,7 @@ export function validateRosterBulkRequest(input) {
   });
   if (input.patch !== undefined && input.changes !== undefined) fail('request.patch and request.changes cannot both be supplied');
   const direct = Object.fromEntries(Object.entries(input).filter(([key]) => !['ids', 'patch', 'changes', 'revision', 'fingerprint', 'ifRevision', 'actor', 'by', 'setBy'].includes(key)));
-  const patch = normalizePatch(input.patch ?? input.changes, direct);
+  const patch = normalizePatch(input.patch ?? input.changes, direct, cardEnvAllow);
   const expectedValues = [input.revision, input.fingerprint, input.ifRevision].filter((value) => value !== undefined && value !== null && value !== '');
   if (expectedValues.length > 1 && new Set(expectedValues.map(String)).size !== 1) fail('request.revision and request.fingerprint must agree');
   const expected = expectedValues.length ? String(expectedValues[0]) : undefined;
@@ -167,7 +173,9 @@ export function validateRosterBulkRequest(input) {
 export const validateBulkRequest = validateRosterBulkRequest;
 
 export function rosterFingerprint(roster, statusRecords = []) {
-  validateRoster(roster);
+  // A read, not a write: a legacy card's env must not stop the board from even computing a revision to
+  // detect concurrent edits against.
+  validateRoster(roster, { lenientEnv: true });
   const records = statusRecords.map(validateStatusRecord);
   return createHash('sha256').update(stableJson({ roster, statusRecords: records })).digest('hex');
 }
@@ -213,7 +221,7 @@ function preservedFacts(card, changed) {
   return FACT_FIELDS.filter((field) => !changed.includes(field) && own(card, field));
 }
 
-function applyFacts(card, patch) {
+function applyFacts(card, patch, cardEnvAllow) {
   const next = { ...card };
   if (patch.hasVariant) {
     if (patch.variant) next.variant = patch.variant;
@@ -226,7 +234,7 @@ function applyFacts(card, patch) {
     if (Object.keys(env).length) next.env = env;
     else delete next.env;
   }
-  return validateAdventurer(next, `adventurer (${next.id})`);
+  return validateAdventurer(next, `adventurer (${next.id})`, { cardEnvAllow });
 }
 
 function statusChange(cardId, patch, statuses) {
@@ -295,9 +303,11 @@ function safeResult({ id, changedFields = [], preservedFields = [], ok = false, 
   return { id, ok, ready, denied, changedFields, preservedFields, ...(reasons.length ? { reasons } : {}), ...extra };
 }
 
-export function previewRosterBulk({ roster, statusRecords = [], quests = [], effectiveRoster = null, quotaEvidenceRoster = null, request, revision, fingerprint } = {}) {
-  const normalized = validateRosterBulkRequest(request);
-  const currentRoster = validateRoster(roster);
+export function previewRosterBulk({ roster, statusRecords = [], quests = [], effectiveRoster = null, quotaEvidenceRoster = null, request, revision, fingerprint, cardEnvAllow = [] } = {}) {
+  const normalized = validateRosterBulkRequest(request, { cardEnvAllow });
+  // A read of the current file: some OTHER, untouched card's legacy env must not block previewing this
+  // request. The card(s) actually named by request.ids are still checked in full below, by applyFacts.
+  const currentRoster = validateRoster(roster, { lenientEnv: true });
   const records = statusRecords.map(validateStatusRecord);
   const currentFingerprint = rosterFingerprint(currentRoster, records);
   assertFresh(normalized.expected ?? fingerprint ?? revision, currentFingerprint);
@@ -314,7 +324,7 @@ export function previewRosterBulk({ roster, statusRecords = [], quests = [], eff
     if (normalized.patch.action === 'delete') {
       return safeResult({ id, ready: true, ok: true, changedFields: ['deleted'], preservedFields: [] });
     }
-    const next = applyFacts(card, normalized.patch);
+    const next = applyFacts(card, normalized.patch, cardEnvAllow);
     const changed = changedFacts(card, next);
     const status = statusChange(id, normalized.patch, statuses);
     if (status) changed.push('status');
@@ -324,9 +334,11 @@ export function previewRosterBulk({ roster, statusRecords = [], quests = [], eff
   if (normalized.patch.action === 'update') {
     const planned = { adventurers: currentRoster.adventurers.map((card) => {
       const result = eligible.find((item) => item.id === card.id);
-      return result ? applyFacts(card, normalized.patch) : card;
+      return result ? applyFacts(card, normalized.patch, cardEnvAllow) : card;
     }) };
-    validateRoster(planned);
+    // Every eligible card already passed applyFacts's own strict check above; this is only the
+    // cross-card pass (duplicate ids), so an untouched card's legacy env must not block it either.
+    validateRoster(planned, { lenientEnv: true });
   }
   const changedFields = [...new Set(results.flatMap((result) => result.changedFields))];
   const preservedFields = [...new Set(results.flatMap((result) => result.preservedFields))];
@@ -356,7 +368,8 @@ function redactedError(error, values) {
 }
 
 function freshState({ load, getStatusRecords, getQuests, getEffectiveRoster, getQuotaEvidenceRoster }) {
-  const roster = validateRoster(load());
+  // load() already reads leniently (loadRosterOrEmpty); re-validating strictly here would undo that.
+  const roster = validateRoster(load(), { lenientEnv: true });
   const statusRecords = getStatusRecords();
   const quests = getQuests();
   const effectiveRoster = getEffectiveRoster ? getEffectiveRoster() : null;
@@ -372,24 +385,25 @@ export async function applyRosterBulk({
   getQuests = () => [],
   request,
   load = () => loadRosterOrEmpty(rosterFile),
-  save = (file, roster) => saveRoster(file, roster),
+  save = (file, roster, options) => saveRoster(file, roster, options),
   now = () => new Date().toISOString(),
   beforeRecheck,
   getEffectiveRoster,
   getQuotaEvidenceRoster,
+  cardEnvAllow = [],
 } = {}) {
   if (typeof load !== 'function') throw new Error('roster bulk needs a roster loader');
   if (typeof getQuests !== 'function') throw new Error('roster bulk needs a quest loader');
-  const normalized = validateRosterBulkRequest(request);
+  const normalized = validateRosterBulkRequest(request, { cardEnvAllow });
   const getStatusRecords = () => (statusLog && typeof statusLog.records === 'function' ? statusLog.records() : []);
   const before = freshState({ load, getStatusRecords, getQuests, getEffectiveRoster, getQuotaEvidenceRoster });
   assertFresh(normalized.expected, before.fingerprint);
-  const firstPreview = previewRosterBulk({ roster: before.roster, statusRecords: before.statusRecords, quests: before.quests, effectiveRoster: before.effectiveRoster, quotaEvidenceRoster: before.quotaEvidenceRoster, request });
+  const firstPreview = previewRosterBulk({ roster: before.roster, statusRecords: before.statusRecords, quests: before.quests, effectiveRoster: before.effectiveRoster, quotaEvidenceRoster: before.quotaEvidenceRoster, request, cardEnvAllow });
   if (beforeRecheck) await beforeRecheck(firstPreview);
   const state = freshState({ load, getStatusRecords, getQuests, getEffectiveRoster, getQuotaEvidenceRoster });
   // Even without a caller-provided fingerprint, the async preflight must not overwrite another writer's card.
   if (state.fingerprint !== before.fingerprint) throw new RosterBulkStaleError('名册在预览后变过了，请重新预览再操作', state.fingerprint);
-  const preview = previewRosterBulk({ roster: state.roster, statusRecords: state.statusRecords, quests: state.quests, effectiveRoster: state.effectiveRoster, quotaEvidenceRoster: state.quotaEvidenceRoster, request });
+  const preview = previewRosterBulk({ roster: state.roster, statusRecords: state.statusRecords, quests: state.quests, effectiveRoster: state.effectiveRoster, quotaEvidenceRoster: state.quotaEvidenceRoster, request, cardEnvAllow });
   const values = Object.values(normalized.patch.env?.set || {});
   const results = [];
   let backupAttempted = false;
@@ -437,17 +451,19 @@ export async function applyRosterBulk({
     try {
       if (normalized.patch.action === 'delete') {
         const nextRoster = { adventurers: current.roster.adventurers.filter((item) => item.id !== planned.id) };
-        validateRoster(nextRoster);
+        // The deleted card needed no env check; a different, untouched legacy card must not block this.
+        validateRoster(nextRoster, { lenientEnv: true });
         ensureBackup();
-        save(rosterFile, nextRoster);
+        save(rosterFile, nextRoster, { lenientEnv: true });
         appliedFields = ['deleted'];
       } else {
-        const nextCard = applyFacts(card, normalized.patch);
+        const nextCard = applyFacts(card, normalized.patch, cardEnvAllow);
         const nextRoster = { adventurers: current.roster.adventurers.map((item) => item.id === planned.id ? nextCard : item) };
-        validateRoster(nextRoster);
+        // nextCard already passed applyFacts's strict check; only other, untouched cards get leniency.
+        validateRoster(nextRoster, { lenientEnv: true });
         if (changedFacts(card, nextCard).length) {
           ensureBackup();
-          save(rosterFile, nextRoster);
+          save(rosterFile, nextRoster, { lenientEnv: true });
           appliedFields = changedFacts(card, nextCard);
         }
       }

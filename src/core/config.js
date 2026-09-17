@@ -40,6 +40,7 @@ const MAX_ARG_LENGTH = 4096;
 const HOOK_ID = /^[a-z][a-z0-9_-]{1,40}$/;
 const HOOK_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const HOOK_KINDS = new Set(['code', 'art', 'review', 'owner']);
+const CARD_ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 const KNOWN_MANUAL_PROVIDER_IDS = new Set(MANUAL_PROVIDERS.map((provider) => provider.id));
 const KNOWN_EXPERIMENTAL_PROVIDER_IDS = new Set(['codex-app-server']);
@@ -412,6 +413,21 @@ function validateVerificationConfig(rawVerification, base) {
   return { progressDirs, hooks: validateVerificationHooks(rawVerification.hooks, base) };
 }
 
+// Extra exact card env names this project allows beyond the built-in provider-setting shapes
+// (src/core/roster.js CARD_ENV_ALLOWED_*). The owner takes responsibility for every name listed here; the
+// roster's deny list still refuses a listed name that changes how programs load. Same name shape as a card
+// env name (roster.js ENV_NAME).
+function validateCardEnvAllow(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) fail('policy.cardEnvAllow 必须是环境变量名的列表');
+  for (const name of value) {
+    if (typeof name !== 'string' || !CARD_ENV_NAME.test(name)) {
+      fail(`policy.cardEnvAllow 里的 ${JSON.stringify(name)} 不是合法的环境变量名：只能用大写字母、数字和下划线，且不能以数字开头 (UPPER_SNAKE_CASE)`);
+    }
+  }
+  return [...new Set(value)];
+}
+
 // The project policy: what the board refuses to dispatch, plus the limits and preferences the owner edits
 // on the settings page. Every field is additive and optional — a config file that never mentions any of
 // them resolves to exactly the behaviour from before they existed (stall after 20 minutes, no per-lane
@@ -433,6 +449,7 @@ function validatePolicyConfig(rawPolicy, laneIds) {
     defaultCard: null,
     bouncePatterns: [],
     reviewRequires: [],
+    cardEnvAllow: validateCardEnvAllow(policy.cardEnvAllow),
   };
   if (policy.stallAfterMinutes !== undefined) {
     if (!Number.isInteger(policy.stallAfterMinutes) || policy.stallAfterMinutes < 1) fail('policy.stallAfterMinutes must be a positive integer (minutes)');

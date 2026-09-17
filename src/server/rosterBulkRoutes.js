@@ -9,6 +9,7 @@ import { applyStatuses } from '../core/status.js';
 const BODY_LIMIT = 256 * 1024;
 
 function failure(response, error) {
+  if (error.code === 'request_too_large') { sendJson(response, 413, { error: '请求内容太大' }); return; }
   if (error.code === 'stale_revision') {
     sendJson(response, 409, { error: 'stale', revision: error.revision, reasons: [{ code: error.code, message: error.message }] });
     return;
@@ -16,7 +17,8 @@ function failure(response, error) {
   sendJson(response, 400, { error: error.message, ...(error.fields && Object.keys(error.fields).length ? { fields: error.fields } : {}) });
 }
 
-export function createRosterBulkRoutes({ rosterFile, statusLog, getQuests = () => [], getLanes = () => null } = {}) {
+// `cardEnvAllow` is the project's policy.cardEnvAllow list; without it only the built-in env shapes pass.
+export function createRosterBulkRoutes({ rosterFile, statusLog, getQuests = () => [], getLanes = () => null, cardEnvAllow = [] } = {}) {
   if (!rosterFile) throw new Error('roster bulk routes need a roster file');
 
   const getEffectiveRoster = () => {
@@ -48,9 +50,9 @@ export function createRosterBulkRoutes({ rosterFile, statusLog, getQuests = () =
     if (refusal) { sendJson(response, 403, { error: refusal }); return true; }
     try {
       const body = await readJsonBody(request, BODY_LIMIT);
-      const common = { rosterFile, statusLog, getQuests, getEffectiveRoster, getQuotaEvidenceRoster, request: body, load: () => loadRosterOrEmpty(rosterFile), save: saveRoster };
+      const common = { rosterFile, statusLog, getQuests, getEffectiveRoster, getQuotaEvidenceRoster, request: body, load: () => loadRosterOrEmpty(rosterFile), save: saveRoster, cardEnvAllow };
       const result = operation === 'preview'
-        ? previewRosterBulk({ roster: loadRosterOrEmpty(rosterFile), statusRecords: statusLog.records(), quests: getQuests(), effectiveRoster: getEffectiveRoster(), quotaEvidenceRoster: getQuotaEvidenceRoster(), request: body })
+        ? previewRosterBulk({ roster: loadRosterOrEmpty(rosterFile), statusRecords: statusLog.records(), quests: getQuests(), effectiveRoster: getEffectiveRoster(), quotaEvidenceRoster: getQuotaEvidenceRoster(), request: body, cardEnvAllow })
         : await applyRosterBulk(common);
       sendJson(response, 200, result);
     } catch (error) {

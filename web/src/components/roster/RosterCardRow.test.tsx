@@ -62,6 +62,19 @@ describe('RosterCardRow derived status (real JSX)', () => {
     expect(html).not.toContain('基础原因');
   });
 
+  it('shows a legacy card env-policy note without hiding the card', () => {
+    const card = makeCard('legacy-loader', {
+      status: 'available',
+      baseStatus: 'available',
+      envPolicy: { variable: 'LD_AUDIT', reason: '环境变量 LD_AUDIT 会改变程序加载方式，这张卡不能设置它' },
+    });
+    const html = render(card);
+    expect(html).toContain('LD_AUDIT');
+    expect(html).toContain('envpolicy-note');
+    expect(html).not.toContain('disabled=""');
+    expect(html).not.toContain('disabled>');
+  });
+
   it('N4: labels the older manual reason on a derived row so it is not read as the current limit reason', () => {
     const card = makeCard('card-a', {
       status: 'limited',

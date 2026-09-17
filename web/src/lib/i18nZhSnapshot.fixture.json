@@ -514,6 +514,7 @@
   "rosterRow.duplicate": "复制",
   "rosterRow.duplicateHint": "照这位冒险者再开一位，只改要改的",
   "rosterRow.edit": "编辑",
+  "rosterRow.envPolicy": "名册问题：{reason}",
   "rosterRow.fullModelTitle": "完整模型标识：{model}{variant}",
   "rosterRow.idTitle": "编号：{id}",
   "rosterRow.modelTitle": "模型标识：{model}",

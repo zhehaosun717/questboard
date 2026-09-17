@@ -215,10 +215,15 @@ describe('roster', () => {
   it('takes non-secret env values on a card and refuses key-shaped ones', () => {
     const base = 'https://api.example.test/v1';
     assert.deepEqual(validateRoster({ adventurers: [{ ...card, env: { OPENAI_BASE_URL: base } }] }).adventurers[0].env, { OPENAI_BASE_URL: base });
-    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: { 'lower case': 'x' } }] }), /UPPER_SNAKE_CASE/);
-    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: { OPENAI_API_KEY: 'sk-abcdef0123456789' } }] }), /looks like a key/);
-    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: 'OPENAI_BASE_URL=x' }] }), /must be an object/);
-    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: { LONG: 'x'.repeat(201) } }] }), /at most 200/);
+    assert.throws(
+      () => validateRoster({ adventurers: [{ ...card, env: { 'lower case': 'x' } }] }),
+      (err) => /UPPER_SNAKE_CASE/.test(err.message) && /[一-鿿]/u.test(err.message) && err.message.includes('lower case'),
+    );
+    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: { OPENAI_MODEL: 'sk-abcdef0123456789' } }] }), /OPENAI_MODEL 的值看起来像密钥/);
+    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: 'OPENAI_BASE_URL=x' }] }), /必须是「变量名: 值」这样的对象/);
+    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: { LONG_MODEL: 'x'.repeat(201) } }] }), /LONG_MODEL 的值必须是文字，最长 200 个字符/);
+    // Round 5: a key name is not a provider-setting shape, so it is refused before its value is looked at.
+    assert.throws(() => validateRoster({ adventurers: [{ ...card, env: { OPENAI_API_KEY: 'sk-abcdef0123456789' } }] }), /OPENAI_API_KEY 不是卡片可以设置的/);
   });
 });
 

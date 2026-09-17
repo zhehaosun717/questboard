@@ -785,7 +785,7 @@ export class QuestStore extends EventEmitter {
   // by the caller from the parents' live current-attempt ids (never trusted from the request body — see
   // src/server/questRoutes.js), so a later re-dispatch of any parent changes its current attempt id and
   // rules.js's own check stops matching this override on its own, without this record ever being touched.
-  recordReviewOverride(id, { reason, by = 'owner', parentAttempts = {} }) {
+  recordReviewOverride(id, { reason, by = 'owner', source = null, parentAttempts = {} }) {
     const quest = this.quests.get(id);
     if (!quest) return null;
     if (quest.kind !== 'review') {
@@ -793,11 +793,18 @@ export class QuestStore extends EventEmitter {
       error.code = 'not_review';
       throw error;
     }
-    const text = String(reason || '').trim().slice(0, 2000);
+    if (typeof reason !== 'string') throw new Error('例外原因必须是文字');
+    const text = reason.trim().slice(0, 2000);
     if (!text) throw new Error('例外原因不能为空');
+    const current = quest.reviewOverride;
+    const currentAttempts = current && current.parentAttempts || {};
+    const sameAttempts = Object.keys(currentAttempts).length === Object.keys(parentAttempts || {}).length
+      && Object.entries(currentAttempts).every(([key, value]) => parentAttempts[key] === value);
+    if (current && current.reason === text && sameAttempts) return quest;
     const at = now();
-    const next = this.save({ ...quest, reviewOverride: { reason: text, by, at, parentAttempts }, updatedAt: at });
-    this.emitEvent(next, 'review_override', { by, detail: text });
+    const reviewOverride = { reason: text, by, at, parentAttempts, ...(source ? { source } : {}) };
+    const next = this.save({ ...quest, reviewOverride, updatedAt: at });
+    this.emitEvent(next, 'review_override', { by, source, detail: text });
     return next;
   }
 

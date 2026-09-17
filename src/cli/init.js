@@ -118,7 +118,10 @@ export function runInit({ dir, name, port = DEFAULT_PORT, force = false, home, e
 
   let rosterCreated = false;
   if (home && !fs.existsSync(home.roster)) {
-    saveRoster(home.roster, loadRosterOrEmpty(home.roster));
+    // This branch only ever writes a brand-new, empty roster (loadRosterOrEmpty on a file that does not
+    // exist yet), but lenient matches the same whole-roster save pattern as card add and roster import, in
+    // case a future caller ever reaches this with an existing roster in hand.
+    saveRoster(home.roster, loadRosterOrEmpty(home.roster), { lenientEnv: true });
     rosterCreated = true;
   }
 

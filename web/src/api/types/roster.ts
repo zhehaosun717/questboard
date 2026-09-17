@@ -37,6 +37,9 @@ export interface Card {
   baseStatus?: CardStatus;
   baseReason?: string;
   laneDiagnostics?: LaneDiagnostic[];
+  // Round 3 (src/core/roster.js envPolicyViolation): a legacy card whose saved env now breaks the deny
+  // policy still loads and shows on the board with this note; it is refused for dispatch instead.
+  envPolicy?: { variable: string; reason: string };
 }
 
 // Advisory only (src/core/overlay.js diagnostic): lane evidence that could not be attributed to one exact

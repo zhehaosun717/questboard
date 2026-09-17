@@ -183,7 +183,7 @@ export function createSettingsRoutes({ config, home, env = process.env, homedir,
       try {
         body = await readJsonBody(request, 256 * 1024);
       } catch (err) {
-        sendJson(response, 400, { error: err.message, fields: { lane: err.message } });
+        sendJson(response, err.code === 'request_too_large' ? 413 : 400, { error: err.code === 'request_too_large' ? '请求内容太大' : err.message, fields: { lane: err.message } });
         return;
       }
       const result = previewLaneCommand(config, body);

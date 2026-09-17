@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import { sendJson, readJsonBody, writeRefusal } from './http.js';
 import { buildSnapshot } from '../core/snapshot.js';
-import { loadRoster, loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.js';
+import { envPolicyViolation, loadRoster, loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.js';
 import { applyStatuses, STATUSES } from '../core/status.js';
 import { effectiveRoster, visibleLaneLimits } from '../core/overlay.js';
 import { QUEST_STATUSES } from '../core/store.js';
@@ -72,7 +72,10 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
   // point it's assigned — passing it lets the recheck re-resolve the adventurer's roster status, lane and
   // policy fresh at spawn time instead of trusting the object captured at drop time.
   const dispatcher = createDispatcher({ config, store, runners, evidenceWaitMs, writeDelivery, getDownLanes: () => downLanes, getAdventurer: (id) => findCard(id) });
-  const rosterBulkRoutes = createRosterBulkRoutes({ rosterFile, statusLog, getQuests: () => store.list(), getLanes });
+  // The project's extra allowed card env names (policy.cardEnvAllow); fixed for the server's lifetime,
+  // since a config change needs a restart.
+  const cardEnvAllow = config.policy?.cardEnvAllow || [];
+  const rosterBulkRoutes = createRosterBulkRoutes({ rosterFile, statusLog, getQuests: () => store.list(), getLanes, cardEnvAllow });
   const clients = new Set();
   const timers = [];
   let lastLanes = null;
@@ -83,7 +86,14 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
   });
 
   // Missing roster: the board still opens, empty, so the first card can be added from the 冒险者 tab.
-  const adventurers = () => applyStatuses(loadRosterOrEmpty(rosterFile).adventurers, statusLog.current());
+  // A card whose saved env now breaks the env policy (deny list or allowed shapes) still loads (loadRosterOrEmpty never throws for
+  // that); it just carries a note here, in memory only, so the board can show it and rules.js can refuse
+  // dispatch — never written back to roster.json.
+  const withEnvPolicy = (card) => {
+    const envPolicy = envPolicyViolation(card, { cardEnvAllow });
+    return envPolicy ? { ...card, envPolicy } : card;
+  };
+  const adventurers = () => applyStatuses(loadRosterOrEmpty(rosterFile).adventurers, statusLog.current()).map(withEnvPolicy);
   const snapshot = () => buildSnapshot({ config, store, adventurers: adventurers(), boardStore, lanes: getLanes(), downLanes });
   const findCard = (id) => effectiveRoster(adventurers(), getLanes()).find((a) => a.id === id);
 
@@ -131,8 +141,10 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       const roster = loadRosterOrEmpty(rosterFile);
       const entry = body.adventurer;
       if (entry && entry.lane && !config.lanes[entry.lane]) { sendJson(response, 400, { error: `lane ${entry.lane} is not configured in this project` }); return; }
-      const next = upsertAdventurer(roster, entry);
-      saveRoster(rosterFile, next);
+      const next = upsertAdventurer(roster, entry, { cardEnvAllow });
+      // upsertAdventurer already checked this entry in full; another, untouched card's legacy env must
+      // not block saving it.
+      saveRoster(rosterFile, next, { lenientEnv: true });
       sendJson(response, 200, { adventurer: next.adventurers.find((a) => a.id === entry.id) });
       return;
     }
@@ -141,7 +153,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       if (!roster.adventurers.some((a) => a.id === parts[2])) { sendJson(response, 404, { error: `no adventurer ${parts[2]}` }); return; }
       const running = store.list().filter((q) => q.status === 'dispatched' && q.assignee && q.assignee.adventurerId === parts[2]).map((q) => q.id);
       if (running.length) { sendJson(response, 409, { error: `${parts[2]} is working on ${running.join(', ')}; wait until it finishes` }); return; }
-      saveRoster(rosterFile, { ...roster, adventurers: roster.adventurers.filter((a) => a.id !== parts[2]) });
+      saveRoster(rosterFile, { ...roster, adventurers: roster.adventurers.filter((a) => a.id !== parts[2]) }, { lenientEnv: true });
       sendJson(response, 200, { removed: parts[2] });
       return;
     }
@@ -277,8 +289,9 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       // would otherwise refuse it — never marks any evidence as passed. parentAttempts is computed here,
       // from the live store, never trusted from the request body: the client sends only the reason.
       const quest = store.get(questId);
-      const text = String(body.reason || '').trim();
-      if (!text) { sendJson(response, 400, { error: 'reason is required' }); return; }
+      if (typeof body.reason !== 'string') { sendJson(response, 400, { error: '例外原因必须是文字' }); return; }
+      const text = body.reason.trim();
+      if (!text) { sendJson(response, 400, { error: '例外原因不能为空' }); return; }
       if (quest.kind !== 'review') { sendJson(response, 409, { error: `${questId} 不是审核委托，不能记录审核例外` }); return; }
       const evidenceOf = makeEvidenceOf(config, store, getLanes()?.verification);
       const nonReviewParents = (quest.parents || []).filter((id) => {
@@ -287,7 +300,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       });
       const parentAttempts = Object.fromEntries(nonReviewParents.map((id) => [id, evidenceOf(id)?.attemptId ?? null]));
       try {
-        sendJson(response, 200, { quest: store.recordReviewOverride(questId, { reason: text, by, parentAttempts }) });
+        sendJson(response, 200, { quest: store.recordReviewOverride(questId, { reason: text, by, source, parentAttempts }) });
       } catch (error) {
         sendJson(response, 409, { error: error.message });
       }
@@ -422,7 +435,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
         sendJson(response, 404, { error: 'not found' });
       }
     } catch (error) {
-      if (!response.headersSent) sendJson(response, 400, { error: error.message });
+      if (!response.headersSent) sendJson(response, error.code === 'request_too_large' ? 413 : 400, { error: error.code === 'request_too_large' ? '请求内容太大' : error.message });
     }
     return true;
   }

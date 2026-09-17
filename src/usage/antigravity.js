@@ -3,6 +3,7 @@
 // we read it from the process list into memory, send it in one header, and never store or print it. Owner
 // consent for reading another app's login: 2026-09-13.
 import https from 'node:https';
+import path from 'node:path';
 import { UsageError, isoOrNull, safeLabel } from './common.js';
 
 const PROCESS_NAME = 'language_server_windows_x64.exe';
@@ -11,6 +12,10 @@ const STATUS_PATH = '/exa.language_server_pb.LanguageServerService/GetUserStatus
 const LABEL_PATTERN = /^[\w .()/+-]{1,40}$/;
 const TOKEN_PATTERN = /--csrf_token[=\s]+([a-f0-9-]{8,64})/i;
 const PORT_PATTERN = /^\d{2,5}$/;
+const WINDOWS_ROOT = /^[A-Za-z]:[\\/]/.test(process.env.SystemRoot || process.env.SYSTEMROOT || '')
+  ? (process.env.SystemRoot || process.env.SYSTEMROOT)
+  : 'C:\\Windows';
+export const POWERSHELL_PATH = path.win32.join(WINDOWS_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 
 // PowerShell, because the token lives in CommandLine and Get-NetTCPConnection maps ports to a pid.
 const LIST_PROCESSES = ['-NoProfile', '-NonInteractive', '-Command',
@@ -86,9 +91,9 @@ export function createAntigravityProvider({ post = postLocalJson, platform = pro
     credentialType: 'antigravity-local-csrf',
     async fetch({ exec }) {
       if (platform !== 'win32') return { ok: false, configured: false, code: 'windows_only' };
-      const found = findLanguageServer(await exec('powershell', LIST_PROCESSES, { timeoutMs: 20000 }));
+      const found = findLanguageServer(await exec(POWERSHELL_PATH, LIST_PROCESSES, { timeoutMs: 20000 }));
       if (!found) return { ok: false, configured: false, code: 'process_not_found' };
-      const ports = parsePorts(await exec('powershell', listPorts(found.pid), { timeoutMs: 20000 }));
+      const ports = parsePorts(await exec(POWERSHELL_PATH, listPorts(found.pid), { timeoutMs: 20000 }));
       if (!ports.length) throw new UsageError('no_listening_port');
       let lastError = null;
       for (const port of ports) {
