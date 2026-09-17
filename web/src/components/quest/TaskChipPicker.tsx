@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 export interface ChipSuggestion {
   id: string;
@@ -18,6 +18,38 @@ export interface TaskChipPickerProps {
 }
 
 const MAX_SUGGESTIONS = 8;
+
+// Exported so a test can prove the removal-focus decision without mounting React (no DOM library is
+// installed here — see MetadataSection.test.tsx's own note). `removedIndex` is the position the just-removed
+// chip used to occupy; `remainingCount` is how many chips are left after it. Mirrors the common
+// accessible-listbox rule: focus the item that slid into the removed slot, or the previous one if the last
+// chip was removed, or `null` (the caller's cue to focus the input instead) once there is nothing left.
+export function focusIndexAfterRemoval(removedIndex: number, remainingCount: number): number | null {
+  if (remainingCount === 0) return null;
+  return Math.min(removedIndex, remainingCount - 1);
+}
+
+// Performs that decision against real (or, in a test, fake) focusable handles — never leaving the browser to
+// drop focus to `<body>` because the button the owner just clicked no longer exists.
+export function focusAfterRemoval(
+  removedIndex: number,
+  remainingChipButtons: Array<{ focus: () => void } | null | undefined>,
+  input: { focus: () => void } | null | undefined,
+) {
+  const target = focusIndexAfterRemoval(removedIndex, remainingChipButtons.length);
+  if (target === null) input?.focus();
+  else remainingChipButtons[target]?.focus();
+}
+
+export type RemovalSource = 'button' | 'keyboard';
+
+// F-1: only a ✕-button removal should move focus (to the chip that slid into the removed slot, or the
+// input once nothing is left). A removal started from the keyboard (Backspace in the empty combobox) must
+// leave focus exactly where it was — the input never left the DOM, so touching it at all just interrupts
+// the next keystroke. Exported so a test can prove the decision without mounting React.
+export function focusMoveIndexForRemoval(source: RemovalSource, index: number): number | null {
+  return source === 'button' ? index : null;
+}
 
 function defaultFormat(suggestions: ChipSuggestion[]) {
   const byId = new Map(suggestions.map((s) => [s.id, s.title]));
@@ -49,6 +81,19 @@ export function TaskChipPicker({
   const reactId = useId();
   const listId = `${idPrefix}-${reactId}-list`;
   const format = formatChip ?? defaultFormat(suggestions);
+  const chipButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Set right before the onChange that removes a chip; consumed once, after the resulting re-render commits
+  // the new (shorter) `values`, so the ref array below already reflects the post-removal chip positions.
+  const pendingRemovalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const removedIndex = pendingRemovalRef.current;
+    if (removedIndex === null) return;
+    pendingRemovalRef.current = null;
+    focusAfterRemoval(removedIndex, chipButtonRefs.current.slice(0, values.length), inputRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values]);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -67,7 +112,8 @@ export function TaskChipPicker({
     setHighlight(0);
   };
 
-  const removeAt = (index: number) => {
+  const removeAt = (index: number, source: RemovalSource) => {
+    pendingRemovalRef.current = focusMoveIndexForRemoval(source, index);
     onChange(values.filter((_, i) => i !== index));
   };
 
@@ -90,7 +136,7 @@ export function TaskChipPicker({
       setQuery('');
       setHighlight(0);
     } else if (e.key === 'Backspace' && !query && values.length) {
-      removeAt(values.length - 1);
+      removeAt(values.length - 1, 'keyboard');
     }
   };
 
@@ -102,7 +148,13 @@ export function TaskChipPicker({
             <li key={`${id}-${index}`} className="meta-chip">
               <span>{format(id)}</span>
               {!disabled ? (
-                <button type="button" className="meta-chip-remove" aria-label={`移除 ${format(id)}`} onClick={() => removeAt(index)}>
+                <button
+                  type="button"
+                  className="meta-chip-remove"
+                  aria-label={`移除 ${format(id)}`}
+                  ref={(el) => { chipButtonRefs.current[index] = el; }}
+                  onClick={() => removeAt(index, 'button')}
+                >
                   ✕
                 </button>
               ) : null}
@@ -115,6 +167,7 @@ export function TaskChipPicker({
           <input
             type="text"
             id={`${idPrefix}-${reactId}-input`}
+            ref={inputRef}
             role="combobox"
             aria-expanded={matches.length > 0}
             aria-controls={listId}

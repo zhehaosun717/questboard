@@ -2,7 +2,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../api/client';
 import { makeQuest, makeSnapshot } from '../../lib/testFixtures';
-import { holdsSlotMessage, MetadataSection, unmountEffect } from './MetadataSection';
+import {
+  focusAfterCancel, holdsSlotMessage, MetadataSection, unmountEffect,
+} from './MetadataSection';
 
 const noop = () => undefined;
 
@@ -52,5 +54,28 @@ describe('B2: holdsSlotMessage shows the server\'s reason, never the bare "refus
   it('falls back to err.message if a future server ever omits reasons for this code', () => {
     const err = new ApiError('refused', [{ code: 'something_else', message: 'x' }]);
     expect(holdsSlotMessage(err)).toBe('refused');
+  });
+});
+
+// N2: Cancel collapses the section and removes the Cancel button (the element that had focus) from the DOM
+// with it. No DOM library is installed here (see the note above), so this hand-rolls the one behaviour these
+// tests need from the real DOM: document.activeElement reflects whichever element's focus() was last
+// called — enough to prove focusAfterCancel actually calls it, without mounting React.
+function makeFocusable(name: string, document: { activeElement: unknown }) {
+  const el = { name, focus: () => { document.activeElement = el; } };
+  return el;
+}
+
+describe('N2: focus after Cancel never falls back to <body>', () => {
+  it('refocuses the section summary — the closest thing this UI has to an "edit" toggle', () => {
+    const document = { activeElement: null as unknown };
+    const summary = makeFocusable('summary', document);
+    focusAfterCancel(summary);
+    expect(document.activeElement).toBe(summary);
+  });
+
+  it('does nothing (never throws) if the summary ref was never attached', () => {
+    expect(() => focusAfterCancel(null)).not.toThrow();
+    expect(() => focusAfterCancel(undefined)).not.toThrow();
   });
 });
