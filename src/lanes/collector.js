@@ -2,7 +2,7 @@
 // Read-only and never throws for a single bad worker — that worker gets state 'unknown' with the reason.
 import path from 'node:path';
 import { readJsonLines } from '../core/jsonl.js';
-import { workerState, countEdits, readText, laneLimit, laneEvidence as readLaneEvidence, mtime, resetAt } from './workers.js';
+import { workerState, countEdits, readText, laneLimitFromEvidence, active, laneEvidence as readLaneEvidence, mtime, resetAt } from './workers.js';
 import { fetchJson, sessionLimitReason, sessionModel, sessionState } from './opencode.js';
 import { latestProgress } from './progress.js';
 import { isCurrentRow, tailText } from '../core/sync.js';
@@ -191,17 +191,16 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
     for (const [id, lane] of Object.entries(config.lanes)) {
       if (!lane.outputDir) continue;
       const options = { identityByName: (name) => identitiesByName.get(name) || null, bouncePatterns: config.policy.bouncePatterns };
-      const limit = laneLimit(path.join(config.root, lane.outputDir), now, options);
-      if (limit) laneLimits[id] = limit;
+      // One read of the output folder serves both the lane-wide limit and the expired/unidentified
+      // evidence below — laneLimitFromEvidence and the `active` filter share this same evidence object
+      // instead of each re-reading the directory or re-deciding expiry on their own.
       const evidence = readLaneEvidence(path.join(config.root, lane.outputDir), now, options);
-      if (evidence) {
-        const expiredCards = Object.fromEntries(Object.entries(evidence.cards).filter(([, entry]) => {
-          const reset = Date.parse(entry.resetsAt || '');
-          return Number.isFinite(reset) && reset <= now;
-        }));
-        if (Object.keys(expiredCards).length || evidence.unidentified.length) {
-          laneEvidence[id] = { cards: expiredCards, unidentified: evidence.unidentified };
-        }
+      if (!evidence) continue;
+      const limit = laneLimitFromEvidence(evidence, now);
+      if (limit) laneLimits[id] = limit;
+      const expiredCards = Object.fromEntries(Object.entries(evidence.cards).filter(([, entry]) => !active(entry, now)));
+      if (Object.keys(expiredCards).length || evidence.unidentified.length) {
+        laneEvidence[id] = { cards: expiredCards, unidentified: evidence.unidentified };
       }
     }
     const verification = config.verification ? latestProgress(config.verification.progressDirs) : null;

@@ -2,15 +2,28 @@
 // A lane observation is allowed to affect one exact card only; ambiguous legacy evidence is diagnostic.
 import { resetAt } from '../lanes/workers.js';
 
-// Kept as a compatibility export for callers that imported the old constant. Unknown-duration bounces no
-// longer use this value as an expiry window.
-export const BOUNCE_WINDOW_MS = 5 * 60 * 60 * 1000;
 const UNVERIFIED_REASON = '限额窗口已过，尚未验证可用';
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// A provider's own bounce label (e.g. "1:54 PM", "Sep 18, 2026 1:54 PM") is shown verbatim. Only a
+// machine-shaped timestamp (YYYY-MM-DD…, as a structured API's resetAt field can hand back directly) is
+// reformatted, so the reason never leaks a raw ISO string to the owner.
+const ISO_LIKE_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{1,2}:\d{2}/;
 
 function timestamp(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   const parsed = Date.parse(String(value || ''));
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function humanResetLabel(label, resetsAt) {
+  if (label && !ISO_LIKE_RE.test(label)) return label;
+  const parsed = timestamp(resetsAt);
+  if (parsed === null) return '';
+  const date = new Date(parsed);
+  const hour24 = date.getHours();
+  const hour = hour24 % 12 || 12;
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()} ${hour}:${minute} ${hour24 >= 12 ? 'PM' : 'AM'}`;
 }
 
 function iso(value) {
@@ -77,7 +90,7 @@ function laneEntries(lanes) {
 
 function reasonFor(row, resetsAt, expired) {
   if (expired) return UNVERIFIED_REASON;
-  const label = row.bounceUntil || '';
+  const label = humanResetLabel(row.bounceUntil || '', resetsAt);
   const prefix = row._kind === 'lane-limit' ? `${row.lane || '某个通道'} 限额中` : `${row.package || row.lane || '某个通道'} 限额退回`;
   return `${prefix}${label ? `，${label} 恢复` : ''}`;
 }

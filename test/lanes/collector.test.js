@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createCollector } from '../../src/lanes/collector.js';
-import { laneLimit, laneEvidence, workerState, countEdits, bounceTimeMs } from '../../src/lanes/workers.js';
+import { laneLimit, laneLimitFromEvidence, active, laneEvidence, workerState, countEdits, bounceTimeMs } from '../../src/lanes/workers.js';
 import { parseProgress, latestProgress } from '../../src/lanes/progress.js';
 import { sessionModel } from '../../src/lanes/opencode.js';
 import { deriveTransitions } from '../../src/core/sync.js';
@@ -334,6 +334,22 @@ describe('workers', () => {
     assert.equal(workerState(base('f'), now).state, 'failed', 'a nonzero exit with no quota evidence stays a plain failure');
   });
 
+  it('does not read a test-count summary line as a quota bounce (A2)', () => {
+    const { root, write } = makeProject();
+    const base = (name) => path.join(root, '.work', name);
+    const now = Date.now();
+    write('.work/q1.out', 'working...\nQuota: 3 of 5 tests skipped');
+    write('.work/q1.exit', '1');
+    assert.equal(workerState(base('q1'), now).state, 'failed', 'a test-count summary that starts with "Quota" is not bounce evidence');
+    write('.work/q2.out', 'working...\nusage limit tests: 2 failed');
+    write('.work/q2.exit', '1');
+    assert.equal(workerState(base('q2'), now).state, 'failed', 'a test-count summary that starts with "usage limit" is not bounce evidence');
+    // Real quota sentences immediately followed by punctuation, not a test count, still bounce.
+    write('.work/q3.out', 'working...\nQuota exceeded, try again at 3:00 PM');
+    write('.work/q3.exit', '1');
+    assert.equal(workerState(base('q3'), now).state, 'bounced');
+  });
+
   it('bounces on a configured exit-line pattern with its label and code, built-in detection first', () => {
     const { root, write } = makeProject();
     const base = (name) => path.join(root, '.work', name);
@@ -461,6 +477,48 @@ describe('workers', () => {
     write('.work/codex/m.out', 'usage limit reached, try again at 3:00 PM');
     write('.work/codex/m.exit', '');
     assert.equal(laneLimit(path.join(root, '.work', 'codex')), null, 'an unreadable exit code is not authoritative evidence of a bounce');
+  });
+
+  it('derives the same lane limit from precomputed evidence as from a fresh directory read (A6)', () => {
+    const { root, write } = makeProject();
+    write('.work/codex/a.out', 'usage limit reached, try again at 3:00 PM');
+    write('.work/codex/a.exit', '1');
+    const dir = path.join(root, '.work', 'codex');
+    const now = Date.now();
+    const options = { identityByName: () => 'card-a' };
+    const evidence = laneEvidence(dir, now, options);
+    assert.deepEqual(laneLimitFromEvidence(evidence, now), laneLimit(dir, now, options));
+  });
+
+  it('active() is the one expiry rule shared by laneLimit and the collector\'s evidence split (A6)', () => {
+    assert.equal(active({ resetsAt: null }, Date.now()), true, 'an unknown-duration reset stays active');
+    assert.equal(active({ resetsAt: new Date(Date.now() - 1000).toISOString() }, Date.now()), false, 'a reset already in the past is not active');
+    assert.equal(active({ resetsAt: new Date(Date.now() + 1000).toISOString() }, Date.now()), true, 'a reset still in the future is active');
+  });
+
+  it('reads each lane output folder once per poll (A6)', async () => {
+    const { config, write } = makeProject();
+    dispatch(config, { package: 'RUN-6', lane: 'codex', model: 'gpt-5.6-luna', name: 'run6' });
+    write('.work/codex/run6.out', 'working');
+    write('.work/codex/run6.exit', '0');
+    write('.work/codex/run6.md', 'ok');
+    dispatch(config, { package: 'RUN-OTHER', lane: 'codex', model: 'gpt-5.6-luna', name: 'other', adventurerId: 'codex-other' });
+    write('.work/codex/other.out', 'usage limit reached, try again at 3:00 PM');
+    write('.work/codex/other.exit', '1');
+    const outputDir = path.join(config.root, '.work', 'codex');
+    const original = fs.readdirSync;
+    let calls = 0;
+    fs.readdirSync = (dir, ...rest) => {
+      if (path.resolve(String(dir)) === outputDir) calls += 1;
+      return original(dir, ...rest);
+    };
+    try {
+      const { laneLimits } = await createCollector(config).collect();
+      assert.ok(laneLimits.codex, 'the limit is still computed correctly through the shared evidence read');
+    } finally {
+      fs.readdirSync = original;
+    }
+    assert.equal(calls, 1, 'the collector reads a lane output folder once per poll, not once for the limit and once for the evidence');
   });
 
   it('clears a lane limit only after a later success for the same verified card', () => {

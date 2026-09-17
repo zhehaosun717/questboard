@@ -6,13 +6,17 @@ import path from 'node:path';
 export const STALE_MS = 20 * 60 * 1000;
 export const HEARTBEAT_DEFAULT_MS = 20 * 1000;
 const HEARTBEAT_MAX_BYTES = 4096;
-// Kept for import compatibility; expiry is intentionally disabled for unknown-duration bounces.
-export const BOUNCE_MAX_AGE_MS = Number.POSITIVE_INFINITY;
 // 402 and "try again at" occur in ordinary test output and HTTP failures. Quota evidence must start with
 // one of the known CLI diagnostics, and is accepted only after a valid nonzero exit has been observed.
-export const USAGE_RE = /^\s*(?:error:\s*)?(?:resource[_ -]?exhausted\b|insufficient[_ -]?balance\b|quota(?:\s+exceeded|\s+limit(?:\s+reached)?)?\b|usage\s+limit\b|you(?:'|’)ve\s+hit\s+your\s+usage\s+limit\b|you have\s+hit\s+your\s+usage\s+limit\b)[^\r\n]*$/i;
+// The bare "quota"/"usage limit" alternatives also refuse a test-count trailer ("Quota: 3 of 5 tests
+// skipped", "usage limit tests: 2 failed") so a suite's own summary line is never read as a bounce.
+export const USAGE_RE = /^\s*(?:error:\s*)?(?:resource[_ -]?exhausted\b|insufficient[_ -]?balance\b|quota(?:\s+exceeded|\s+limit(?:\s+reached)?)?\b(?!\s*:)(?!\s+(?:of|tests?)\b)|usage\s+limit\b(?!\s*:)(?!\s+(?:of|tests?)\b)|you(?:'|’)ve\s+hit\s+your\s+usage\s+limit\b|you have\s+hit\s+your\s+usage\s+limit\b)[^\r\n]*$/i;
 const BOUNCE_TIME_RE = /try again at\s+(.+?)\s*[.!]?\s*$/i;
 const FULL_RESET_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{1,2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})$/i;
+// Codex prints this dated form when the reset falls on a day other than today (e.g. "Sep 18th, 2026 1:54
+// PM"). JS Date.parse accepts the same text once the ordinal suffix is stripped, so a dated reset can be
+// aged out exactly like every other one instead of staying "unknown" forever (N11).
+const DATED_RESET_RE = /^[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,\s*\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM)$/i;
 const QUOTA_REASON_RE = /^(?:quota(?:[_ -]?(?:exceeded|limit))?|rate[_ -]?limit(?:[_ -]?exceeded)?|usage[_ -]?limit(?:[_ -]?reached)?|resource[_ -]?exhausted|insufficient[_ -]?balance)$/i;
 // The generic wrapper writes a plain integer. A future wrapper may write JSON or an integer followed by a
 // bounded reason marker; malformed/partial files remain non-terminal.
@@ -243,6 +247,10 @@ export function resetAt(timeText, reference = Date.now()) {
     const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? parsed : null;
   }
+  if (DATED_RESET_RE.test(value)) {
+    const parsed = Date.parse(value.replace(/(\d{1,2})(?:st|nd|rd|th)\b/i, '$1'));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
   return bounceTimeMs(value, reference);
 }
 
@@ -301,18 +309,23 @@ export function laneEvidence(outputDir, now = Date.now(), options = {}) {
   return Object.keys(cards).length || unidentified.length ? { cards, unidentified } : null;
 }
 
-function active(entry, now) {
+// The one place that decides whether a card's reset has passed — reused wherever a caller needs to split
+// active from expired entries, so the rule never drifts between two hand-written copies.
+export function active(entry, now) {
   const reset = Date.parse(entry.resetsAt || '');
   return !Number.isFinite(reset) || reset > now;
 }
 
 // The lane-wide chip is allowed to see only active, identified card evidence. Expired card entries and
 // unidentified evidence are intentionally not copied here; callers that need diagnostics use laneEvidence.
-export function laneLimit(outputDir, now = Date.now(), options = {}) {
-  const evidence = laneEvidence(outputDir, now, options);
+export function laneLimitFromEvidence(evidence, now = Date.now()) {
   if (!evidence) return null;
   const cards = Object.fromEntries(Object.entries(evidence.cards).filter(([, entry]) => active(entry, now)));
   if (!Object.keys(cards).length) return null;
   const newest = Object.values(cards).reduce((prior, entry) => (!prior || entry.at > prior.at ? entry : prior), null);
   return { ...newest, cards };
+}
+
+export function laneLimit(outputDir, now = Date.now(), options = {}) {
+  return laneLimitFromEvidence(laneEvidence(outputDir, now, options), now);
 }

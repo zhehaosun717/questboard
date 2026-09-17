@@ -199,6 +199,25 @@ describe('overlay', () => {
     assert.equal(after.derived.resetsAt, '2026-09-13T20:54:00.000Z');
   });
 
+  it('never shows a raw ISO timestamp in the limit reason (A4)', () => {
+    // A structured API can hand back its reset as a raw ISO string instead of provider prose; the reason
+    // must read the same way a human-worded reset does, never the machine string itself.
+    const lanes = { packages: [{ package: 'RUN-9', lane: 'opencode', model: 'xiaomi/mimo-v2.5-pro', adventurerId: 'oc-mimo', state: 'bounced', bounceUntil: '2026-09-13T20:54:00.000Z', observedAt: '2026-09-13T10:00:00.000Z', dispatchedAt: '2026-09-13T10:00:00.000Z' }] };
+    const during = effectiveRoster(roster, lanes, now)[0];
+    assert.doesNotMatch(during.derived.reason, /\d{4}-\d{2}-\d{2}T/, 'no raw ISO timestamp leaks into the reason');
+    assert.match(during.derived.reason, /RUN-9 限额退回，Sep 13, 2026 1:54 PM 恢复/);
+  });
+
+  it('parses a dated Codex-style reset and stops repeating it once it has passed (A4/N11)', () => {
+    const lanes = { packages: [{ package: 'RUN-10', lane: 'codex', model: 'gpt-5.6-luna', adventurerId: 'codex-luna', state: 'bounced', bounceUntil: 'Sep 18, 2026 1:54 PM', observedAt: '2026-09-13T10:00:00.000Z', dispatchedAt: '2026-09-13T10:00:00.000Z' }] };
+    const during = effectiveRoster(roster, lanes, now)[1];
+    assert.equal(during.status, 'limited');
+    assert.match(during.derived.reason, /RUN-10 限额退回，Sep 18, 2026 1:54 PM 恢复/);
+    const after = effectiveRoster(roster, lanes, Date.parse('2026-09-18T21:00:00.000Z'))[1];
+    assert.equal(after.status, 'available', 'the dated reset is now parseable, so it expires like any other');
+    assert.equal(after.derived.reason, '限额窗口已过，尚未验证可用', 'a passed dated reset is never repeated');
+  });
+
   it('scopes file-lane evidence to its exact card and keeps manual statuses', () => {
     const result = effectiveRoster(roster, { packages: [], laneLimits: { codex: { since: '2026-09-13T11:05:00.000Z', at: '2026-09-13T11:05:00.000Z', until: '13:54', adventurerId: 'codex-luna' } } }, now);
     assert.equal(result[1].status, 'limited');

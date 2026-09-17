@@ -61,6 +61,16 @@ describe('sessionState terminal rules (N12-N14)', () => {
     assert.equal(byCode.state, 'bounced');
   });
 
+  it('bounces on a plain structured HTTP 402, not just a named quota error (A3)', () => {
+    const byStatus = sessionState([msg({ time: {}, error: { name: 'HTTPError', status: 402, data: { message: 'payment required' } } }, [txt('mid')])]);
+    assert.equal(byStatus.state, 'bounced', 'a real error.status field of 402 is quota evidence even with no quota-named code');
+    const byDataStatusCode = sessionState([msg({ time: {}, error: { name: 'APIError', data: { statusCode: 402, message: 'payment required' } } }, [txt('mid')])]);
+    assert.equal(byDataStatusCode.state, 'bounced', 'a real data.statusCode field of 402 counts the same way');
+    // Never regexed from free text: "402" appearing only inside the message stays an ordinary failure.
+    const textOnly402 = sessionState([msg({ time: {}, error: { name: 'APIError', data: { message: 'server replied 402 payment required' } } }, [txt('mid')])]);
+    assert.equal(textOnly402.state, 'failed', 'a 402 mentioned only in message text is still never evidence');
+  });
+
   it('does not infer a quota from an arbitrary tool transcript', () => {
     const state = sessionState([msg({ time: {} }, [{ type: 'tool', tool: 'bash', state: { status: 'error', error: "insufficient_balance quoted in passing" } }])]);
     assert.equal(state.state, 'running', 'only the structured message error is evidence');

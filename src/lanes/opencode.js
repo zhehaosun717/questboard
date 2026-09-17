@@ -30,6 +30,9 @@ const QUOTA_FIELD_RE = /^(?:rate[_ -]?limit(?:[_ -]?exceeded)?|quota(?:[_ -]?(?:
 function structuredQuotaError(error) {
   if (!error || typeof error !== 'object') return false;
   const data = error.data && typeof error.data === 'object' ? error.data : null;
+  // A plain HTTP 402 (Payment Required) is itself the quota signal, even with no quota-named code/type —
+  // it must come from a real status field, never guessed from free text elsewhere in the message.
+  if ([error.status, error.statusCode, data && data.status, data && data.statusCode].some((value) => Number(value) === 402)) return true;
   return [error.code, error.type, error.name, data && data.code, data && data.type, data && data.name]
     .some((value) => typeof value === 'string' && QUOTA_FIELD_RE.test(value.trim()));
 }
