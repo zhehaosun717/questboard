@@ -1,4 +1,5 @@
 import type { Card, Quest, Snapshot, Verdict } from '../api/types';
+import { t } from './i18n';
 import { CARD_STATUS, type Column } from './labels';
 import { nextStep } from './nextStep';
 
@@ -184,9 +185,9 @@ export function formatClock(iso: string | null | undefined): string {
 
 export function formatAgo(ms: number | null | undefined): string {
   if (ms == null) return '';
-  if (ms < 60000) return `${Math.round(ms / 1000)}秒`;
-  if (ms < 3600000) return `${Math.round(ms / 60000)}分`;
-  return `${(ms / 3600000).toFixed(1)}时`;
+  if (ms < 60000) return t('time.seconds', { n: String(Math.round(ms / 1000)) });
+  if (ms < 3600000) return t('time.minutes', { n: String(Math.round(ms / 60000)) });
+  return t('time.hours', { n: (ms / 3600000).toFixed(1) });
 }
 
 export function formatMonthDay(iso: string | null | undefined): string {

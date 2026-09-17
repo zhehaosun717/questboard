@@ -1,5 +1,6 @@
 import type { ReviewPage } from '../api/types';
 import { isSafeReviewUrl } from './board';
+import { t } from './i18n';
 
 export type ReviewDirection = 'previous' | 'next';
 export type ReviewStatsCategory = 'pending' | 'complete' | 'empty' | 'unknown';
@@ -11,9 +12,9 @@ export type ReviewStatsFilter = 'all' | 'available' | 'unavailable';
 export const REVIEW_NO_MANIFEST_ERROR = '手工页面，无批注统计';
 
 const STATS_FILTER_LABELS: Record<ReviewStatsFilter, string> = {
-  all: '全部',
-  available: '有统计',
-  unavailable: '统计不可用',
+  get all() { return t('review.statsFilter.all'); },
+  get available() { return t('review.statsFilter.available'); },
+  get unavailable() { return t('review.statsFilter.unavailable'); },
 };
 
 function isFiniteInteger(value: unknown): value is number {
@@ -62,10 +63,10 @@ export function getReviewProgressLabel(page: ReviewPage): string {
   if (hasReviewError(page)) {
     // Never surface the server's raw error text verbatim: only the one known legacy string gets a
     // specific, neutral label. Anything else is an unrecognised error and gets a fixed safe message.
-    return page.error === REVIEW_NO_MANIFEST_ERROR ? '统计不可用 · 仅查看页面' : '页面信息无法读取';
+    return page.error === REVIEW_NO_MANIFEST_ERROR ? t('review.manifestUnreadable') : t('review.pageInfoUnreadable');
   }
-  if (!hasReadableStats(page)) return '统计不可用';
-  return `已批注 ${page.answered} / 共 ${page.total}`;
+  if (!hasReadableStats(page)) return t('review.statsFilter.unavailable');
+  return t('review.progress', { answered: page.answered, total: page.total });
 }
 
 export function getReviewProgressPercent(page: ReviewPage): number | null {
@@ -97,14 +98,14 @@ export function summarizeReviewStats(pages: ReviewPage[]): ReviewStatsSummary {
 // filtered/searched subset: a narrowed view must describe itself (see getReviewScopedSummaryText), not
 // stand in for the real completion state.
 export function getReviewSummaryText(pages: ReviewPage[]): string {
-  if (pages.length === 0) return '没有符合条件的评审页';
+  if (pages.length === 0) return t('review.noneMatch');
   const { pending, complete, empty, unknown } = summarizeReviewStats(pages);
-  if (pending === 0 && empty === 0 && unknown === 0) return '都处理完了';
+  if (pending === 0 && empty === 0 && unknown === 0) return t('review.allDone');
   const parts: string[] = [];
-  if (pending > 0) parts.push(`${pending} 份未处理`);
-  if (complete > 0) parts.push(`${complete} 份已完成`);
-  if (empty > 0) parts.push(`${empty} 份无批注项`);
-  if (unknown > 0) parts.push(`${unknown} 份统计不可用`);
+  if (pending > 0) parts.push(t('review.pendingCount', { count: pending }));
+  if (complete > 0) parts.push(t('review.completeCount', { count: complete }));
+  if (empty > 0) parts.push(t('review.emptyCount', { count: empty }));
+  if (unknown > 0) parts.push(t('review.unknownCount', { count: unknown }));
   return parts.join(' · ');
 }
 
@@ -113,11 +114,11 @@ export function getReviewSummaryText(pages: ReviewPage[]): string {
 export function getReviewScopedSummaryText(scopedPages: ReviewPage[]): string {
   const { pending, complete, empty, unknown } = summarizeReviewStats(scopedPages);
   const parts: string[] = [];
-  if (pending > 0) parts.push(`${pending} 份未处理`);
-  if (complete > 0) parts.push(`${complete} 份已完成`);
-  if (empty > 0) parts.push(`${empty} 份无批注项`);
-  if (unknown > 0) parts.push(`${unknown} 份统计不可用`);
-  return `筛选结果：${parts.join(' · ') || '共 0 份'}`;
+  if (pending > 0) parts.push(t('review.pendingCount', { count: pending }));
+  if (complete > 0) parts.push(t('review.completeCount', { count: complete }));
+  if (empty > 0) parts.push(t('review.emptyCount', { count: empty }));
+  if (unknown > 0) parts.push(t('review.unknownCount', { count: unknown }));
+  return t('review.scopedPrefix', { summary: parts.join(' · ') || t('review.scopedEmpty') });
 }
 
 export function getReviewListEmptyMessage(params: {
@@ -129,20 +130,20 @@ export function getReviewListEmptyMessage(params: {
   fullUnknownCount: number;
 }): string {
   const { totalCount, hasQuery, onlyUnanswered, statsFilter, fullPendingCount, fullUnknownCount } = params;
-  if (totalCount === 0) return '暂无评审页，页面加载后会显示在这里。';
-  if (hasQuery) return '没有找到匹配的评审页，换个关键词或清空搜索试试。';
+  if (totalCount === 0) return t('review.emptyLoad');
+  if (hasQuery) return t('review.noQueryMatch');
   if (onlyUnanswered) {
     // The stats filter (not just the unanswered toggle) can be what is hiding a genuinely pending page —
     // count from the whole list, not the already-filtered view, or "cleared" becomes a false claim.
     if (fullPendingCount > 0) {
       return statsFilter === 'all'
-        ? '还有未处理的页面没有确认。'
-        : `“${STATS_FILTER_LABELS[statsFilter]}”筛选把一些页面排除在外了，其中还有未处理的页面没有确认，取消筛选即可看到。`;
+        ? t('review.stillPending')
+        : t('review.filterHidesPending', { filter: STATS_FILTER_LABELS[statsFilter] });
     }
-    if (fullUnknownCount > 0) return '未处理的页面都清空了，但还有统计不可用的页面没有确认。';
-    return '都处理完了，可以取消筛选查看全部页面。';
+    if (fullUnknownCount > 0) return t('review.pendingClearedUnknownLeft');
+    return t('review.allDoneClearFilter');
   }
-  return '没有符合筛选条件的评审页。';
+  return t('review.noFilterMatch');
 }
 
 export interface NextUnansweredHiddenCounts {
@@ -162,18 +163,18 @@ export function getNextUnansweredHint(
   earlierPendingCount: number = 0,
   hidden: NextUnansweredHiddenCounts = {},
 ): string {
-  if (hasNext) return '跳到下一份未处理页面';
+  if (hasNext) return t('review.nextUnanswered');
   const { filterHiddenLaterPendingCount = 0, unsafeLaterPendingCount = 0 } = hidden;
   if (filterHiddenLaterPendingCount > 0) {
-    return `筛选隐藏了后面 ${filterHiddenLaterPendingCount} 份未处理，清空筛选即可看到`;
+    return t('review.hiddenLaterPending', { count: filterHiddenLaterPendingCount });
   }
-  if (earlierPendingCount > 0) return `后面没有未处理的了，前面还有 ${earlierPendingCount} 份未处理`;
+  if (earlierPendingCount > 0) return t('review.earlierPending', { count: earlierPendingCount });
   if (unsafeLaterPendingCount > 0) {
-    return `后面还有 ${unsafeLaterPendingCount} 份未处理页面无法安全打开`;
+    return t('review.unsafeLaterPending', { count: unsafeLaterPendingCount });
   }
   return unresolvedUnknownCount > 0
-    ? '已知的都处理完了，但还有统计不可用的页面'
-    : '都处理完了';
+    ? t('review.unknownLeft')
+    : t('review.allDone');
 }
 
 export interface LaterPendingBreakdown {
@@ -230,7 +231,7 @@ export function getReviewDisplayTitle(page: ReviewPage): string {
   const segments = pathSegments(page.url);
   const base = segments[segments.length - 1] ?? '';
   const cleaned = stripKnownExtension(base);
-  return cleaned || base || title || '未命名页面';
+  return cleaned || base || title || t('review.unnamedPage');
 }
 
 // Two pages with the same filename in different folders end up with the same display title above; this
@@ -241,7 +242,7 @@ export function getReviewSecondaryText(page: ReviewPage): string {
   const folder = segments.join('/');
   const displayTitle = getReviewDisplayTitle(page);
   const id = page.page && page.page.trim() && page.page.trim() !== displayTitle ? page.page.trim() : null;
-  const parts = [folder || '根目录'];
+  const parts = [folder || t('review.rootDir')];
   if (id) parts.push(`ID ${id}`);
   return parts.join(' · ');
 }
