@@ -81,7 +81,16 @@ describe('usage helpers', () => {
     expect(formatSourceLabel('api')).toBe('接口');
     expect(formatSourceLabel('cli')).toBe('命令行');
     expect(formatSourceLabel('local-app')).toBe('本机应用');
-    expect(formatSourceLabel('other')).toBe('other');
+    expect(formatSourceLabel('official-api')).toBe('官方接口');
+    expect(formatSourceLabel('official-cli')).toBe('官方命令行');
+    expect(formatSourceLabel('official-hook')).toBe('官方钩子');
+    expect(formatSourceLabel('undocumented-api')).toBe('未公开接口');
+    expect(formatSourceLabel('manual')).toBe('手动查看');
+  });
+
+  it('falls back to a plain Chinese "unknown source" phrase with the raw value in brackets', () => {
+    expect(formatSourceLabel('other')).toBe('未知来源（other）');
+    expect(formatSourceLabel('brand-new-source')).toBe('未知来源（brand-new-source）');
   });
 
   it('formats a clock as zero-padded HH:MM', () => {
@@ -173,19 +182,33 @@ describe('feedback 36 labels', () => {
     expect(formatProviderStateLabel('manual_only')).toBe('手动查看');
   });
 
+  it('falls back to a plain Chinese "unknown state" phrase for an unrecognized providerState', () => {
+    expect(formatProviderStateLabel('brand-new-state')).toBe('未知状态（brand-new-state）');
+  });
+
   it('labels a reset window and gives it fixed refresh copy', () => {
     expect(formatWindowStateLabel('reset')).toBe('已重置');
     expect(WINDOW_RESET_REFRESH_TEXT).toBe('已重置，等下次使用后更新');
   });
 
+  it('falls back to a plain Chinese "unknown state" phrase for an unrecognized window state', () => {
+    expect(formatWindowStateLabel('brand-new-window-state')).toBe('未知状态（brand-new-window-state）');
+  });
+
   it('labels access values with the same vocabulary as sources', () => {
     expect(formatAccessLabel('official-api')).toBe('官方接口');
     expect(formatAccessLabel('official-cli')).toBe('官方命令行');
+    expect(formatAccessLabel('official-hook')).toBe('官方钩子');
     expect(formatAccessLabel('undocumented-api')).toBe('未公开接口');
     expect(formatAccessLabel('local-log')).toBe('本机记录');
+    expect(formatAccessLabel('api')).toBe('接口');
+    expect(formatAccessLabel('cli')).toBe('命令行');
     expect(formatAccessLabel('local-app')).toBe('本机应用');
     expect(formatAccessLabel('manual')).toBe('手动查看');
-    expect(formatAccessLabel('something-new')).toBe('something-new');
+  });
+
+  it('falls back to a plain Chinese "unknown source" phrase for an unrecognized access value', () => {
+    expect(formatAccessLabel('something-new')).toBe('未知来源（something-new）');
   });
 
   it('marks a derived reset time with （估算） and keeps an observed one plain', () => {

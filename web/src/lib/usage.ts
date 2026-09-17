@@ -55,7 +55,7 @@ export const USAGE_SOURCE_LABEL: Record<string, string> = {
 };
 
 export function formatSourceLabel(source: string): string {
-  return USAGE_SOURCE_LABEL[source] ?? source;
+  return USAGE_SOURCE_LABEL[source] ?? `未知来源（${source}）`;
 }
 
 /** Distinguishes "no reading yet" from an actual 0%: a percent of exactly 0 is a real, known number and
@@ -180,7 +180,7 @@ export const PROVIDER_STATE_LABEL: Record<string, string> = {
 };
 
 export function formatProviderStateLabel(state: string): string {
-  return PROVIDER_STATE_LABEL[state] ?? state;
+  return PROVIDER_STATE_LABEL[state] ?? `未知状态（${state}）`;
 }
 
 export const WINDOW_STATE_LABEL: Record<string, string> = {
@@ -188,7 +188,7 @@ export const WINDOW_STATE_LABEL: Record<string, string> = {
 };
 
 export function formatWindowStateLabel(state: string): string {
-  return WINDOW_STATE_LABEL[state] ?? state;
+  return WINDOW_STATE_LABEL[state] ?? `未知状态（${state}）`;
 }
 
 /** Window text for a window the provider reports as reset: there is no reading until the next use, so the
@@ -199,9 +199,10 @@ export const WINDOW_RESET_REFRESH_TEXT = '已重置，等下次使用后更新';
 export const ESTIMATED_MARK = '（估算）';
 
 /** Access labels reuse the source-label table: the same vocabulary (官方接口 / 官方命令行 / 未公开接口 /
- * 本机记录 / 本机应用 / 手动查看) already ships there, and an unrecognized access falls back to itself. */
+ * 本机记录 / 本机应用 / 手动查看) already ships there, and an unrecognized access falls back to a plain
+ * Chinese "unknown" phrase carrying the raw value, never the raw English itself. */
 export function formatAccessLabel(access: string): string {
-  return USAGE_SOURCE_LABEL[access] ?? access;
+  return USAGE_SOURCE_LABEL[access] ?? `未知来源（${access}）`;
 }
 
 /** Reset hint for one window: '重置于 09:05（估算）' when the server derived the time, plain otherwise;
