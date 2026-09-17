@@ -5,6 +5,7 @@ import { appendJsonLine, readJsonLines } from './jsonl.js';
 
 export const STATUSES = Object.freeze(['available', 'limited', 'broke', 'paused', 'disabled']);
 const ID_PATTERN = /^[a-z0-9-]{1,48}$/;
+const PROJECT_ID_PATTERN = /^[a-z0-9]{6,64}$/;
 
 export function validateStatusRecord(record) {
   if (!record || typeof record !== 'object') throw new Error('status record must be an object');
@@ -13,14 +14,20 @@ export function validateStatusRecord(record) {
   if (!Number.isFinite(Date.parse(record.at))) throw new Error('status record at must be an ISO date');
   if (typeof record.setBy !== 'string' || !record.setBy.trim()) throw new Error('status record setBy is required');
   if (record.reason !== undefined && typeof record.reason !== 'string') throw new Error('status record reason must be a string');
+  if (record.projectId !== undefined && !PROJECT_ID_PATTERN.test(String(record.projectId))) throw new Error('status record projectId must be a project id when present');
   return record;
 }
 
 // Latest record per adventurer; `since` is when the current status began, so repeating a status with a
 // fresh reason keeps the original start date.
-export function foldStatuses(records) {
+export function foldStatuses(records, projectId) {
   const current = new Map();
   for (const record of records) {
+    // Owner decision 2026-09-17: a card's STATUS is project-scoped. A record written inside one project
+    // (it carries that project's id) never changes another project's board; a record with no projectId is a
+    // machine-level note written outside any project and applies everywhere. The card itself stays
+    // machine-level — the same models are reachable from every project.
+    if (projectId !== undefined && record.projectId !== undefined && record.projectId !== projectId) continue;
     const previous = current.get(record.adventurerId);
     const since = previous && previous.status === record.status ? previous.since : record.at;
     current.set(record.adventurerId, { status: record.status, since, reason: record.reason || '', setBy: record.setBy, at: record.at });
@@ -37,14 +44,17 @@ export class StatusLog {
     return readJsonLines(this.file);
   }
 
-  current() {
-    return foldStatuses(this.records());
+  current(projectId) {
+    return foldStatuses(this.records(), projectId);
   }
 
-  set(adventurerId, { status, reason = '', setBy, at = new Date().toISOString() }) {
-    const record = validateStatusRecord({ at, adventurerId, status, reason: String(reason).slice(0, 300), setBy: String(setBy || '').slice(0, 40) });
+  set(adventurerId, { status, reason = '', setBy, at = new Date().toISOString(), projectId }) {
+    const record = validateStatusRecord({
+      at, adventurerId, status, reason: String(reason).slice(0, 300), setBy: String(setBy || '').slice(0, 40),
+      ...(projectId ? { projectId: String(projectId) } : {}),
+    });
     appendJsonLine(this.file, record);
-    return this.current().get(adventurerId);
+    return this.current(projectId).get(adventurerId);
   }
 }
 

@@ -10,7 +10,7 @@ import { createDispatcher } from './dispatcher.js';
 import { eventsAfter } from '../core/events.js';
 import { isReviewable, requestReview, reviewEligibility } from '../core/reviewRequest.js';
 import { withFileSets } from '../core/briefs.js';
-import { briefExists, briefUnusable, lockPresent } from '../core/snapshot.js';
+import { briefExists, briefUnusable, lockPresent, projectId } from '../core/snapshot.js';
 import { laneServers } from '../core/laneServer.js';
 import { attemptOf, questReportView, readCapturedReport } from '../core/reportEvidence.js';
 import { questEvidence } from '../core/evidence.js';
@@ -93,7 +93,9 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     const envPolicy = envPolicyViolation(card, { cardEnvAllow });
     return envPolicy ? { ...card, envPolicy } : card;
   };
-  const adventurers = () => applyStatuses(loadRosterOrEmpty(rosterFile).adventurers, statusLog.current()).map(withEnvPolicy);
+  // A card's status is project-scoped (owner decision 2026-09-17): the board reads only records written in
+  // this project plus machine-level records that carry no project id.
+  const adventurers = () => applyStatuses(loadRosterOrEmpty(rosterFile).adventurers, statusLog.current(projectId(config.root))).map(withEnvPolicy);
   const snapshot = () => buildSnapshot({ config, store, adventurers: adventurers(), boardStore, lanes: getLanes(), downLanes });
   const findCard = (id) => effectiveRoster(adventurers(), getLanes()).find((a) => a.id === id);
 
@@ -160,7 +162,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     if (parts[1] === 'roster' && parts[3] === 'status') {
       if (!loadRoster(rosterFile).adventurers.some((a) => a.id === parts[2])) { sendJson(response, 404, { error: `no adventurer ${parts[2]}` }); return; }
       if (!STATUSES.includes(body.status)) { sendJson(response, 400, { error: `status must be one of ${STATUSES.join('|')}` }); return; }
-      sendJson(response, 200, { status: statusLog.set(parts[2], { status: body.status, reason: body.reason || '', setBy: body.setBy || 'owner' }) });
+      sendJson(response, 200, { status: statusLog.set(parts[2], { status: body.status, reason: body.reason || '', setBy: body.setBy || 'owner', projectId: projectId(config.root) }) });
       return;
     }
     const questId = parts[1] === 'quests' ? parts[2] : null;

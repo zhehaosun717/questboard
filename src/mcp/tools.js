@@ -1,6 +1,7 @@
 // questboard tools for agents. Writes go through the running board server (one writer per project); the
 // events tool reads the events file directly, so it works while the server restarts.
 import { eventsAfter, readEvents } from '../core/events.js';
+import { projectId } from '../core/snapshot.js';
 import { StatusLog, STATUSES } from '../core/status.js';
 import { QUEST_STATUSES, KINDS } from '../core/store.js';
 
@@ -262,7 +263,7 @@ export function createTools({ config, base, author, home, request }) {
       annotations: { ...write, idempotentHint: true },
       handler: async (args) => {
         required(args, ['id', 'status']);
-        return { id: args.id, ...new StatusLog(home.status).set(args.id, { status: args.status, reason: args.reason || '', setBy: author }) };
+        return { id: args.id, ...new StatusLog(home.status).set(args.id, { status: args.status, reason: args.reason || '', setBy: author, projectId: projectId(config.root) }) };
       },
     },
     {

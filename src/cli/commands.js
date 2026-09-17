@@ -12,6 +12,7 @@ import { loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.
 import { planRosterImport, importPlanText, importDetailLines } from '../core/rosterImport.js';
 import { StatusLog, foldStatuses } from '../core/status.js';
 import { appendJsonLine, readJsonLines } from '../core/jsonl.js';
+import { projectId } from '../core/snapshot.js';
 import { watchEvents } from './watch.js';
 
 const out = (text) => process.stdout.write(`${text}\n`);
@@ -412,7 +413,11 @@ export const commands = {
     const [sub, id, status] = args;
     const home = homePaths();
     if (sub === 'status' && id && status) {
-      const entry = new StatusLog(home.status).set(id, { status, reason: option(args, '--reason') || '', setBy: option(args, '--by') || 'coordinator' });
+      // A card status set from inside a project belongs to that project (owner decision 2026-09-17); run
+      // outside any project it stays a machine-level note that every board shows.
+      let scopedProjectId;
+      try { scopedProjectId = projectId(projectConfig(args).root); } catch { scopedProjectId = undefined; }
+      const entry = new StatusLog(home.status).set(id, { status, reason: option(args, '--reason') || '', setBy: option(args, '--by') || 'coordinator', ...(scopedProjectId ? { projectId: scopedProjectId } : {}) });
       out(`${id} ${entry.status} since ${entry.since}${entry.reason ? ` — ${entry.reason}` : ''}`);
       return;
     }
