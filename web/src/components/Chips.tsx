@@ -1,5 +1,6 @@
 import type { Snapshot } from '../api/types';
 import { formatClock } from '../lib/board';
+import { useT } from '../lib/i18n';
 
 interface ChipsProps {
   snap: Snapshot | null;
@@ -17,17 +18,19 @@ function hasActiveReset(resetsAt: string | null): boolean {
 }
 
 export function Chips({ snap, connected, error }: ChipsProps) {
+  const t = useT();
+
   if (!snap) {
     return (
       <div id="chips" className="chips" aria-live="polite">
         <span className={`chip ${connected ? 'ok' : 'bad'}`}>
           <i className="led" />
-          {connected ? '实时连接' : '重连中…'}
+          {connected ? t('chips.connected') : t('chips.reconnecting')}
         </span>
         {error && (
           <span className="chip bad">
             <i className="led" />
-            读取失败：{error}
+            {t('chips.readFailed', { error })}
           </span>
         )}
       </div>
@@ -44,9 +47,12 @@ export function Chips({ snap, connected, error }: ChipsProps) {
       v.playXml ? ` · Play ${v.playXml.passed}/${v.playXml.total}` : ''
     }`;
     // The whole project's latest test run, not any one quest's; it sat above delivered quests reading as theirs.
-    const text = `项目整体测试${failed.length > 0 ? `没过 ${failed.map((f) => f.name).join('、')}` : '通过'}${counts}`;
+    const result = failed.length > 0
+      ? t('chips.projectTestsFailed', { names: failed.map((f) => f.name).join(t('common.listSeparator')) })
+      : t('chips.projectTestsPassed');
+    const text = t('chips.projectTests', { result, counts });
     verificationChip = (
-      <span className={`chip ${failed.length > 0 ? 'bad' : 'ok'}`} title="整个项目最近一次测试，不是某一个委托的">
+      <span className={`chip ${failed.length > 0 ? 'bad' : 'ok'}`} title={t('chips.projectTestsTitle')}>
         <i className="led" />
         {text}
       </span>
@@ -57,12 +63,12 @@ export function Chips({ snap, connected, error }: ChipsProps) {
     <div id="chips" className="chips" aria-live="polite">
       <span className={`chip ${connected ? 'ok' : 'bad'}`}>
         <i className="led" />
-        {connected ? '实时连接' : '重连中…'}
+        {connected ? t('chips.connected') : t('chips.reconnecting')}
       </span>
       {snap.env.treeLocked && (
         <span className="chip warn">
           <i className="led" />
-          🔒 coordinator 正在验证，暂停派出
+          {t('chips.treeLocked')}
         </span>
       )}
       {Object.entries(snap.laneLimits || {}).map(([lane, limit]) => {
@@ -74,20 +80,21 @@ export function Chips({ snap, connected, error }: ChipsProps) {
         return (
           <span className="chip warn" key={lane}>
             <i className="led" />
-            {lane} 限额中{showUntil ? `，${limit.until} 恢复` : ''}
+            {t('chips.laneLimited', { lane })}
+            {showUntil && limit.until ? t('chips.laneLimitedUntil', { until: limit.until }) : ''}
           </span>
         );
       })}
       {Boolean(snap.openQuestions) && (
         <a className="chip warn" href="/board" target="_blank" rel="noreferrer">
           <i className="led" />
-          留言板待答 {snap.openQuestions}
+          {t('chips.openQuestions', { count: snap.openQuestions })}
         </a>
       )}
       {verificationChip}
       <span className="chip">
         <i className="led" />
-        更新 {formatClock(snap.generatedAt)}
+        {t('chips.updatedAt', { time: formatClock(snap.generatedAt) })}
       </span>
     </div>
   );

@@ -103,20 +103,20 @@ export const NODE_COLORS: Partial<Record<QuestStatus, string>> = {
 };
 
 export function describeEvent(event: QuestEvent): string {
-  const who = event.model ? `（${event.model}）` : '';
+  const who = event.model ? t('event.modelSuffix', { model: event.model }) : '';
   const texts: Record<string, string> = {
-    posted: `新委托 ${event.package}`,
-    review_posted: `新复核委托 ${event.package}`,
-    assigned: `${event.package} 已派出${who}`,
-    dispatched: `${event.package} 脚本已启动${who}`,
-    delivered: `${event.package} 交差了，待验收${who}`,
-    failed: `${event.package} 失败${who}`,
-    bounced: `${event.package} 限额退回${who}`,
-    stalled: `${event.package} 失联了${who}`,
-    cancelled: `${event.package} 已取消`,
-    released: `${event.package} 的冒险者已释放，可以重新派`,
-    owner_ruling: `${event.package} 已裁决`,
-    delivery_write_failed: `${event.package} 交差文件没写成：${event.detail}`,
+    posted: t('event.posted', { package: event.package }),
+    review_posted: t('event.reviewPosted', { package: event.package }),
+    assigned: t('event.assigned', { package: event.package, who }),
+    dispatched: t('event.dispatched', { package: event.package, who }),
+    delivered: t('event.delivered', { package: event.package, who }),
+    failed: t('event.failed', { package: event.package, who }),
+    bounced: t('event.bounced', { package: event.package, who }),
+    stalled: t('event.stalled', { package: event.package, who }),
+    cancelled: t('event.cancelled', { package: event.package }),
+    released: t('event.released', { package: event.package }),
+    owner_ruling: t('event.ownerRuling', { package: event.package }),
+    delivery_write_failed: t('event.deliveryWriteFailed', { package: event.package, detail: event.detail }),
   };
   const status = event.event.replace(/^status_/, '') as QuestStatus;
   return texts[event.event] ?? `${event.package} → ${STATUS[status] ?? event.event}`;

@@ -2,77 +2,105 @@ import { describe, expect, it } from 'vitest';
 import { TRANSLATIONS } from './i18n';
 
 /**
- * Byte-identical Chinese guard, run against the pre-change evidence captured before any conversion
- * (unique quoted Chinese literals per file, read from the worktree at the base commit). Every captured
- * literal must still exist word-for-word — either inside a dictionary value or, for files that stay as
- * they were, inside the file itself. Interpolations are folded away on both sides (`${x}` / `{x}` -> `{}`),
- * so a literal may move from a template string into the dictionary as long as its Chinese text survives.
+ * Byte-identical Chinese guard.
  *
- * The repo has no @types/node, so the built-in modules are fetched through non-literal dynamic imports
- * (left unresolved at the type level) and narrowed locally.
+ * `i18nZhSnapshot.fixture.json`, committed beside this test, records the zh value of every
+ * dictionary key. The test fails — never skips — when that fixture is missing, unreadable, or
+ * different in any way: a changed zh value, a key added without regenerating the fixture, or a
+ * stale fixture entry for a key that no longer exists. That keeps the Chinese rendering provably
+ * unchanged unless the fixture diff is reviewed on purpose.
+ *
+ * Regenerating on purpose (from web/), review the `git diff` of the fixture and commit it with
+ * the dictionary change that motivated it:
+ *
+ *   Git Bash:  UPDATE_I18N_ZH_FIXTURE=1 npx.cmd vitest run src/lib/i18nZhSnapshot.test.ts
+ *   cmd.exe:   set UPDATE_I18N_ZH_FIXTURE=1&& npx.cmd vitest run src/lib/i18nZhSnapshot.test.ts
+ *
+ * The repo has no @types/node, so the built-in modules are fetched through non-literal dynamic
+ * imports (left unresolved at the type level) and narrowed locally.
  */
 interface FsModule {
   existsSync(path: string): boolean;
   readFileSync(path: string, encoding: string): string;
+  writeFileSync(path: string, data: string): void;
 }
 
 interface PathModule {
   join(...parts: string[]): string;
-  resolve(...parts: string[]): string;
+  dirname(path: string): string;
+}
+
+interface UrlModule {
+  fileURLToPath(url: string): string;
 }
 
 const fsSpecifier: string = 'node:fs';
 const pathSpecifier: string = 'node:path';
+const urlSpecifier: string = 'node:url';
 const fs = (await import(fsSpecifier)) as FsModule;
 const pathMod = (await import(pathSpecifier)) as PathModule;
-const processLike = (globalThis as { process?: { cwd?: () => string } }).process;
+const urlMod = (await import(urlSpecifier)) as UrlModule;
+const processLike = (globalThis as { process?: { cwd?: () => string; env?: Record<string, string | undefined> } }).process;
 
-const SNAPSHOT_PATH = 'C:/Users/A/AppData/Local/Temp/opencode/qb-i18n/zh-literals.json';
-const REPO_ROOT = pathMod.resolve(processLike?.cwd?.() ?? '.', '..');
-const HAS_SNAPSHOT = fs.existsSync(SNAPSHOT_PATH);
+const MODULE_URL = (import.meta as unknown as { url?: string }).url;
 
-function normalize(text: string): string {
-  return text
-    .replace(/\$\{[^}]*\}?/g, '{}')
-    .replace(/\{[a-zA-Z][a-zA-Z0-9]*\}/g, '{}')
-    .replace(/\{\{+/g, '{')
-    .replace(/\}+/g, '}');
+function locateTestDirectory(): string {
+  const cwd = processLike?.cwd?.() ?? '.';
+  if (typeof MODULE_URL === 'string' && MODULE_URL.length > 0) {
+    return pathMod.dirname(urlMod.fileURLToPath(MODULE_URL));
+  }
+  const candidates = ['src/lib', 'web/src/lib'].map((relative) => pathMod.join(cwd, relative));
+  const withTest = candidates.find((dir) => fs.existsSync(pathMod.join(dir, 'i18nZhSnapshot.test.ts')));
+  return withTest ?? pathMod.join(cwd, 'src', 'lib');
 }
 
-function hasChinese(text: string): boolean {
-  return /[\u4e00-\u9fff]/.test(text);
+const FIXTURE_PATH = pathMod.join(locateTestDirectory(), 'i18nZhSnapshot.fixture.json');
+const UPDATE_REQUESTED = processLike?.env?.UPDATE_I18N_ZH_FIXTURE === '1';
+
+function currentZhSnapshot(): Record<string, string> {
+  const snapshot: Record<string, string> = {};
+  for (const key of (Object.keys(TRANSLATIONS) as Array<keyof typeof TRANSLATIONS>).sort()) {
+    snapshot[key] = TRANSLATIONS[key].zh;
+  }
+  return snapshot;
 }
 
-describe.skipIf(!HAS_SNAPSHOT)('Chinese text matches the pre-change snapshot', () => {
-  const snapshot = HAS_SNAPSHOT
-    ? (JSON.parse(fs.readFileSync(SNAPSHOT_PATH, 'utf8')) as Record<string, string[]>)
-    : {};
-  const dictionary = Object.values(TRANSLATIONS).map((entry) => normalize(entry.zh));
-  const sourceCache = new Map<string, string>();
+const CURRENT = currentZhSnapshot();
 
-  function sourceOf(file: string): string {
-    let source = sourceCache.get(file);
-    if (source === undefined) {
-      const absolute = pathMod.join(REPO_ROOT, file);
-      source = fs.existsSync(absolute) ? normalize(fs.readFileSync(absolute, 'utf8')) : '';
-      sourceCache.set(file, source);
+if (UPDATE_REQUESTED) {
+  fs.writeFileSync(FIXTURE_PATH, `${JSON.stringify(CURRENT, null, 2)}\n`);
+}
+
+describe('Chinese dictionary snapshot matches the committed fixture', () => {
+  const fixtureExists = fs.existsSync(FIXTURE_PATH);
+  let parseError: string | null = null;
+  let fixture: Record<string, string> = {};
+  if (fixtureExists) {
+    try {
+      fixture = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8')) as Record<string, string>;
+    } catch (error) {
+      parseError = error instanceof Error ? error.message : String(error);
     }
-    return source;
   }
 
-  it('keeps every captured Chinese literal in the dictionary or in its original file', () => {
-    const missing: string[] = [];
-    for (const [file, literals] of Object.entries(snapshot)) {
-      const source = sourceOf(file);
-      for (const literal of literals) {
-        if (!hasChinese(literal)) continue;
-        const needle = normalize(literal);
-        const inDictionary = dictionary.some((value) => value.includes(needle));
-        if (!inDictionary && !source.includes(needle)) {
-          missing.push(`${file}: ${literal}`);
-        }
-      }
+  it('has a valid committed fixture beside this test file', () => {
+    expect({ fixture: FIXTURE_PATH, present: fixtureExists, parseError }).toEqual({
+      fixture: FIXTURE_PATH,
+      present: true,
+      parseError: null,
+    });
+  });
+
+  it('keeps every zh value byte-identical to the fixture, with no extra or missing keys', () => {
+    const differences: string[] = [];
+    for (const key of Object.keys(CURRENT).sort()) {
+      const recorded = fixture[key];
+      if (recorded === undefined) differences.push(`missing from fixture: ${key}`);
+      else if (recorded !== CURRENT[key]) differences.push(`zh value changed: ${key}`);
     }
-    expect(missing).toEqual([]);
+    for (const key of Object.keys(fixture).sort()) {
+      if (!(key in CURRENT)) differences.push(`stale fixture entry: ${key}`);
+    }
+    expect(differences).toEqual([]);
   });
 });

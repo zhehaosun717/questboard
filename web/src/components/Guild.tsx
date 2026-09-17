@@ -18,6 +18,7 @@ import {
   toggleGroupFold,
   type RosterFilterState,
 } from '../lib/rosterFilter';
+import { useT } from '../lib/i18n';
 import { CardBadge } from './CardBadge';
 import { RosterFilters } from './roster/RosterFilters';
 
@@ -48,6 +49,8 @@ export function Guild({
   onDragStart,
   onDragEnd,
 }: GuildProps) {
+  const t = useT();
+
   // The opaque project id from the server namespaces saved folds; a name is never a safe key. No id (an
   // old server) means folds are not remembered — the owner sees that below instead of a false promise.
   const projectId = snap.project?.id ?? '';
@@ -122,10 +125,10 @@ export function Guild({
     >
       <header className="sec-head">
         <span className="eyebrow">ROSTER</span>
-        <h2 id="guildTitle">冒险者公会</h2>
+        <h2 id="guildTitle">{t('guild.title')}</h2>
       </header>
       <p className="hint">
-        一位冒险者 = 一个已配置好的模型运行档。拖动或悬停：能接的委托会亮起，不能接的会写明原因。点名字改状态，用搜索和筛选找人。
+        {t('guild.hint')}
       </p>
       <RosterFilters
         idPrefix="guild"
@@ -138,13 +141,13 @@ export function Guild({
       />
       {!projectId ? (
         <p className="hint" role="status">
-          服务器没有提供项目标识：折叠只影响本页，不会被记住，也不会和其他项目串用。
+          {t('roster.noProject')}
         </p>
       ) : null}
       <div id="guild">
         {visible.length === 0 && active ? (
           <p className="guild-empty">
-            没找到符合条件的冒险者（公会共 {roster.length} 位），换个词或清除筛选试试。
+            {t('guild.empty', { count: roster.length })}
           </p>
         ) : null}
         {groups.map((group) => {
@@ -159,8 +162,8 @@ export function Guild({
                   aria-expanded={open}
                   style={{ borderLeftColor: providerAccent(group.provider) }}
                   title={active
-                    ? `临时${open ? '收起' : '展开'}：只在这次筛选里，不改动保存的折叠`
-                    : open ? `收起 ${group.provider}` : `展开 ${group.provider}`}
+                    ? (open ? t('guild.tempCollapse') : t('guild.tempExpand'))
+                    : (open ? t('guild.collapse', { provider: group.provider }) : t('guild.expand', { provider: group.provider }))}
                   onClick={() => toggleFold(group.provider)}
                 >
                   <span className="guild-fold-caret" aria-hidden="true">
@@ -178,7 +181,9 @@ export function Guild({
                   </span>
                   {group.lane ? <span>{group.lane}</span> : null}
                   <span className="guild-group-count">
-                    {active ? `显示 ${group.members.length} / 共 ${total} 位` : `共 ${total} 位`}
+                    {active
+                      ? t('guild.countFiltered', { visible: group.members.length, total })
+                      : t('rosterFilters.count', { total })}
                   </span>
                 </button>
               </h4>

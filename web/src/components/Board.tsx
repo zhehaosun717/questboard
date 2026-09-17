@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Quest, QuestStatus, Snapshot } from '../api/types';
 import { filterQuests, paginate, projectScopedKey, questsInColumn } from '../lib/board';
 import { COLUMNS, type Column } from '../lib/labels';
-import { useT } from '../lib/i18n';
+import { useLocale, useT } from '../lib/i18n';
 import { QuestCard } from './QuestCard';
 import '../styles/responsibility.css';
 import '../styles/archive.css';
@@ -54,6 +54,30 @@ function FoldedStrip({ col, count, onOpen }: { col: Column; count: number; onOpe
   );
 }
 
+// At 1024px in English the column title wraps onto two lines and the subtitle only repeats it
+// (ON QUEST under "On quest"). Hide the subtitle when it says nothing the title has not said;
+// OPEN stays because "Quest board" and "OPEN" do not match. Chinese rendering is untouched.
+function subRepeatsTitle(col: Column): boolean {
+  const normalize = (value: string) => value.toUpperCase().replace(/\s+/g, ' ').trim();
+  const title = normalize(col.title);
+  const sub = normalize(col.sub);
+  if (sub.length === 0) {
+    return false;
+  }
+  return title.startsWith(sub) || sub.startsWith(title);
+}
+
+function ColumnTitle({ col }: { col: Column }) {
+  const locale = useLocale();
+  const showSub = locale === 'en' ? !subRepeatsTitle(col) : true;
+  return (
+    <div className="col-title">
+      <h2>{col.title}</h2>
+      {showSub ? <span>{col.sub}</span> : null}
+    </div>
+  );
+}
+
 function ArchiveColumn({
   col,
   items,
@@ -91,10 +115,7 @@ function ArchiveColumn({
     <section className={`col c-${col.key}`}>
       <header className="col-head">
         <span className="col-num">{col.num}</span>
-        <div className="col-title">
-          <h2>{col.title}</h2>
-          <span>{col.sub}</span>
-        </div>
+        <ColumnTitle col={col} />
         <span className="count" title={t('board.archiveCountTitle')}>{items.length}</span>
         <button className="col-fold" type="button" title={t('board.collapseTitle', { title: col.title })} onClick={() => onToggle(false)}>
           {t('board.collapse')}
@@ -161,10 +182,7 @@ function OwnerColumn({
     <section className={`col c-${col.key}`}>
       <header className="col-head">
         <span className="col-num">{col.num}</span>
-        <div className="col-title">
-          <h2>{col.title}</h2>
-          <span>{col.sub}</span>
-        </div>
+        <ColumnTitle col={col} />
         <span className="count">{items.length}</span>
         <button className="col-fold" type="button" title={t('board.collapseTitle', { title: col.title })} onClick={() => onToggle(false)}>
           {t('board.collapse')}
@@ -290,10 +308,7 @@ export function Board({ snap, pickingCardId, onSelectQuest, onDropCard }: BoardP
           <section className={`col c-${col.key}`} key={col.key}>
             <header className="col-head">
               <span className="col-num">{col.num}</span>
-              <div className="col-title">
-                <h2>{col.title}</h2>
-                <span>{col.sub}</span>
-              </div>
+              <ColumnTitle col={col} />
               <span className="count">{items.length}</span>
             </header>
             <div className="list">{renderQuestList(items)}</div>
