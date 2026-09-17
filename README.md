@@ -131,6 +131,7 @@ Every field below is optional; a config that never mentions one keeps the behavi
 | `lanes.<id>.control.type` (only `"generic-wrapper"`) | This lane's script speaks the wrapper's cancel IPC (`QUESTBOARD_ATTEMPT_ID`/`QUESTBOARD_CONTROL_TOKEN`), so `questboard_cancel_worker` can ask it to stop |
 | `lanes.<id>.protocol` (only `"opencode-session"`, needs `api`) | Which server contract `api` speaks; defaults to `opencode-session` when `api` is set, so no existing config has to name it |
 | `lanes.<id>.optionalArgs[{when,args,omitWhen,insertAt}]` | Inserts extra argv only when `when` (`variant` or `agent`) is actually supplied, unless its value is in `omitWhen`; `insertAt` picks the position, defaulting to the end of `run` |
+| `policy` (object) | The policy block must be an object: omit it entirely to get the defaults, but `"policy": null` (or a string or an array) is refused rather than silently falling back |
 | `policy.stallAfterMinutes` (default 20) | How long a lane goes quiet before the board calls it `stalled` |
 | `policy.laneConcurrency.<lane>` | A per-lane cap on attempts running at once, on top of each card's own `maxParallel` |
 | `policy.defaultLane`, `policy.defaultCard` | Neither pre-selects anything on the board. `defaultCard` is read only by the CLI's `questboard assign` when no card is named; `defaultLane` is only validated, shown in preferences, and edited on the settings page |

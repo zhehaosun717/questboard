@@ -43,16 +43,35 @@ function safeChoice(value, allowlist) {
   return 'unknown';
 }
 
-function buildManualProvider(id, alibabaCfg) {
+// X17: an enabled Alibaba card must explain itself even when there is nothing to show. When the owner has not
+// written a usable usage.alibaba yet — the block is absent, or the load path dropped an invalid one and left a
+// Chinese diagnostic — the plan line carries a plain sentence naming what to configure (never an empty
+// string), and the dropped-block diagnostic (config.usage.alibabaIssue) replaces the default note as the
+// card's visible reason. A valid plan and the standard console note pass through untouched; only these two
+// text fields are rewritten, and the rejected value itself never appears because the diagnostic never quotes it.
+export const ALIBABA_PLAN_TEXT = '尚未配置套餐：请在 questboard.config.json 的 usage.alibaba 中填写 edition（版本）和 region（区域）';
+
+function withAlibabaCardText(provider, alibabaIssue) {
+  return Object.freeze({
+    ...provider,
+    async fetch(...args) {
+      const result = await provider.fetch(...args);
+      const plan = typeof result?.plan === 'string' && result.plan.trim() ? result.plan : ALIBABA_PLAN_TEXT;
+      return { ...result, plan, note: alibabaIssue || result?.note };
+    },
+  });
+}
+
+function buildManualProvider(id, alibabaCfg, alibabaIssue) {
   if (id === 'alibaba-token-plan') {
     const edition = safeChoice(alibabaCfg?.edition, ALIBABA_EDITIONS);
     const region = safeChoice(alibabaCfg?.region, ALIBABA_REGIONS);
-    return createAlibabaTokenPlan({ edition, region });
+    return withAlibabaCardText(createAlibabaTokenPlan({ edition, region }), alibabaIssue);
   }
   if (id === 'alibaba-coding-plan') {
     const edition = safeChoice(alibabaCfg?.edition, ALIBABA_EDITIONS);
     const region = safeChoice(alibabaCfg?.region, ALIBABA_REGIONS);
-    return createAlibabaCodingPlan({ edition, region });
+    return withAlibabaCardText(createAlibabaCodingPlan({ edition, region }), alibabaIssue);
   }
   const provider = MANUAL_PROVIDER_BY_ID.get(id);
   if (provider) return provider;
@@ -432,6 +451,9 @@ export function createUsageService({
     throw new TypeError('manualProviders 必须是数组');
   }
   const alibabaCfg = alibaba ?? config?.usage?.alibaba;
+  // A dropped invalid usage.alibaba leaves this Chinese diagnostic on the resolved config (see
+  // loadProjectConfig in core/config.js); it becomes the Alibaba card's visible reason.
+  const alibabaIssue = config?.usage?.alibabaIssue;
   for (const id of enabledManualIds) {
     if (typeof id !== 'string' || !id.trim()) {
       throw new Error(`未知的用量来源：${String(id)}`);
@@ -440,7 +462,7 @@ export function createUsageService({
     if (!KNOWN_MANUAL_PROVIDER_IDS.has(cleanId)) {
       throw new Error(`未知的用量来源：${cleanId}`);
     }
-    const manualProvider = buildManualProvider(cleanId, alibabaCfg);
+    const manualProvider = buildManualProvider(cleanId, alibabaCfg, alibabaIssue);
     if (!providersList.some((p) => p.id === cleanId)) {
       providersList.push(manualProvider);
     }

@@ -135,6 +135,7 @@ agent 命令，最后写下退出码。`init` 会把它拷到你的项目里。
 | `lanes.<id>.control.type`（只能是 `"generic-wrapper"`） | 这条通道的脚本支持包装脚本的取消 IPC（`QUESTBOARD_ATTEMPT_ID`/`QUESTBOARD_CONTROL_TOKEN`），`questboard_cancel_worker` 才能让它停下来 |
 | `lanes.<id>.protocol`（只能是 `"opencode-session"`，需要 `api`） | `api` 说的是哪种服务器协议；配了 `api` 但没写它时默认是 `opencode-session`，所以已有配置都不用改 |
 | `lanes.<id>.optionalArgs[{when,args,omitWhen,insertAt}]` | 只有 `when`（`variant` 或 `agent`）真的有值、且不在 `omitWhen` 里时，才插入额外参数；`insertAt` 指定插入位置，默认插到 `run` 末尾 |
+| `policy`（对象） | `policy` 必须是一个对象：整个省略就用默认值，但显式写 `"policy": null`（或字符串、数组）会被拒绝，不再静默回退到默认值 |
 | `policy.stallAfterMinutes`（默认 20） | 通道多久没动静就被判定为 `stalled` |
 | `policy.laneConcurrency.<通道>` | 每条通道自己的并发上限，在每张卡自己的 `maxParallel` 之上再加一层限制 |
 | `policy.defaultLane`、`policy.defaultCard` | 两者都不会在看板上预选任何东西。`defaultCard` 只在 CLI 的 `questboard assign` 没指定卡时才读取；`defaultLane` 只会被校验、显示在偏好设置里、在设置页可编辑 |

@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createUsageService } from '../../src/usage/service.js';
+import { createUsageService, ALIBABA_PLAN_TEXT } from '../../src/usage/service.js';
 import { resolveConfig } from '../../src/core/config.js';
 import { claudeSubscription } from '../../src/usage/providers.js';
 import { getClaudeSnapshotPath, readClaudeSnapshot } from '../../src/usage/claudeStatusline.js';
@@ -290,5 +290,49 @@ describe('usage service wiring', () => {
     assert.match(report.providers[0].plan, /cn-beijing/);
     assert.ok(!JSON.stringify(report).includes('not-a-real-edition'));
     assert.throws(() => createUsageService({ providers: [], manualProviders: ['not-enabled'] }), /not-enabled/);
+  });
+
+  it('shows a Chinese plan hint for an enabled Alibaba card that has no usage.alibaba yet', async () => {
+    // X17b: an enabled card with nothing configured must still say what to configure — the plan line can
+    // never be an empty string, and the standard console note stays.
+    const service = createUsageService({
+      providers: [],
+      manualProviders: ['alibaba-token-plan'],
+      env: {},
+      homedir: tmpDir('qb-usage-alibaba-hint-'),
+    });
+    const report = await service.report();
+    const entry = report.providers[0];
+    assert.equal(entry.id, 'alibaba-token-plan');
+    assert.equal(entry.providerState, 'manual_only');
+    assert.equal(entry.state, 'unconfigured');
+    assert.equal(entry.ok, false);
+    assert.equal(entry.plan, ALIBABA_PLAN_TEXT);
+    assert.match(entry.plan, /usage\.alibaba/);
+    assert.match(entry.note, /控制台/);
+    assert.equal(entry.error, entry.note);
+  });
+
+  it('surfaces a dropped invalid usage.alibaba as the Alibaba card reason', async () => {
+    // X17a: the load path drops the block and leaves a Chinese diagnostic on the resolved config; the card
+    // must show that reason, and the rejected value must never appear anywhere in the report.
+    const config = resolveConfig(
+      tmpDir('qb-usage-alibaba-drop-'),
+      {
+        name: 'Usage',
+        lanes: { files: { run: ['node', 'worker.js'], outputDir: 'out' } },
+        usage: { manualProviders: ['alibaba-token-plan'], alibaba: { edition: 'hacked-edition', region: 'cn-beijing' } },
+      },
+      { dropInvalidAlibaba: true },
+    );
+    assert.equal(config.usage.alibaba, undefined);
+    assert.match(config.usage.alibabaIssue, /usage\.alibaba\.edition 不是有效的阿里云版本/);
+    const service = createUsageService({ providers: [], config, env: {}, homedir: tmpDir('qb-usage-alibaba-drop-home-') });
+    const report = await service.report();
+    const entry = report.providers[0];
+    assert.equal(entry.state, 'unconfigured');
+    assert.equal(entry.error, config.usage.alibabaIssue);
+    assert.equal(entry.plan, ALIBABA_PLAN_TEXT);
+    assert.ok(!JSON.stringify(report).includes('hacked-edition'));
   });
 });

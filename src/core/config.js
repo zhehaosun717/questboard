@@ -272,16 +272,19 @@ function checkBriefDirs(base, dirs, field) {
 // An Alibaba choice must be exactly one of the fixed allowlisted values (trimmed, case-folded) or the
 // whole config is refused: a value the owner wrote that is not accepted is never silently turned into
 // "unknown" — the failure names the field in Chinese so the settings page can point at it. The rejected
-// value itself is never repeated back.
-function validateAlibabaChoice(value, allowlist, field, label) {
-  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : null;
-  if (normalized === null || !allowlist.has(normalized)) {
-    fail(`${field} 不是有效的${label}，可选：${[...allowlist].join('、')}`);
-  }
-  return normalized;
+// value itself is never repeated back. The text lives in one builder so the strict resolver and the
+// tolerant load path (loadProjectConfig) say exactly the same thing.
+function normalizeAlibabaChoice(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : null;
 }
 
-function validateUsageConfig(rawUsage) {
+function alibabaChoiceIssue(value, allowlist, field, label) {
+  const normalized = normalizeAlibabaChoice(value);
+  if (normalized !== null && allowlist.has(normalized)) return null;
+  return `${field} 不是有效的${label}，可选：${[...allowlist].join('、')}`;
+}
+
+function validateUsageConfig(rawUsage, { dropInvalidAlibaba = false } = {}) {
   if (rawUsage === undefined) return { manualProviders: [], experimentalProviders: [] };
   if (!rawUsage || typeof rawUsage !== 'object' || Array.isArray(rawUsage)) {
     fail('usage must be an object');
@@ -315,7 +318,9 @@ function validateUsageConfig(rawUsage) {
       }
       const id = item.trim();
       if (!KNOWN_EXPERIMENTAL_PROVIDER_IDS.has(id)) {
-        fail(`未知的用量来源：${id}`);
+        // Chinese and specific: the refusal names the unknown id and the ids that are accepted, so the save
+        // error on the settings page tells the owner exactly what to write instead.
+        fail(`未知的用量来源：${id}（可选：${[...KNOWN_EXPERIMENTAL_PROVIDER_IDS].join('、')}）`);
       }
       if (!experimentalProviders.includes(id)) {
         experimentalProviders.push(id);
@@ -324,13 +329,28 @@ function validateUsageConfig(rawUsage) {
   }
   const result = { manualProviders, experimentalProviders };
   if (rawUsage.alibaba !== undefined) {
+    // An invalid usage.alibaba that is already on disk must not stop serve or the desktop app from starting
+    // (X17): the load path (dropInvalidAlibaba) drops the block and leaves a Chinese diagnostic on
+    // result.alibabaIssue instead of failing, which the usage card and GET /api/settings both read. The
+    // settings save path keeps the strict failure, so a save can never write an invalid block in the first
+    // place. The non-object text is Chinese too — it can appear in a save error on the settings page.
     if (!rawUsage.alibaba || typeof rawUsage.alibaba !== 'object' || Array.isArray(rawUsage.alibaba)) {
-      fail('usage.alibaba must be an object');
+      const issue = 'usage.alibaba 必须是对象';
+      if (dropInvalidAlibaba) result.alibabaIssue = issue;
+      else fail(issue);
+    } else {
+      const issue = alibabaChoiceIssue(rawUsage.alibaba.edition, ALIBABA_EDITIONS, 'usage.alibaba.edition', '阿里云版本')
+        || alibabaChoiceIssue(rawUsage.alibaba.region, ALIBABA_REGIONS, 'usage.alibaba.region', '阿里云区域');
+      if (issue) {
+        if (dropInvalidAlibaba) result.alibabaIssue = issue;
+        else fail(issue);
+      } else {
+        result.alibaba = {
+          edition: normalizeAlibabaChoice(rawUsage.alibaba.edition),
+          region: normalizeAlibabaChoice(rawUsage.alibaba.region),
+        };
+      }
     }
-    result.alibaba = {
-      edition: validateAlibabaChoice(rawUsage.alibaba.edition, ALIBABA_EDITIONS, 'usage.alibaba.edition', '阿里云版本'),
-      region: validateAlibabaChoice(rawUsage.alibaba.region, ALIBABA_REGIONS, 'usage.alibaba.region', '阿里云区域'),
-    };
   }
   return result;
 }
@@ -398,7 +418,10 @@ function validateVerificationConfig(rawVerification, base) {
 // limit, no preferred lane or card, no extra bounce patterns). Unknown policy keys are not touched here;
 // saveProjectConfig writes the raw file object back, so they survive a save untouched.
 function validatePolicyConfig(rawPolicy, laneIds) {
-  if (rawPolicy !== undefined && (!rawPolicy || typeof rawPolicy !== 'object' || Array.isArray(rawPolicy))) fail('policy must be an object');
+  // X18: a present-but-not-an-object policy (null, a string, an array) is refused instead of silently
+  // falling back to defaults — the message is Chinese and says both what is wrong and how to get the
+  // defaults, because it surfaces on the settings page's save error.
+  if (rawPolicy !== undefined && (!rawPolicy || typeof rawPolicy !== 'object' || Array.isArray(rawPolicy))) fail('policy 必须是对象；要使用默认值请省略该字段（null 会被拒绝）');
   const policy = rawPolicy || {};
   const laneConcurrency = Object.create(null); // no prototype: lane names are asked as plain keys
   const result = {
@@ -458,7 +481,11 @@ function validatePolicyConfig(rawPolicy, laneIds) {
   return result;
 }
 
-export function resolveConfig(root, raw) {
+// The optional third argument belongs to the load path only (see loadProjectConfig): dropInvalidAlibaba
+// lets an invalid usage.alibaba already on disk be dropped with a Chinese diagnostic instead of stopping
+// the board. Every other caller keeps the strict refusal, in particular saveProjectConfig, so a save can
+// never write an invalid block.
+export function resolveConfig(root, raw, { dropInvalidAlibaba = false } = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('the file must hold a JSON object');
   const base = path.resolve(root);
   const abs = (value, field) => path.resolve(base, requireString(value, field));
@@ -494,7 +521,7 @@ export function resolveConfig(root, raw) {
     // "constructor" must not count as a lane.
     lanes: Object.assign(Object.create(null), Object.fromEntries(Object.entries(raw.lanes).map(([id, lane]) => [id, validateLane(id, lane)]))),
     policy: validatePolicyConfig(raw.policy, laneIds),
-    usage: validateUsageConfig(raw.usage),
+    usage: validateUsageConfig(raw.usage, { dropInvalidAlibaba }),
   };
 }
 
@@ -596,7 +623,12 @@ export function loadProjectConfig(root) {
   } catch (error) {
     return fail(`${file} is not valid JSON: ${error.message}`);
   }
-  return resolveConfig(root, raw);
+  // An invalid usage.alibaba already on disk must not stop serve or the desktop app — both load through
+  // here, and the settings save refuses that block, so failing would leave the owner with a board that
+  // cannot start and cannot be fixed from the page. The block is dropped with a Chinese diagnostic
+  // (config.usage.alibabaIssue) that the Alibaba usage card and GET /api/settings surface instead; every
+  // other config error stays fatal, so a file that is broken elsewhere still fails loudly.
+  return resolveConfig(root, raw, { dropInvalidAlibaba: true });
 }
 
 // Fills a lane template. A placeholder with no value is an error, not an empty string: an OpenCode send
