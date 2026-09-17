@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer as createViteServer } from 'vite';
 import type { ViteDevServer } from 'vite';
 import http from 'node:http';
+import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { evaluateProxyRequest, boundDevOrigins } from './vite.config';
 import { startFixture } from '../test/server/fixture.js';
@@ -26,6 +27,71 @@ const FOREIGN_LOCAL_PORT = 'http://127.0.0.1:9999';
 // The historically hardcoded port. Once the guard reads its live-bound origin instead, this must be refused
 // exactly like any other foreign local port whenever the dev server is actually bound elsewhere.
 const FORGED_5173 = 'http://localhost:5173';
+
+// Real-server cases talk over the loopback to two servers this file just started. Quiet, both answer in
+// milliseconds; on a machine busy with several worktrees' suites, the same requests were measured at
+// 0.6-1.8s, and — before this harness change — three cases were cut off by the default 5s test timeout while
+// still in flight (5.45s/5.57s/6.19s at the cut). Two bounded mechanisms keep those cases about the guard
+// rather than about the machine, and neither touches an assertion:
+//  - `waitForTcp` (readiness): after each server reports listening, wait until its socket actually accepts a
+//    connection before any case runs, retrying refused/reset/timed-out probes until a deadline. A probe
+//    carries no request, so it can add no side effect any case observes — and it is what makes every case
+//    independent of the timing between server start and first request.
+//  - `retryOnConnectionRefused` (requests): repeat a request only when its connection was refused before the
+//    server ever accepted it — safe even for the side-effecting requests below, because a refused socket
+//    never reached a handler. A reset or a stall is deliberately not retried: the request may already have
+//    been processed, and repeating it could double a side effect (a usage call, a posted quest) that the
+//    assertions count. Those slow-but-successful paths are what the raised per-case timeout covers instead.
+const NET_RETRY_ATTEMPTS = 6;
+const NET_RETRY_DELAY_MS = 150;
+const READY_DEADLINE_MS = 15000;
+// Measured under that same load: individual real-server cases stretched to ~1.8s (vs 0-60ms quiet) and the
+// three cut-off cases were still working at 5.4-6.2s. 20s gives >10x the measured slow case and ~3.2x the
+// largest observed cut-off, without masking a genuinely stuck request — that still fails, just later.
+const REAL_CASE_TIMEOUT_MS = 20000;
+
+function hasNetworkCode(err: unknown, codes: readonly string[]): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === 'string' && codes.includes(code)) return true;
+  // Both fetch() (undici) and net errors wrap the low-level error: `cause` chains, AggregateError `errors`.
+  if (hasNetworkCode((err as { cause?: unknown }).cause, codes)) return true;
+  const errors = (err as { errors?: unknown }).errors;
+  return Array.isArray(errors) && errors.some((entry) => hasNetworkCode(entry, codes));
+}
+
+async function retryOnConnectionRefused<T>(attempt: () => Promise<T>): Promise<T> {
+  for (let tries = 1; ; tries += 1) {
+    try {
+      return await attempt();
+    } catch (err) {
+      if (tries >= NET_RETRY_ATTEMPTS || !hasNetworkCode(err, ['ECONNREFUSED'])) throw err;
+      await new Promise((resolve) => setTimeout(resolve, NET_RETRY_DELAY_MS));
+    }
+  }
+}
+
+async function waitForTcp(host: string, port: number, deadlineMs: number = READY_DEADLINE_MS): Promise<void> {
+  const deadline = Date.now() + deadlineMs;
+  for (;;) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const socket = net.connect({ host, port });
+        socket.setTimeout(2500, () => socket.destroy(new Error(`no answer from ${host}:${port} within 2500ms`)));
+        socket.once('connect', () => { socket.destroy(); resolve(); });
+        socket.once('error', (err) => { socket.destroy(); reject(err); });
+      });
+      return;
+    } catch (err) {
+      if (Date.now() >= deadline) throw err;
+      await new Promise((resolve) => setTimeout(resolve, NET_RETRY_DELAY_MS));
+    }
+  }
+}
+
+function fetchWithRefusedRetry(url: string, init?: RequestInit): Promise<Response> {
+  return retryOnConnectionRefused(() => fetch(url, init));
+}
 
 // A synthetic listener on the loopback family Vite did NOT bind, occupying the very same port number — this
 // is the scenario review's probe-bind.mjs demonstrated: an unrelated process can squat that alias address,
@@ -177,7 +243,7 @@ describe('evaluateProxyRequest: the dev proxy front door (pure)', () => {
 // the guard is caught as an actual extra call, not inferred from headers alone. The board's own `connection`/
 // `request` events are also counted directly, so a refusal is proven to have opened zero upstream connections
 // and sent zero bytes to the board — not just that the board's usage service was never invoked.
-describe('the front door wired into a real Vite dev server, in front of a real board', () => {
+describe('the front door wired into a real Vite dev server, in front of a real board', { timeout: REAL_CASE_TIMEOUT_MS }, () => {
   let fixture: Awaited<ReturnType<typeof startFixture>>;
   let vite: ViteDevServer;
   let devBase: string;
@@ -199,6 +265,9 @@ describe('the front door wired into a real Vite dev server, in front of a real b
         },
       },
     });
+    // Readiness: the board must actually accept connections before any case runs. `startFixture` resolves on
+    // the fixture's own `listen()`, but under load the first request must not race the kernel accepting it.
+    await waitForTcp('127.0.0.1', Number(new URL(fixture.base).port));
     board = { connections: 0, requests: 0 };
     fixture.server.on('connection', () => { board.connections += 1; });
     fixture.server.prependListener('request', () => { board.requests += 1; });
@@ -215,6 +284,8 @@ describe('the front door wired into a real Vite dev server, in front of a real b
     devPort = address.port;
     devBase = `http://127.0.0.1:${devPort}`;
     devHost = `127.0.0.1:${devPort}`;
+    // Readiness: wait until the dev server's own socket actually accepts before the first case connects.
+    await waitForTcp('127.0.0.1', devPort);
     // The explicit-127.0.0.1 bind leaves the IPv6 loopback family free for anything else — including a
     // page that isn't Vite's — at the very same port number.
     alias = await listenOnAlias(devPort, '::1');
@@ -229,7 +300,9 @@ describe('the front door wired into a real Vite dev server, in front of a real b
   });
 
   function rawRequest(headers: http.OutgoingHttpHeaders, extra: { method?: string; body?: string; path?: string } = {}): Promise<{ status?: number; body: string }> {
-    return new Promise((resolve, reject) => {
+    // A refused connection was never accepted, so repeating this request (even the 100-continue one) cannot
+    // double any side effect the assertions count.
+    return retryOnConnectionRefused(() => new Promise((resolve, reject) => {
       const req = http.request(
         { host: '127.0.0.1', port: Number(devHost.split(':')[1]), method: extra.method || 'GET', path: extra.path || '/api/usage?refresh=1', headers: { host: devHost, ...headers } },
         (res) => {
@@ -241,12 +314,12 @@ describe('the front door wired into a real Vite dev server, in front of a real b
       req.on('error', reject);
       if (extra.body) req.write(extra.body);
       req.end();
-    });
+    }));
   }
 
   it('forwards a side-effect GET (usage refresh) from the own dev page, rewriting Origin/Referer to the board', async () => {
     const before = usageCalls.length;
-    const response = await fetch(`${devBase}/api/usage?refresh=1`, {
+    const response = await fetchWithRefusedRetry(`${devBase}/api/usage?refresh=1`, {
       headers: { origin: devBase, referer: `${devBase}/usage` },
     });
     expect(response.status).toBe(200);
@@ -258,7 +331,7 @@ describe('the front door wired into a real Vite dev server, in front of a real b
     const beforeConn = board.connections;
     const beforeReq = board.requests;
     const beforeCalls = usageCalls.length;
-    const response = await fetch(`${devBase}/api/usage?refresh=1`, { headers: { origin: FORGED_5173, referer: `${FORGED_5173}/usage` } });
+    const response = await fetchWithRefusedRetry(`${devBase}/api/usage?refresh=1`, { headers: { origin: FORGED_5173, referer: `${FORGED_5173}/usage` } });
     const body = await response.json();
     expect(response.status).toBe(403);
     expect(body).toEqual({ error: 'origin refused' });
@@ -272,7 +345,7 @@ describe('the front door wired into a real Vite dev server, in front of a real b
     const beforeConn = board.connections;
     const beforeReq = board.requests;
     const beforeCalls = usageCalls.length;
-    const response = await fetch(`${devBase}/api/usage?refresh=1`, {
+    const response = await fetchWithRefusedRetry(`${devBase}/api/usage?refresh=1`, {
       headers: { origin: aliasOrigin, referer: `${aliasOrigin}/usage` },
     });
     const body = await response.json();
@@ -292,7 +365,7 @@ describe('the front door wired into a real Vite dev server, in front of a real b
     // this was observed to flip the guarded-server test below between pass and fail across runs. Targeting the
     // alias's own literal bound address removes the race and asserts only what this test claims: that a
     // distinct server actually answers on the family Vite did not bind.
-    const res = await fetch(`http://[::1]:${devPort}/`);
+    const res = await fetchWithRefusedRetry(`http://[::1]:${devPort}/`);
     expect(res.headers.get('x-probe')).toBe('foreign');
   });
 
@@ -300,7 +373,7 @@ describe('the front door wired into a real Vite dev server, in front of a real b
     const beforeConn = board.connections;
     const beforeReq = board.requests;
     const beforeCalls = usageCalls.length;
-    const response = await fetch(`${devBase}/api/usage?refresh=1`, {
+    const response = await fetchWithRefusedRetry(`${devBase}/api/usage?refresh=1`, {
       headers: { origin: FOREIGN_SITE, referer: `${FOREIGN_SITE}/steal` },
     });
     const body = await response.json();
@@ -314,7 +387,7 @@ describe('the front door wired into a real Vite dev server, in front of a real b
   it('refuses a foreign local port at the proxy: zero board connections/bytes', async () => {
     const beforeConn = board.connections;
     const beforeReq = board.requests;
-    const response = await fetch(`${devBase}/api/usage?refresh=1`, { headers: { origin: FOREIGN_LOCAL_PORT } });
+    const response = await fetchWithRefusedRetry(`${devBase}/api/usage?refresh=1`, { headers: { origin: FOREIGN_LOCAL_PORT } });
     expect(response.status).toBe(403);
     expect(board.connections).toBe(beforeConn);
     expect(board.requests).toBe(beforeReq);
@@ -322,14 +395,14 @@ describe('the front door wired into a real Vite dev server, in front of a real b
 
   it('refuses a non-canonical origin form (trailing path) even though host:port match: zero board connections', async () => {
     const beforeConn = board.connections;
-    const response = await fetch(`${devBase}/api/usage?refresh=1`, { headers: { origin: `${devBase}/evil` } });
+    const response = await fetchWithRefusedRetry(`${devBase}/api/usage?refresh=1`, { headers: { origin: `${devBase}/evil` } });
     expect(response.status).toBe(403);
     expect(board.connections).toBe(beforeConn);
   });
 
   it('refuses contradictory headers at the proxy: zero board connections', async () => {
     const beforeConn = board.connections;
-    const response = await fetch(`${devBase}/api/usage?refresh=1`, {
+    const response = await fetchWithRefusedRetry(`${devBase}/api/usage?refresh=1`, {
       headers: { origin: devBase, referer: `${FOREIGN_SITE}/x` },
     });
     expect(response.status).toBe(403);
@@ -347,13 +420,13 @@ describe('the front door wired into a real Vite dev server, in front of a real b
   });
 
   it('forwards a write (POST /api/quests) from the own dev page through to the real board', async () => {
-    const response = await fetch(`${devBase}/api/quests`, {
+    const response = await fetchWithRefusedRetry(`${devBase}/api/quests`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: devBase, referer: `${devBase}/quests` },
       body: JSON.stringify({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-the-way-back.md', allowedLanes: 'codex' }),
     });
     expect(response.status).toBe(201);
-    const listed = await fetch(`${devBase}/api/quests`, {
+    const listed = await fetchWithRefusedRetry(`${devBase}/api/quests`, {
       headers: { origin: devBase, referer: `${devBase}/quests` },
     }).then((r) => r.json());
     expect(listed.quests.some((q: { id: string }) => q.id === 'RUN-4')).toBe(true);
@@ -361,7 +434,7 @@ describe('the front door wired into a real Vite dev server, in front of a real b
 
   it('refuses a foreign website\'s write at the proxy: the quest is never posted to the real board', async () => {
     const beforeConn = board.connections;
-    const response = await fetch(`${devBase}/api/quests`, {
+    const response = await fetchWithRefusedRetry(`${devBase}/api/quests`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: FOREIGN_SITE },
       body: JSON.stringify({ package: 'CSRF-1', brief: 'docs/briefs/RUN-4-the-way-back.md', allowedLanes: 'codex' }),
@@ -370,7 +443,7 @@ describe('the front door wired into a real Vite dev server, in front of a real b
     expect(response.status).toBe(403);
     expect(body).toEqual({ error: 'origin refused' });
     expect(board.connections).toBe(beforeConn);
-    const listed = await fetch(`${devBase}/api/quests`, {
+    const listed = await fetchWithRefusedRetry(`${devBase}/api/quests`, {
       headers: { origin: devBase, referer: `${devBase}/quests` },
     }).then((r) => r.json());
     expect(listed.quests.some((q: { id: string }) => q.id === 'CSRF-1')).toBe(false);
@@ -382,7 +455,7 @@ describe('the front door wired into a real Vite dev server, in front of a real b
 // scenario the old code got wrong: it allowed `127.0.0.1` as a front-door origin even though Vite itself was
 // never reachable on that family, so a same-port listener on the family Vite did NOT bind could pass as the
 // dev server's own page.
-describe('the front door with Vite\'s default host (no host set — the plain "npm run dev" case)', () => {
+describe('the front door with Vite\'s default host (no host set — the plain "npm run dev" case)', { timeout: REAL_CASE_TIMEOUT_MS }, () => {
   let fixture: Awaited<ReturnType<typeof startFixture>>;
   let vite: ViteDevServer;
   let alias: http.Server | null;
@@ -412,6 +485,9 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
         },
       },
     });
+    // Readiness: the board must actually accept connections before any case runs. `startFixture` resolves on
+    // the fixture's own `listen()`, but under load the first request must not race the kernel accepting it.
+    await waitForTcp('127.0.0.1', Number(new URL(fixture.base).port));
     board = { connections: 0, requests: 0 };
     fixture.server.on('connection', () => { board.connections += 1; });
     fixture.server.prependListener('request', () => { board.requests += 1; });
@@ -425,6 +501,8 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
     await vite.listen();
     const address = vite.httpServer!.address();
     if (!address || typeof address === 'string') throw new Error('vite dev server did not bind a port');
+    // Readiness: wait until the literal bound address actually accepts connections before any case runs.
+    await waitForTcp(address.address, address.port);
     if (address.family === 'IPv6' && address.address === '::1') {
       ownOrigin = `http://localhost:${address.port}`;
       aliasOrigin = `http://127.0.0.1:${address.port}`;
@@ -451,7 +529,9 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
   });
 
   function rawRequest(headers: http.OutgoingHttpHeaders): Promise<{ status?: number; body: string }> {
-    return new Promise((resolve, reject) => {
+    // A refused connection was never accepted, so repeating this request (even the 100-continue one) cannot
+    // double any side effect the assertions count.
+    return retryOnConnectionRefused(() => new Promise((resolve, reject) => {
       // Connect to the literal `devTarget`, not `ownOrigin` (the `localhost` name) — see the `devTarget`
       // declaration above for why a `localhost` connection target races against the foreign alias.  The
       // `Host` header is still `ownOrigin`'s, exactly what a real page opened at `ownOrigin` would send.
@@ -472,14 +552,14 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
       );
       req.on('error', reject);
       req.end();
-    });
+    }));
   }
 
   it('the actual bound origin succeeds: forwards to the board', async () => {
     const before = usageCalls.length;
     // Connect to `devTarget` (the literal bound address), not `ownOrigin` — see the `devTarget` declaration
     // above. The Origin/Referer headers are still `ownOrigin`, exactly the case under test.
-    const response = await fetch(`${devTarget}/api/usage?refresh=1`, {
+    const response = await fetchWithRefusedRetry(`${devTarget}/api/usage?refresh=1`, {
       headers: { origin: ownOrigin, referer: `${ownOrigin}/usage` },
     });
     expect(response.status).toBe(200);
@@ -490,7 +570,7 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
     const beforeConn = board.connections;
     const beforeReq = board.requests;
     const beforeCalls = usageCalls.length;
-    const response = await fetch(`${devTarget}/api/usage?refresh=1`, {
+    const response = await fetchWithRefusedRetry(`${devTarget}/api/usage?refresh=1`, {
       headers: { origin: aliasOrigin, referer: `${aliasOrigin}/usage` },
     });
     const body = await response.json();
@@ -513,7 +593,7 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
 
   it('the alias really is a different server on this platform (threat context, not the guard itself)', async () => {
     if (!alias) return; // platform refused the dual-stack same-port bind; nothing to demonstrate here
-    const res = await fetch(`${aliasOrigin}/`);
+    const res = await fetchWithRefusedRetry(`${aliasOrigin}/`);
     expect(res.headers.get('x-probe')).toBe('foreign');
   });
 });
