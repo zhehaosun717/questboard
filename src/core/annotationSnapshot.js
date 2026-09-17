@@ -187,21 +187,21 @@ export function safeAttemptTarget(config, packageId, attemptId, suffix = '.md') 
   const packagePattern = packageIdPattern(config);
   if (!packagePattern.test(packageId)) fail(`任务编号 ${packageId} 不符合项目编号格式`, 'invalid_package');
   if (!ATTEMPT_PATTERN.test(attemptId)) fail(`派遣尝试编号不符合格式`, 'invalid_attempt');
-  if (!['.md', '.role.md'].includes(suffix)) fail('unsupported attempt artifact type', 'snapshot_write_failed');
+  if (!['.md', '.role.md'].includes(suffix)) fail('不支持的派遣产物类型', 'snapshot_write_failed');
   const directory = path.join(config.paths.data, 'dispatch-briefs', packageId);
   const file = path.join(directory, `${packageId}-${attemptId}${suffix}`);
   const assertContainment = (target) => {
     const dataIssue = realpathContainmentIssue(config.paths.data, target);
-    if (dataIssue) fail(`\u6279\u6ce8\u5feb\u7167\u8def\u5f84\u4e0d\u5b89\u5168\uff1a${dataIssue}`, 'snapshot_containment');
+    if (dataIssue) fail(`批注快照路径不安全：${dataIssue}`, 'snapshot_containment');
     const projectIssue = realpathContainmentIssue(config.root, target);
-    if (projectIssue) fail(`\u6279\u6ce8\u5feb\u7167\u8def\u5f84\u5728\u9879\u76ee\u5916\uff1a${projectIssue}`, 'snapshot_containment');
+    if (projectIssue) fail(`批注快照路径在项目外：${projectIssue}`, 'snapshot_containment');
   };
   // The first role card for a fresh project may be the first artifact under data. Validate the data root
   // from the project before creating it, then the realpath checks below can safely inspect it.
   const dataRootIssue = realpathContainmentIssue(config.root, config.paths.data);
-  if (dataRootIssue) fail(`dispatch data directory is not safe: ${dataRootIssue}`, 'snapshot_containment');
+  if (dataRootIssue) fail(`派遣数据目录不安全：${dataRootIssue}`, 'snapshot_containment');
   try { fs.mkdirSync(config.paths.data, { recursive: true }); }
-  catch (error) { fail(`dispatch data directory creation failed: ${error.code || error.message}`, 'snapshot_write_failed'); }
+  catch (error) { fail(`派遣数据目录创建失败：${error.code || error.message}`, 'snapshot_write_failed'); }
   // Check before mkdir so an existing dispatch-briefs junction cannot create a package folder outside data.
   assertContainment(directory);
   try { fs.mkdirSync(directory, { recursive: true }); }
@@ -252,7 +252,7 @@ export function writeAnnotationSnapshot({ config, packageId, attemptId, briefTex
     fail(`批注快照写入失败：${error.code || error.message}`, 'snapshot_write_failed');
   }
   const relative = path.relative(config.root, target.file).split(path.sep).join('/');
-  if (relative === '..' || relative.startsWith('../')) fail('snapshot path is outside the project', 'snapshot_containment');
+  if (relative === '..' || relative.startsWith('../')) fail('批注快照路径在项目之外', 'snapshot_containment');
   return { page, title, count: items.length, capturedAt, digest: createHash('sha256').update(content, 'utf8').digest('hex'), path: relative };
 }
 

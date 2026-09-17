@@ -117,4 +117,13 @@ describe('sessionState terminal rules (N12-N14)', () => {
     assert.equal(aborted.state, 'failed');
     assert.match(aborted.reason, /MessageAbortedError/);
   });
+
+  it('respects stallAfterMinutes threshold: 21m running, 46m stalled >45m', () => {
+    const quiet21 = sessionState([msg({ time: { created: ago(21 * 60 * 1000) } }, [txt('working')])], now(), { stallAfterMinutes: 45 });
+    assert.equal(quiet21.state, 'running');
+
+    const quiet46 = sessionState([msg({ time: { created: ago(46 * 60 * 1000) } }, [txt('working')])], now(), { stallAfterMinutes: 45 });
+    assert.equal(quiet46.state, 'stalled');
+    assert.equal(quiet46.reason, 'running, no activity >45m');
+  });
 });

@@ -111,7 +111,8 @@ describe('questEvidence — project-verification item', () => {
     fs.utimesSync(file, new Date('2026-09-14T01:00:00.000Z'), new Date('2026-09-14T01:00:00.000Z'));
     const verification = latestProgress(project.config.verification.progressDirs);
     const quest = { id: 'EV-11', assignee: attempt() };
-    const evidence = questEvidence({ config: project.config, quest, verification });
+    const latestDispatchAt = Date.parse(attempt().at);
+    const evidence = questEvidence({ config: project.config, quest, verification, latestDispatchAt });
     const item = evidence.items[1];
     assert.equal(item.bound, true);
     assert.equal(item.state, 'passed');
@@ -126,7 +127,8 @@ describe('questEvidence — project-verification item', () => {
     fs.utimesSync(file, new Date('2026-09-13T00:00:00.000Z'), new Date('2026-09-13T00:00:00.000Z'));
     const verification = latestProgress(project.config.verification.progressDirs);
     const quest = { id: 'EV-12', assignee: attempt({ at: '2026-09-14T00:00:00.000Z' }) };
-    const evidence = questEvidence({ config: project.config, quest, verification });
+    const latestDispatchAt = Date.parse('2026-09-14T00:00:00.000Z');
+    const evidence = questEvidence({ config: project.config, quest, verification, latestDispatchAt });
     const item = evidence.items[1];
     assert.equal(item.bound, false);
     assert.equal(item.reason, '这是上一次尝试之前的记录，不算本次证据');
@@ -137,7 +139,8 @@ describe('questEvidence — project-verification item', () => {
     project.write('.work/full/progress.txt', 'compile errorCS 2\n');
     const verification = latestProgress(project.config.verification.progressDirs);
     const quest = { id: 'EV-13', assignee: attempt() };
-    assert.equal(questEvidence({ config: project.config, quest, verification }).items[1].state, 'failed');
+    const latestDispatchAt = Date.parse(attempt().at);
+    assert.equal(questEvidence({ config: project.config, quest, verification, latestDispatchAt }).items[1].state, 'failed');
   });
 
   it('gives a dedicated never-dispatched reason, not the stale-record text, when there is no attempt at all (F6)', () => {
@@ -178,6 +181,22 @@ describe('questEvidence — project-verification binds only to the project-wide 
     assert.equal(item.bound, true);
     assert.equal(item.state, 'passed');
   });
+
+  it('marks project-verification bound:false with unconfirmed latest reason when latestDispatchAt is omitted or not finite', () => {
+    const project = makeProject({ verification: { progressDirs: ['.work/full'] } });
+    const file = project.write('.work/full/progress.txt', 'compile exit 0\nDONE\n');
+    fs.utimesSync(file, new Date('2026-09-14T01:00:00.000Z'), new Date('2026-09-14T01:00:00.000Z'));
+    const verification = latestProgress(project.config.verification.progressDirs);
+    const quest = { id: 'EV-OMIT', assignee: attempt({ at: '2026-09-14T00:00:00.000Z' }) };
+
+    const omitted = questEvidence({ config: project.config, quest, verification });
+    assert.equal(omitted.items[1].bound, false);
+    assert.equal(omitted.items[1].reason, '无法确认这是全项目最新一次派遣');
+
+    const nonFinite = questEvidence({ config: project.config, quest, verification, latestDispatchAt: null });
+    assert.equal(nonFinite.items[1].bound, false);
+    assert.equal(nonFinite.items[1].reason, '无法确认这是全项目最新一次派遣');
+  });
 });
 
 describe('questEvidence — project-verification NUnit mtimes take part in binding (F3)', () => {
@@ -189,7 +208,8 @@ describe('questEvidence — project-verification NUnit mtimes take part in bindi
     fs.utimesSync(play, new Date('2026-09-10T00:00:00.000Z'), new Date('2026-09-10T00:00:00.000Z'));
     const verification = latestProgress(project.config.verification.progressDirs);
     const quest = { id: 'EV-21', assignee: attempt({ at: '2026-09-14T00:00:00.000Z' }) };
-    const evidence = questEvidence({ config: project.config, quest, verification });
+    const latestDispatchAt = Date.parse('2026-09-14T00:00:00.000Z');
+    const evidence = questEvidence({ config: project.config, quest, verification, latestDispatchAt });
     const item = evidence.items[1];
     assert.equal(item.bound, true);
     assert.equal(item.state, 'unknown', 'the stale failing NUnit total must never decide the state');
@@ -203,7 +223,8 @@ describe('questEvidence — project-verification NUnit mtimes take part in bindi
     fs.utimesSync(play, new Date('2026-09-14T01:00:00.000Z'), new Date('2026-09-14T01:00:00.000Z'));
     const verification = latestProgress(project.config.verification.progressDirs);
     const quest = { id: 'EV-22', assignee: attempt({ at: '2026-09-14T00:00:00.000Z' }) };
-    const evidence = questEvidence({ config: project.config, quest, verification });
+    const latestDispatchAt = Date.parse('2026-09-14T00:00:00.000Z');
+    const evidence = questEvidence({ config: project.config, quest, verification, latestDispatchAt });
     assert.equal(evidence.items[1].state, 'failed');
   });
 });

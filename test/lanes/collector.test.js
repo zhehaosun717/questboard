@@ -366,6 +366,26 @@ describe('workers', () => {
     assert.equal(malformed.reason, 'malformed .exit, .out stale >45m');
   });
 
+  it('reads the session stall threshold from policy.stallAfterMinutes', async () => {
+    const { config } = makeProject({ policy: { stallAfterMinutes: 45 } });
+    const now = Date.now();
+    dispatch(config, { package: 'STALL-1', lane: 'opencode', model: 'unknown', name: 'stall1', session: 'ses_stall' });
+    let messages = [
+      { info: { role: 'assistant', time: { created: now - 21 * 60 * 1000 } }, parts: [{ type: 'text', text: 'working' }] },
+    ];
+    const fetchImpl = async (url) => ({ ok: true, json: async () => (url.endsWith('/message') ? messages : {}) });
+    const collector = createCollector(config, { fetchImpl });
+    const [row21] = (await collector.collect({ now })).packages;
+    assert.equal(row21.state, 'running');
+
+    messages = [
+      { info: { role: 'assistant', time: { created: now - 46 * 60 * 1000 } }, parts: [{ type: 'text', text: 'working' }] },
+    ];
+    const [row46] = (await collector.collect({ now })).packages;
+    assert.equal(row46.state, 'stalled');
+    assert.equal(row46.reason, 'running, no activity >45m');
+  });
+
   it('skips a malformed .exit file when computing a lane limit', () => {
     const { root, write } = makeProject();
     write('.work/codex/m.out', 'usage limit reached, try again at 3:00 PM');

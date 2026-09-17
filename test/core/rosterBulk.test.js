@@ -172,6 +172,136 @@ describe('roster bulk preview and apply', () => {
     assert.ok(visible.laneEvidence.code.cards.paused);
   });
 
+  it('allows bulk available for a card whose single-card acknowledgement is newer than its quota evidence', async () => {
+    const now = Date.parse('2026-09-16T12:00:00.000Z');
+    const roster = { adventurers: [card('acked', { lane: 'code' })] };
+    const statusRecords = [
+      { at: '2026-09-16T11:55:00.000Z', adventurerId: 'acked', status: 'available', reason: '已手动确认额度恢复', setBy: 'owner' },
+    ];
+    const entry = {
+      adventurerId: 'acked',
+      at: '2026-09-16T11:50:00.000Z',
+      since: '2026-09-16T11:50:00.000Z',
+      until: null,
+      resetsAt: '2026-09-16T15:00:00.000Z',
+      name: 'acked',
+    };
+    const lanes = { packages: [], laneLimits: { code: { cards: { acked: entry } } } };
+    const withStatuses = applyStatuses(roster.adventurers, foldStatuses(statusRecords));
+    const effective = effectiveRoster(withStatuses, lanes, now);
+    const quotaEvidence = effectiveRoster(withStatuses.map((item) => item.status === 'available' ? item : {
+      ...item, status: 'available', statusSince: null, statusReason: '', statusSetBy: null,
+    }), lanes, now);
+    assert.equal(effective[0].status, 'available');
+    assert.equal(quotaEvidence[0].status, 'available');
+
+    const request = { ids: ['acked'], patch: { status: 'available' } };
+    const preview = previewRosterBulk({ roster, statusRecords, quests: [], effectiveRoster: effective, quotaEvidenceRoster: quotaEvidence, request });
+    assert.equal(preview.results[0].denied, false);
+    assert.equal(preview.results[0].ready, true);
+    assert.equal(preview.counts.denied, 0);
+
+    const dir = tmp('qb-roster-bulk-acked-');
+    const file = path.join(dir, 'roster.json');
+    const statusFile = path.join(dir, 'status.jsonl');
+    fs.writeFileSync(file, `${JSON.stringify(roster)}\n`);
+    fs.writeFileSync(statusFile, `${statusRecords.map((record) => JSON.stringify(record)).join('\n')}\n`);
+    const log = new StatusLog(statusFile);
+    const overlays = () => {
+      const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const current = applyStatuses(saved.adventurers, log.current());
+      const probe = current.map((item) => item.status === 'available' ? item : {
+        ...item, status: 'available', statusSince: null, statusReason: '', statusSetBy: null,
+      });
+      return {
+        effectiveRoster: effectiveRoster(current, lanes, now),
+        quotaEvidenceRoster: effectiveRoster(probe, lanes, now),
+      };
+    };
+    const applied = await applyRosterBulk({
+      rosterFile: file,
+      statusLog: log,
+      request,
+      getEffectiveRoster: () => overlays().effectiveRoster,
+      getQuotaEvidenceRoster: () => overlays().quotaEvidenceRoster,
+      now: () => '2026-09-16T12:00:00.000Z',
+    });
+    assert.equal(applied.counts.denied, 0);
+    assert.equal(applied.counts.changed, 1);
+    assert.equal(applied.results[0].ok, true);
+    const records = log.records();
+    assert.equal(records.length, 2);
+    assert.equal(records[1].adventurerId, 'acked');
+    assert.equal(records[1].status, 'available');
+    assert.equal(records[1].reason, '');
+  });
+
+  it('allows bulk available for a card whose quota evidence has expired', async () => {
+    const now = Date.parse('2026-09-16T12:00:00.000Z');
+    const roster = { adventurers: [card('expired', { lane: 'code' }), card('expired-paused', { lane: 'code' })] };
+    const statusRecords = [
+      { at: '2026-09-16T10:00:00.000Z', adventurerId: 'expired-paused', status: 'paused', reason: 'manual pause', setBy: 'owner' },
+    ];
+    const entry = (adventurerId) => ({
+      adventurerId,
+      at: '2026-09-16T10:00:00.000Z',
+      since: '2026-09-16T10:00:00.000Z',
+      until: null,
+      resetsAt: '2026-09-16T11:59:00.000Z',
+      name: adventurerId,
+    });
+    const lanes = { packages: [], laneLimits: { code: { cards: { expired: entry('expired'), 'expired-paused': entry('expired-paused') } } } };
+    const withStatuses = applyStatuses(roster.adventurers, foldStatuses(statusRecords));
+    const effective = effectiveRoster(withStatuses, lanes, now);
+    const quotaEvidence = effectiveRoster(withStatuses.map((item) => item.status === 'available' ? item : {
+      ...item, status: 'available', statusSince: null, statusReason: '', statusSetBy: null,
+    }), lanes, now);
+    assert.equal(effective[0].status, 'available');
+    assert.equal(effective[1].status, 'paused');
+    assert.equal(quotaEvidence[0].status, 'available');
+    assert.equal(quotaEvidence[1].status, 'available');
+
+    const request = { ids: ['expired', 'expired-paused'], patch: { status: 'available' } };
+    const preview = previewRosterBulk({ roster, statusRecords, quests: [], effectiveRoster: effective, quotaEvidenceRoster: quotaEvidence, request });
+    assert.deepEqual(preview.results.map((r) => r.denied), [false, false]);
+    assert.deepEqual(preview.results.map((r) => r.ready), [true, true]);
+    assert.equal(preview.counts.denied, 0);
+
+    const dir = tmp('qb-roster-bulk-expired-');
+    const file = path.join(dir, 'roster.json');
+    const statusFile = path.join(dir, 'status.jsonl');
+    fs.writeFileSync(file, `${JSON.stringify(roster)}\n`);
+    fs.writeFileSync(statusFile, `${statusRecords.map((record) => JSON.stringify(record)).join('\n')}\n`);
+    const log = new StatusLog(statusFile);
+    const overlays = () => {
+      const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const current = applyStatuses(saved.adventurers, log.current());
+      const probe = current.map((item) => item.status === 'available' ? item : {
+        ...item, status: 'available', statusSince: null, statusReason: '', statusSetBy: null,
+      });
+      return {
+        effectiveRoster: effectiveRoster(current, lanes, now),
+        quotaEvidenceRoster: effectiveRoster(probe, lanes, now),
+      };
+    };
+    const applied = await applyRosterBulk({
+      rosterFile: file,
+      statusLog: log,
+      request,
+      getEffectiveRoster: () => overlays().effectiveRoster,
+      getQuotaEvidenceRoster: () => overlays().quotaEvidenceRoster,
+      now: () => '2026-09-16T12:00:00.000Z',
+    });
+    assert.equal(applied.counts.denied, 0);
+    assert.equal(applied.counts.changed, 1);
+    assert.equal(applied.counts.unchanged, 1);
+    assert.deepEqual(applied.results.map((r) => r.ok), [true, true]);
+    const records = log.records();
+    assert.equal(records.length, 2);
+    assert.equal(records[1].adventurerId, 'expired-paused');
+    assert.equal(records[1].status, 'available');
+  });
+
   it('validates the complete planned roster before any write and preserves the roster status-free', async () => {
     const dir = tmp('qb-roster-bulk-validation-');
     const file = path.join(dir, 'roster.json');

@@ -78,7 +78,7 @@ export function renderRoleCard({ packageId, kind, workerName, attemptId, at, lan
 }
 
 export function validateRoleCard(config, questId, attemptId, value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('roleCard must be an object');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('roleCard 必须是对象');
   if (typeof value.path !== 'string' || !value.path.trim() || value.path.includes('\0') || path.isAbsolute(value.path)) {
     throw new Error('roleCard.path 必须是相对路径');
   }
@@ -111,7 +111,7 @@ export function writeRoleCard({ config, quest, attempt }) {
     writeExclusiveFile(target.file, content);
   } catch (error) {
     if (error.code === 'EEXIST') fail('角色卡已经存在，本次尝试不可覆盖', 'role_card_exists');
-    fail(`无法写入角色卡：${error.code || error.message}`, 'role_card_write_failed');
+    fail(`角色卡写入失败：${error.code || error.message}`, 'role_card_write_failed');
   }
   return { path: relative(config.root, target.file), digest: createHash('sha256').update(content, 'utf8').digest('hex') };
 }

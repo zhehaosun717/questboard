@@ -15,6 +15,7 @@ const HOOK_STATES = new Set(['queued', 'running', 'passed', 'failed', 'timedout'
 const HOOK_FIELDS = new Set(['state', 'commandRef', 'startedAt', 'endedAt', 'exitCode', 'logPath', 'logDigest', 'attemptId']);
 const STALE_REASON = '这是上一次尝试之前的记录，不算本次证据';
 const NEVER_DISPATCHED_REASON = '还没有派遣，无法绑定';
+const UNCONFIRMED_LATEST_REASON = '无法确认这是全项目最新一次派遣';
 const DIGEST_RE = /^[0-9a-f]{16,128}$/i;
 
 function baseItem(kind, label, attempt, extra) {
@@ -74,7 +75,8 @@ function verificationItem(config, attempt, verification, latestDispatchAt) {
   const file = path.join(verification.dir, 'progress.txt');
   const ref = path.relative(config.root, file).split(path.sep).join('/');
   const attemptAtMs = attempt?.at ? Date.parse(attempt.at) : NaN;
-  const isLatest = !Number.isFinite(latestDispatchAt) || attemptAtMs >= latestDispatchAt;
+  const hasLatest = Number.isFinite(latestDispatchAt);
+  const isLatest = hasLatest && attemptAtMs >= latestDispatchAt;
   const bound = Boolean(attempt) && Number.isFinite(attemptAtMs) && verification.mtime >= attemptAtMs && isLatest;
   const failedStep = (verification.steps || []).some((step) => (
     (step.kind === 'exit' && step.value.trim() !== '0' && step.value.trim() !== '')
@@ -84,11 +86,14 @@ function verificationItem(config, attempt, verification, latestDispatchAt) {
   const playFresh = verification.playXml && nunitFresh(verification.dir, 'play.xml', attemptAtMs);
   const failedTests = (editFresh && verification.editXml.failed > 0) || (playFresh && verification.playXml.failed > 0);
   const state = failedStep || failedTests ? 'failed' : verification.done ? 'passed' : 'unknown';
+  const unbondedReason = !attempt
+    ? NEVER_DISPATCHED_REASON
+    : (!hasLatest ? UNCONFIRMED_LATEST_REASON : STALE_REASON);
   return {
     kind: 'project-verification', label: '项目验证记录', state,
     source: 'progress-strip', ref, digest: digestOf(file), capturedAt: new Date(verification.mtime).toISOString(),
     attemptId: attempt?.attemptId || null, bound,
-    ...(bound ? {} : { reason: attempt ? STALE_REASON : NEVER_DISPATCHED_REASON }),
+    ...(bound ? {} : { reason: unbondedReason }),
   };
 }
 

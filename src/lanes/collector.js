@@ -125,7 +125,7 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
     const messages = await fetchJson(`${lane.api}/session/${entry.session}/message`, { fetchImpl });
     if (!messages) { entry.reason = `${entry.lane} api unreachable`; return; }
     if (!models.has(entry.session)) models.set(entry.session, sessionModel(messages));
-    const info = sessionState(messages, now);
+    const info = sessionState(messages, now, { stallAfterMinutes: config.policy?.stallAfterMinutes });
     if (info.lastActivityMs) lastSeen.set(entry.session, info.lastActivityMs);
     Object.assign(entry, info);
     if (!TERMINAL_STATES.has(entry.state) && stallForLimit(entry, sessionLimitReason(messages, entry.elapsed, lane.limits), lane)) return;

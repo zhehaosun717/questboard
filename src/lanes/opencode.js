@@ -44,7 +44,7 @@ function structuredResetText(error) {
   return match ? match[1].trim() : null;
 }
 
-export function sessionState(messages, now = Date.now()) {
+export function sessionState(messages, now = Date.now(), { stallAfterMinutes } = {}) {
   const assistant = messages.filter((m) => m.info && m.info.role === 'assistant');
   if (!assistant.length) return { state: 'unknown', reason: 'no assistant messages' };
   const last = assistant.at(-1);
@@ -96,7 +96,8 @@ export function sessionState(messages, now = Date.now()) {
     // A real timestamp is all staleness needs (N14): a turn with no tool parts — text-only and never
     // completed, or reasoning-only with no finish — went as quiet as a wedged tool call once STALE_MS
     // passes, and it must surface as stalled instead of holding its slot invisibly forever.
-    if (lastActivityMs && now - lastActivityMs > STALE_MS) return { state: 'stalled', reason: 'running, no activity >20m', toolCounts, lastText, edits, lastActivityMs };
+    const staleMinutes = Number.isInteger(stallAfterMinutes) && stallAfterMinutes > 0 ? stallAfterMinutes : 20;
+    if (lastActivityMs && now - lastActivityMs > staleMinutes * 60 * 1000) return { state: 'stalled', reason: `running, no activity >${staleMinutes}m`, toolCounts, lastText, edits, lastActivityMs };
     // With no usable timestamp at all, "just started" and "lost track of" are indistinguishable: stay
     // running (uncertain, slot held) but name the missing fact, so the board reads a diagnosis instead of
     // an unexplained silence — and a turn is never called successful on a guess.
