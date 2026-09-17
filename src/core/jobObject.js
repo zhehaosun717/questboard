@@ -13,16 +13,25 @@ let pending = new Map();
 let nextSeq = 1;
 let buffered = '';
 
+function setDaemonRefs(ref) {
+  if (!daemon) return;
+  for (const stream of [daemon, daemon.stdin, daemon.stdout, daemon.stderr]) {
+    try { stream[ref ? 'ref' : 'unref']?.(); } catch {}
+  }
+}
+
 function sendDaemon(op, payload = {}) {
   if (!daemon || daemon.exited) throw new Error('job daemon is not running');
   return new Promise((resolve, reject) => {
     const seq = nextSeq++;
     const timer = setTimeout(() => {
       pending.delete(seq);
+      if (pending.size === 0) setDaemonRefs(false);
       reject(new Error(`job daemon timed out: ${op}`));
     }, OP_TIMEOUT_MS);
     timer.unref?.();
     pending.set(seq, { resolve, reject, timer });
+    setDaemonRefs(true);
     daemon.stdin.write(`${JSON.stringify({ seq, op, ...payload })}\n`);
   });
 }
@@ -34,6 +43,7 @@ function handleLine(line) {
   if (!entry) return;
   pending.delete(message.seq);
   clearTimeout(entry.timer);
+  if (pending.size === 0) setDaemonRefs(false);
   if (message.ok) entry.resolve(message);
   else entry.reject(new Error(message.error || 'job daemon operation failed'));
 }
@@ -51,6 +61,12 @@ export function startJobDaemon() {
     for (const line of lines) if (line.trim()) handleLine(line);
   });
   daemon.stderr.resume();
+  // The daemon must never keep the board's event loop alive on its own: every handle is unref'd so a
+  // process with no other work can exit; when it does, the daemon's stdin hits EOF and it quits itself.
+  daemon.unref?.();
+  daemon.stdin.unref?.();
+  daemon.stdout.unref?.();
+  daemon.stderr.unref?.();
   daemon.on('error', () => {});
   daemon.on('exit', () => {
     daemon.exited = true;
@@ -59,6 +75,7 @@ export function startJobDaemon() {
       entry.reject(new Error('job daemon exited'));
     }
     pending.clear();
+    setDaemonRefs(false);
   });
   return daemon;
 }

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { attemptEvidence } from '../core/cancellation.js';
 import { sessionEnded } from '../lanes/opencode.js';
+import { closeJobObject, countJobObject, terminateJobObject } from '../core/jobObject.js';
 
 function exitEvidence(config, laneId, name, requestId) {
   const lane = config.lanes[laneId];
@@ -26,6 +27,31 @@ function wrapperStopDetail(evidence) {
   if (treeKill === 'ok') return '包装脚本已确认并记下：它直接启动的进程及其进程树已停止';
   if (treeKill === 'failed') return '包装脚本已确认它直接启动的进程已停止；进程树清理未成功，脱离子进程无法排除';
   return '包装脚本已确认并记下：它直接启动的进程已停止';
+}
+
+// When the board owns a Job Object for this attempt, strengthen the wrapper's own stop evidence with a
+// verified-empty check: count the job, terminate anything still inside, and re-count. The result stays
+// conservative — a job that is not empty afterwards is reported as unknown, never as stopped.
+async function withJobVerification(evidence, handle, detail) {
+  if (!handle?.jobId) return { evidence, detail };
+  try {
+    let active = await countJobObject(handle.jobId);
+    if (active > 0) {
+      await terminateJobObject(handle.jobId);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      active = await countJobObject(handle.jobId);
+    }
+    await closeJobObject(handle.jobId);
+    if (active === 0) {
+      return {
+        evidence: { ...evidence, jobVerifiedEmpty: true },
+        detail: detail + '；作业对象已核验为空',
+      };
+    }
+    return { evidence: { ...evidence, jobVerifiedEmpty: false }, detail };
+  } catch {
+    return { evidence: { ...evidence, jobVerifiedEmpty: false }, detail };
+  }
 }
 
 export function createGenericWrapperAdapter({ config, timeoutMs = 5000 } = {}) {
@@ -53,17 +79,18 @@ export function createGenericWrapperAdapter({ config, timeoutMs = 5000 } = {}) {
       acknowledged = true;
       // The wrapper sends the ack immediately before killing its direct child. The exit event and the
       // exit-file write are the second, independent fact; ack alone never frees the reservation.
-      if (exitEvidence(config, attempt.lane, attempt.name, request.requestId)) finish({
-        result: 'stopped_by_wrapper', detail: wrapperStopDetail(exitEvidence(config, attempt.lane, attempt.name, request.requestId)),
-        evidence: { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: request.requestId, scope: 'direct-child', treeKill: exitEvidence(config, attempt.lane, attempt.name, request.requestId).treeKill ?? null },
-      });
+      if (exitEvidence(config, attempt.lane, attempt.name, request.requestId)) {
+        const evidence = { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: request.requestId, scope: 'direct-child', treeKill: exitEvidence(config, attempt.lane, attempt.name, request.requestId).treeKill ?? null };
+        const detail = wrapperStopDetail(exitEvidence(config, attempt.lane, attempt.name, request.requestId));
+        withJobVerification(evidence, handle, detail).then(({ evidence: verifiedEvidence, detail: verifiedDetail }) => finish({ result: 'stopped_by_wrapper', detail: verifiedDetail, evidence: verifiedEvidence }));
+      }
     };
     const onExit = () => {
       const evidence = exitEvidence(config, attempt.lane, attempt.name, request.requestId);
-      if (acknowledged && evidence) finish({
-        result: 'stopped_by_wrapper', detail: wrapperStopDetail(evidence),
-        evidence: { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: evidence.requestId, scope: evidence.scope, treeKill: evidence.treeKill ?? null },
-      });
+      if (acknowledged && evidence) {
+        const wrapperEvidence = { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: evidence.requestId, scope: evidence.scope, treeKill: evidence.treeKill ?? null };
+        withJobVerification(wrapperEvidence, handle, wrapperStopDetail(evidence)).then(({ evidence: verifiedEvidence, detail: verifiedDetail }) => finish({ result: 'stopped_by_wrapper', detail: verifiedDetail, evidence: verifiedEvidence }));
+      }
       else finish({ result: 'unknown', detail: 'worker 已退出，但没有对应的取消确认和退出记录' });
     };
     const onError = () => finish({ result: 'unknown', detail: '和 worker 的控制连接在收到确认前断了' });

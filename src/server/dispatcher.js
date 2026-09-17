@@ -15,6 +15,7 @@ import { prepareAnnotationSnapshot, writeAnnotationSnapshot } from '../core/anno
 import { writeRoleCard } from '../core/roleCard.js';
 import { createGenericWrapperAdapter, createOpenCodeSessionAdapter } from './workerControlAdapters.js';
 import { createVerificationHookRunner } from '../core/verificationHooks.js';
+import { assignJobObject, closeJobObject, countJobObject, createJobObject, terminateJobObject } from '../core/jobObject.js';
 
 const EVIDENCE_WAIT_MS = 10000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -528,12 +529,35 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       const handle = controlHandles.get(attempt.attemptId);
       if (handle) {
         controlHandles.set(attempt.attemptId, { ...handle, child });
-        child.once?.('exit', () => { if (controlHandles.get(attempt.attemptId)?.child === child) controlHandles.delete(attempt.attemptId); });
+        child.once?.('exit', () => {
+          if (controlHandles.get(attempt.attemptId)?.child !== child) return;
+          const current = controlHandles.get(attempt.attemptId);
+          if (current?.jobId) { closeJobObject(current.jobId).catch(() => {}); }
+          controlHandles.delete(attempt.attemptId);
+        });
+      }
+      if (typeof child.on === 'function' && process.platform === 'win32') {
+        child.on('message', (message) => {
+          if (!message || message.type !== 'questboard-job-ready' || message.attemptId !== attempt.attemptId) return;
+          const current = controlHandles.get(attempt.attemptId);
+          if (!current || current.jobId) return;
+          (async () => {
+            try {
+              const jobId = await createJobObject('qb-' + attempt.attemptId);
+              await assignJobObject(jobId, child.pid);
+              const next = controlHandles.get(attempt.attemptId);
+              if (next && next.child === child) controlHandles.set(attempt.attemptId, { ...next, jobId });
+              try { child.send({ type: 'questboard-job-go', attemptId: attempt.attemptId }); } catch {}
+            } catch {
+              try { child.send({ type: 'questboard-job-go', attemptId: attempt.attemptId }); } catch {}
+            }
+          })();
+        });
       }
     };
     if (controlToken) {
       plan = plan.map((step) => step.kind === 'run'
-        ? { ...step, env: { ...step.env, QUESTBOARD_ATTEMPT_ID: attempt.attemptId, QUESTBOARD_CONTROL_TOKEN: controlToken } }
+        ? { ...step, env: { ...step.env, QUESTBOARD_ATTEMPT_ID: attempt.attemptId, QUESTBOARD_CONTROL_TOKEN: controlToken, ...(process.platform === 'win32' ? { QUESTBOARD_JOB_GATE: '1' } : {}) } }
         : step);
     }
     enqueue(adventurer.lane, () => executePlan(config, plan, { name, runners, recheck, onPhase, onChild }))

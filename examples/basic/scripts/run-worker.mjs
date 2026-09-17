@@ -518,6 +518,31 @@ function receiveControl(message) {
 }
 
 if (controlAttemptId && controlToken) process.on('message', receiveControl);
+
+// Job gate: when the board asks for it, the wrapper waits until the board has created a Job Object and
+// assigned this wrapper to it, so a later terminate-job reaches the agent and every descendant it spawns.
+// A closed IPC channel or a bounded timeout lets the worker start anyway — the job is a containment
+// backstop, never a dispatch requirement.
+function waitForJobGate() {
+  return new Promise((resolve) => {
+    if (process.env.QUESTBOARD_JOB_GATE !== '1' || typeof process.send !== 'function') { resolve(); return; }
+    const timer = setTimeout(() => resolve(), 15000);
+    timer.unref?.();
+    const onMessage = (message) => {
+      if (message && message.type === 'questboard-job-go' && message.attemptId === controlAttemptId) {
+        clearTimeout(timer);
+        process.off?.('message', onMessage);
+        resolve();
+      }
+    };
+    const onDisconnect = () => { clearTimeout(timer); resolve(); };
+    process.on('message', onMessage);
+    process.once?.('disconnect', onDisconnect);
+    try { process.send({ type: 'questboard-job-ready', attemptId: controlAttemptId }); } catch { clearTimeout(timer); resolve(); }
+  });
+}
+
+await waitForJobGate();
 startHeartbeat();
 try {
   const fileArgs = viaShell

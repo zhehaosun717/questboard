@@ -95,7 +95,7 @@ describe('dispatcher cancellation lifecycle', () => {
     assert.equal(stopped.cancelRequest.attemptId, attemptId);
   });
 
-  it('uses the real generic wrapper: wrong tokens are ignored and matching ack plus exit metadata stays held while the child self-expires', async () => {
+  it('uses the real generic wrapper: wrong tokens are ignored, matching ack plus exit metadata stays held, and the wrapper stops its own child', async () => {
     const project = controlProject();
     const store = new QuestStore(project.config);
     store.post({ package: 'CAN-2', brief: 'docs/briefs/CAN-2-x.md' });
@@ -120,10 +120,11 @@ describe('dispatcher cancellation lifecycle', () => {
       assert.equal(store.get('CAN-2').cancelRequest.evidence.scope, 'direct-child');
       assert.equal(fs.readFileSync(path.join(project.root, '.work', 'generic', 'can2.exit'), 'utf8').includes('wrong-request'), false);
       const before = fs.readFileSync(project.heartbeatPath, 'utf8').trim().split(/\r?\n/).filter(Boolean).length;
-      await wait(180);
+      await wait(500);
       const after = fs.readFileSync(project.heartbeatPath, 'utf8').trim().split(/\r?\n/).filter(Boolean).length;
-      assert.ok(after > before, 'the wrapper exit must not be treated as proof that its child is gone');
-      await waitFor(() => fs.existsSync(project.donePath), 3000);
+      assert.equal(after, before, 'the cancelled wrapper stops its own child, so the heartbeat stops instead of continuing');
+      await wait(1200);
+      assert.equal(fs.existsSync(project.donePath), false, 'the child is stopped before it can self-expire');
     } finally {
       if (handle?.child && handle.child.exitCode === null) handle.child.kill();
     }
