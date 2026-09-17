@@ -1,0 +1,144 @@
+/* Tailwind CSS v4, adopted 2026-09-17 for the guild-theme rework. The full import is used so the shadcn/ui
+   tooling recognizes the setup. Tailwind's own layers are theme/base/components/utilities; the board's
+   existing stylesheets are unlayered, so they still win over both preflight and utilities — pages converted
+   to Tailwind utilities drop their old rules page by page, and nothing else shifts underneath them. */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* Deep ink ground, warm grey panels, ivory text, old-gold accent — the owner's stated direction. */
+  --color-soil: #17130f;
+  --color-soil-2: #211a14;
+  --color-steel: #3a2a1c;
+  --color-steel-2: #4b3624;
+  --color-rivet: #6b4e33;
+  --color-oak-deep: #2a1d12;
+  --color-hall-edge: #0f0c09;
+  --color-cream: #e8dcc2;
+  --color-cable: #d2bf98;
+  --color-dim: #b3a283;
+  --color-tag: #eadcbc;
+  --color-ink: #2b2118;
+  --color-ink-soft: #6e5a44;
+  --color-rust: #c9a24a;
+  --color-rust-dk: #8a6a24;
+  --color-amber: #d9b45a;
+  --color-brass-lt: #f0cf8a;
+  --color-pcb: #4f8a4b;
+  --color-blood: #a8322a;
+  --color-cobalt: #3f6f9e;
+  --color-violet: #8a6fae;
+  --color-teal: #3f8a80;
+  --color-wax-lt: #e58b7e;
+  --color-ready-lt: #9fd09a;
+  --color-travel-lt: #9cc2e8;
+
+  /* Typography: the display face carries the fantasy flavour on headings; CJK body text stays on a face
+     with complete, clear glyphs. */
+  --font-display: "IM Fell English SC", "Palatino Linotype", Georgia, serif;
+  --font-han: "Noto Serif SC", "Songti SC", "SimSun", "Microsoft YaHei", "Noto Sans CJK SC", serif;
+  --font-body: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+}
+
+@theme inline {
+  /* Chinese body text leads: a face with complete, clear glyphs comes before the Latin-only display face. */
+  --font-sans: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Geist Variable", sans-serif;
+  --font-heading: "Noto Serif SC", "Songti SC", "SimSun", "Geist Variable", serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Guild theme, owner direction 2026-09-17: deep ink ground, warm grey panels, ivory text, old-gold
+   accent. Every shadcn/ui component reads these semantic tokens, so one mapping themes the whole set. The
+   board is a single dark theme — there is no light mode to switch to. */
+:root {
+  --background: #17130f;
+  --foreground: #e8dcc2;
+  --card: #211a14;
+  --card-foreground: #e8dcc2;
+  --popover: #211a14;
+  --popover-foreground: #e8dcc2;
+  --primary: #c9a24a;
+  --primary-foreground: #231a10;
+  --secondary: #3a2a1c;
+  --secondary-foreground: #e8dcc2;
+  --muted: #2a1d12;
+  --muted-foreground: #b3a283;
+  --accent: #4b3624;
+  --accent-foreground: #f0cf8a;
+  --destructive: #a8322a;
+  --destructive-foreground: #f3e2d8;
+  --border: #2f2115;
+  --input: #3a2a1c;
+  --ring: #c9a24a;
+  --chart-1: #c9a24a;
+  --chart-2: #4f8a4b;
+  --chart-3: #3f6f9e;
+  --chart-4: #8a6fae;
+  --chart-5: #3f8a80;
+  /* Squared, not pill: the guild grammar is a metal plate, not a bubble. */
+  --radius: 0.25rem;
+  --sidebar: #1b1610;
+  --sidebar-foreground: #e8dcc2;
+  --sidebar-primary: #c9a24a;
+  --sidebar-primary-foreground: #231a10;
+  --sidebar-accent: #3a2a1c;
+  --sidebar-accent-foreground: #f0cf8a;
+  --sidebar-border: #2f2115;
+  --sidebar-ring: #c9a24a;
+}
+
+/* No .dark block: the guild theme above IS the dark theme, and the board never leaves it. */
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}

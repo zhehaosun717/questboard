@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import path from 'node:path';
 import type { Connect, Plugin, ViteDevServer } from 'vite';
 
 // The board server only accepts same-origin JSON writes, and same-origin for GETs with a side effect (a
@@ -183,7 +185,9 @@ function frontDoorGuardPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), frontDoorGuardPlugin()],
+  // shadcn/ui components are added under src/components/ui and import through this alias.
+  resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
+  plugins: [react(), tailwindcss(), frontDoorGuardPlugin()],
   build: { outDir: 'dist', emptyOutDir: true, sourcemap: false },
   server: {
     port: 5173,
