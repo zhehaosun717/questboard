@@ -103,7 +103,7 @@ function ReportSection({ quest, projectId }: { quest: Quest; projectId: string }
         )
       ) : null}
       <ReportReference report={report} />
-      {report.truncated ? <p className="report-truncated-note">报告超过 2 MB，只显示了前面部分</p> : null}
+      {report.truncated ? <p className="report-truncated-note">报告没有读完整，只显示了前面一部分</p> : null}
       <div className="row report-actions">
         <button
           type="button"

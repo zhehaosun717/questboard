@@ -243,7 +243,7 @@ describe('GET /api/quests/:id — evidence.project-verification (S2)', () => {
       const ev2After = await verifyFx.api('/api/quests/EV-2');
       const ev3After = await verifyFx.api('/api/quests/EV-3');
       assert.equal(ev2After.body.quest.evidence.items[1].bound, false, 'EV-2 is not the project-wide latest dispatch, even though the file is newer than its own attempt');
-      assert.equal(ev2After.body.quest.evidence.items[1].reason, '这是上一次尝试之前的记录，不算本次证据');
+      assert.equal(ev2After.body.quest.evidence.items[1].reason, '这是这次派遣之前的记录，不算这次的证据');
       assert.equal(ev3After.body.quest.evidence.items[1].bound, true, 'EV-3 IS the project-wide latest dispatch and the file is newer than it');
       assert.equal(ev3After.body.quest.evidence.items[1].state, 'passed');
     } finally {

@@ -14,7 +14,7 @@ describe('canDispatch', () => {
     assert.deepEqual(check(quest()), {
       ok: true,
       reasons: [],
-      warnings: [{ code: 'variant_unconfirmed', message: '尚未确认这张卡支持 variant「high」，派遣会照常进行' }],
+      warnings: [{ code: 'variant_unconfirmed', message: '还没确认这张卡支持变体「high」，照常派遣' }],
     });
   });
 
@@ -23,14 +23,14 @@ describe('canDispatch', () => {
     assert.equal(unsupported.ok, false);
     assert.deepEqual(unsupported.reasons[0], {
       code: 'variant_unsupported',
-      message: '这张卡的模型不接受 variant「high」，请在名册里清空 variant 或改用支持它的卡',
+      message: '这张卡的模型不支持变体「high」：到名册里清空这张卡的变体，或换一张支持它的卡',
     });
     const listed = check(quest(), card('codex-luna', { variants: ['low', 'medium'] }));
     assert.equal(listed.ok, false);
-    assert.equal(listed.reasons.find((reason) => reason.code === 'variant_unsupported').message, '这张卡的模型不接受 variant「high」，可接受的值是：low、medium');
+    assert.equal(listed.reasons.find((reason) => reason.code === 'variant_unsupported').message, '这张卡的模型不支持变体「high」，只支持：low、medium');
     const unknown = check(quest(), card('codex-luna'));
     assert.equal(unknown.ok, true);
-    assert.deepEqual(unknown.warnings, [{ code: 'variant_unconfirmed', message: '尚未确认这张卡支持 variant「high」，派遣会照常进行' }]);
+    assert.deepEqual(unknown.warnings, [{ code: 'variant_unconfirmed', message: '还没确认这张卡支持变体「high」，照常派遣' }]);
     assert.deepEqual(check(quest(), card('codex-luna', { variant: '' })), { ok: true, reasons: [] });
   });
 
@@ -148,13 +148,13 @@ describe('canDispatch', () => {
     const mineVerdict = check(iDeclare, luna, [runner, iDeclare]);
     const mineConflict = mineVerdict.reasons.find((r) => r.code === 'conflict_running');
     assert.ok(mineConflict, 'my own declaration binds even with disjoint files');
-    assert.equal(mineConflict.message, '排队：RUN-5 与本任务声明了冲突，一次一个');
+    assert.equal(mineConflict.message, '排队：RUN-5 和这个委托被标成不能同时做，一次只做一个');
     const runnerDeclares = quest({ id: 'RUN-5', status: 'dispatched', assignee: { adventurerId: 'agy-gemini' }, files: ['Assets/Save.cs'], conflicts: ['RUN-6'] });
     const theyDeclare = quest({ id: 'RUN-6', files: ['Assets/Hud.cs'] });
     const theirsVerdict = check(theyDeclare, luna, [runnerDeclares, theyDeclare]);
     const theirsConflict = theirsVerdict.reasons.find((r) => r.code === 'conflict_running');
     assert.ok(theirsConflict, 'their declaration against me binds too');
-    assert.equal(theirsConflict.message, '排队：RUN-5 与本任务声明了冲突，一次一个');
+    assert.equal(theirsConflict.message, '排队：RUN-5 和这个委托被标成不能同时做，一次只做一个');
     const sharedVerdict = check(quest({ id: 'RUN-6', files: ['Assets/Save.cs'] }), luna, [runner, quest({ id: 'RUN-6', files: ['Assets/Save.cs'] })]);
     assert.match(sharedVerdict.reasons.find((r) => r.code === 'conflict_running').message, /^排队：RUN-5 正在改同一批文件（Save\.cs），一次一个$/, 'only a real overlap may claim shared files');
   });
@@ -326,7 +326,7 @@ describe('reviewUpstreamEvidence', () => {
     assert.equal(result.parents[0].gap, true);
     assert.equal(result.parents[0].states.report, 'passed');
     assert.equal(result.parents[0].states['project-verification'], 'not_configured');
-    assert.match(result.parents[0].text, /上游 PKG-1 本次尝试/);
+    assert.match(result.parents[0].text, /上游 PKG-1 最近一次派遣/);
     assert.match(result.parents[0].text, /未经项目验证/);
     assert.equal(result.blocked, false, 'no reviewRequires means never blocked');
   });
@@ -384,7 +384,7 @@ describe('canDispatch — review upstream warning/refusal (S3)', () => {
   it('is silent for a non-review quest even with evidenceOf present', () => {
     const code = quest({ id: 'PKG-1' });
     const envWithEvidence = { ...env, evidenceOf: () => gapEvidence };
-    assert.deepEqual(check(code, luna, [code], envWithEvidence), { ok: true, reasons: [], warnings: [{ code: 'variant_unconfirmed', message: '尚未确认这张卡支持 variant「high」，派遣会照常进行' }] });
+    assert.deepEqual(check(code, luna, [code], envWithEvidence), { ok: true, reasons: [], warnings: [{ code: 'variant_unconfirmed', message: '还没确认这张卡支持变体「high」，照常派遣' }] });
   });
 
   it('warns (never refuses) by default, naming the parent and the gap', () => {

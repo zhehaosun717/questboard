@@ -30,10 +30,13 @@ describe('errorLine', () => {
     expect(errorLine({ code: 'gone', message: '报告不可用：文件被删了' })).toBe('报告不可用：文件被删了');
   });
 
-  it('labels a changed report distinctly from a gone one', () => {
+  it('shows the server message verbatim for a changed report', () => {
     const line = errorLine({ code: 'changed', message: '报告内容在记录之后被改过（内容摘要对不上），不敢当作同一份报告展示' });
-    expect(line).toContain('内容在记录之后变了');
-    expect(line).toContain('不敢当作同一份报告展示');
+    expect(line).toBe('报告内容在记录之后被改过（内容摘要对不上），不敢当作同一份报告展示');
+  });
+
+  it('falls back to a default note when a changed report carries no server message', () => {
+    expect(errorLine({ code: 'changed', message: '' })).toBe('报告在记录之后变过，不再当作同一份显示');
   });
 
   it('labels a network failure distinctly from a server refusal', () => {

@@ -13,9 +13,9 @@ export const EVIDENCE_VERSION = 1;
 
 const HOOK_STATES = new Set(['queued', 'running', 'passed', 'failed', 'timedout', 'unknown']);
 const HOOK_FIELDS = new Set(['state', 'commandRef', 'startedAt', 'endedAt', 'exitCode', 'logPath', 'logDigest', 'attemptId']);
-const STALE_REASON = '这是上一次尝试之前的记录，不算本次证据';
-const NEVER_DISPATCHED_REASON = '还没有派遣，无法绑定';
-const UNCONFIRMED_LATEST_REASON = '无法确认这是全项目最新一次派遣';
+const STALE_REASON = '这是这次派遣之前的记录，不算这次的证据';
+const NEVER_DISPATCHED_REASON = '还没有派遣，没有可以对应的记录';
+const UNCONFIRMED_LATEST_REASON = '看不出这是不是全项目最近的一次派遣，所以不算它的证据';
 const DIGEST_RE = /^[0-9a-f]{16,128}$/i;
 
 function baseItem(kind, label, attempt, extra) {
@@ -32,12 +32,12 @@ function baseItem(kind, label, attempt, extra) {
 function reportItem(quest, attempt) {
   const view = questReportView(quest);
   if (!view || view.source === 'none') {
-    return baseItem('report', '工作者报告', attempt, { state: 'missing', reason: '没有本次尝试的报告' });
+    return baseItem('report', '模型自报', attempt, { state: 'missing', reason: '这次派遣没有报告' });
   }
   const raw = view.verdict ? view.verdict.verdict : 'unknown';
   const state = raw === 'PASS' ? 'passed' : raw === 'FAIL' ? 'failed' : raw === 'findings' ? 'findings' : 'unknown';
   return {
-    kind: 'report', label: '工作者报告', state,
+    kind: 'report', label: '模型自报', state,
     source: view.source, ref: view.ref, digest: view.digest, capturedAt: view.capturedAt,
     attemptId: view.attemptId || null, bound: true,
     ...(view.verdict?.reason ? { reason: view.verdict.reason } : {}),
@@ -151,7 +151,7 @@ function hookItem(config, attempt) {
     attemptId: attempt?.attemptId || null, bound,
     commandRef: record.commandRef, startedAt: record.startedAt ?? null, endedAt: record.endedAt ?? null,
     exitCode: record.exitCode ?? null, logPath: record.logPath ?? null, logDigest: record.logDigest ?? null,
-    ...(bound ? {} : { reason: '这是上一次尝试的钩子记录，不算本次证据' }),
+    ...(bound ? {} : { reason: '这是上一次派遣的钩子记录，不算这次的证据' }),
   };
 }
 

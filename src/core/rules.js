@@ -30,8 +30,8 @@ const MESSAGES = {
   // (detail.unknown, from briefs.js's conflictKeys) must not claim to know that either — it says plainly
   // that the held quest's brief could not be confirmed, never "正在改同一批文件".
   conflict_running: (quest, adventurer, detail) => {
-    if (detail.declared) return `排队：${detail.id} 与本任务声明了冲突，一次一个`;
-    if (detail.unknown) return `排队：${detail.id} 的 brief 目前无法确认（${detail.reason}），保守判定为冲突`;
+    if (detail.declared) return `排队：${detail.id} 和这个委托被标成不能同时做，一次只做一个`;
+    if (detail.unknown) return `排队：${detail.id} 的简报现在读不了（${detail.reason}），不知道它会改哪些文件，先当作会撞车`;
     return `排队：${detail.id} 正在改同一批文件（${detail.file.split('/').filter(Boolean).pop() || detail.file}），一次一个`;
   },
   needs_artist: () => '美术委托只派给会画图的模型（strengths 含 art）',
@@ -42,10 +42,10 @@ const MESSAGES = {
   // Distinct from brief_missing: the file is there, but cannot be trusted right now (too large, a read
   // error, or it now resolves outside the project) — see briefs.js's briefUnusableInfo. Naming the file and
   // the actual cause instead of claiming it is missing.
-  brief_unusable: (quest, adventurer, detail) => `brief 文件读不了：${quest.brief}（${detail.reason}）`,
+  brief_unusable: (quest, adventurer, detail) => `简报文件读不了：${quest.brief}（${detail.reason}）`,
   variant_unsupported: (quest, adventurer, detail) => detail.accepted.length
-    ? `这张卡的模型不接受 variant「${detail.variant}」，可接受的值是：${detail.accepted.join('、')}`
-    : `这张卡的模型不接受 variant「${detail.variant}」，请在名册里清空 variant 或改用支持它的卡`,
+    ? `这张卡的模型不支持变体「${detail.variant}」，只支持：${detail.accepted.join('、')}`
+    : `这张卡的模型不支持变体「${detail.variant}」：到名册里清空这张卡的变体，或换一张支持它的卡`,
 };
 
 function reason(code, quest, adventurer, detail) {
@@ -62,7 +62,7 @@ export function checkVariantSupport(quest, adventurer) {
   if (adventurer.variants === undefined) {
     return {
       ok: true,
-      warnings: [{ code: 'variant_unconfirmed', message: `尚未确认这张卡支持 variant「${variant}」，派遣会照常进行` }],
+      warnings: [{ code: 'variant_unconfirmed', message: `还没确认这张卡支持变体「${variant}」，照常派遣` }],
     };
   }
   if (adventurer.variants.length === 0 || !adventurer.variants.includes(variant)) {
@@ -132,8 +132,8 @@ function authoredAncestor(quest, adventurer, byId) {
 // CURRENT-attempt evidence (src/core/evidence.js questEvidence, read through env.evidenceOf so this file
 // stays pure and does no I/O of its own) — classified per kind so the model's own claim (report, 模型自报)
 // never gets folded into what the project's own tooling actually verified (project-verification, hook).
-const EVIDENCE_KIND_LABELS = { report: '模型自报', 'project-verification': '项目测试', hook: '验证钩子' };
-const EVIDENCE_STATE_LABELS = { passed: '通过', failed: '失败', stale: '未绑定到本次尝试', missing: '缺失', not_configured: '未配置', unknown: '未知' };
+const EVIDENCE_KIND_LABELS = { report: '模型自报', 'project-verification': '项目验证记录', hook: '验证钩子' };
+const EVIDENCE_STATE_LABELS = { passed: '通过', failed: '失败', stale: '不是这次派遣的', missing: '缺失', not_configured: '未配置', unknown: '未知' };
 const REVIEW_UPSTREAM_KINDS = ['report', 'project-verification', 'hook'];
 
 // One of six honest states for one evidence item, in priority order: a kind the project never configured,
@@ -172,7 +172,7 @@ function parentUpstreamText(parentId, states) {
   clauses.push(states.report === 'passed' && !projectVerified
     ? `${upstreamClause('report', 'passed')}（未经项目验证）`
     : upstreamClause('report', states.report));
-  return `上游 ${parentId} 本次尝试：${clauses.join('、')}`;
+  return `上游 ${parentId} 最近一次派遣：${clauses.join('、')}`;
 }
 
 /**
@@ -256,7 +256,7 @@ function runningConflict(quest, quests) {
     const shared = (other.files || []).find((file) => files.has(file));
     if (shared) return { id: other.id, file: shared, declared: false };
     const sharedKey = (other.conflictKeys || []).find((key) => conflictKeys.has(key));
-    if (sharedKey) return { id: other.id, declared: false, unknown: true, reason: other.briefUnknownReason || '文件列表未知' };
+    if (sharedKey) return { id: other.id, declared: false, unknown: true, reason: other.briefUnknownReason || '不知道它会改哪些文件' };
   }
   return null;
 }

@@ -30,7 +30,7 @@ export function bareReason(message: string): string {
 
 export function errorLine(state: { code: ErrorCode; message: string }): string {
   if (state.code === 'gone') return `${UNAVAILABLE_PREFIX}${bareReason(state.message)}`;
-  if (state.code === 'changed') return `报告内容在记录之后变了，不能再当作同一份展示：${state.message}`;
+  if (state.code === 'changed') return state.message || '报告在记录之后变过，不再当作同一份显示';
   // A genuine transport failure (no response at all) reads as a network problem; any HTTP status the server
   // did answer with (other than the 404/409 handled above) is its own failure, not the browser's.
   if (state.code === 'server') return `服务器读取报告出错：${state.message}`;
@@ -84,7 +84,7 @@ export function ReportPanel({ id, questId, projectId, onClose }: ReportPanelProp
       {state.status === 'error' ? <p className="report-panel-error">{errorLine(state)}</p> : null}
       {state.status === 'ready' ? (
         <>
-          {state.truncated ? <p className="report-panel-truncated">报告超过 2 MB，只显示了前面部分</p> : null}
+          {state.truncated ? <p className="report-panel-truncated">报告没有读完整，只显示了前面一部分</p> : null}
           <pre className="report-panel-body" tabIndex={0}>{state.text}</pre>
         </>
       ) : null}

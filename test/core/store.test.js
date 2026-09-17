@@ -483,7 +483,7 @@ describe('QuestStore', () => {
       const withFiles = (quest, files) => ({ ...quest, files });
       const running5 = withFiles(store.get('RUN-5'), ['shared.js']);
       const declared = canDispatch({ quest: withFiles(a, ['shared.js']), adventurer: luna, quests: [withFiles(a, ['shared.js']), running5], policy: {}, env: {} });
-      assert.ok(declared.reasons.some((r) => r.code === 'conflict_running' && r.message.includes('声明了冲突')), 'the declared conflict is refused as declared');
+      assert.ok(declared.reasons.some((r) => r.code === 'conflict_running' && r.message.includes('被标成不能同时做')), 'the declared conflict is refused as declared');
       const cleared = store.updateMetadata('RUN-4', { conflicts: '' }, { by: 'owner' }).quest;
       assert.deepEqual(cleared.conflicts, []);
       const stillOverlap = canDispatch({ quest: withFiles(cleared, ['shared.js']), adventurer: luna, quests: [withFiles(cleared, ['shared.js']), running5], policy: {}, env: {} });

@@ -47,7 +47,7 @@ describe('questboard assign — review upstream text', () => {
     assert.equal(done.status, 1, done.stdout + done.stderr);
     assert.match(done.stderr, /拒绝派遣/);
     assert.match(done.stderr, /upstream_unverified/);
-    assert.match(done.stderr, /项目测试缺失/);
+    assert.match(done.stderr, /项目验证记录缺失/);
     const quest = (await fx.api('/api/quests/REVIEW-RUN-1')).body.quest;
     assert.equal(quest.assignee, null, 'the refused local check never reached the server\'s assign route');
   });

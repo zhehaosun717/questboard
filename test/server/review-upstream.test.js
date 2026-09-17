@@ -42,8 +42,8 @@ describe('review-order warning (default policy: warns, never refuses)', () => {
     assert.equal(verdict.ok, true);
     const warning = verdict.warnings.find((w) => w.code === 'upstream_unverified');
     assert.ok(warning, JSON.stringify(verdict.warnings));
-    assert.match(warning.message, /上游 RUN-1 本次尝试/);
-    assert.match(warning.message, /项目测试缺失/);
+    assert.match(warning.message, /上游 RUN-1 最近一次派遣/);
+    assert.match(warning.message, /项目验证记录缺失/);
     assert.match(warning.message, /未经项目验证/);
 
     const dropped = await fx.api('/api/quests/RUN-1/review', 'POST', { adventurer: 'agy-gemini' });
@@ -72,7 +72,7 @@ describe('review-order refusal (policy.reviewRequires) and the recorded override
     assert.equal(verdict.ok, false);
     const refusal = verdict.reasons.find((r) => r.code === 'upstream_unverified');
     assert.ok(refusal);
-    assert.match(refusal.message, /项目测试缺失/);
+    assert.match(refusal.message, /项目验证记录缺失/);
 
     const dropped = await fx.api('/api/quests/RUN-1/review', 'POST', { adventurer: 'agy-gemini' });
     assert.equal(dropped.status, 409);

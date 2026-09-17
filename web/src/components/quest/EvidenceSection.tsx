@@ -6,7 +6,7 @@ import { DrawerSection } from './DrawerSection';
 import '../../styles/report-evidence.css';
 
 const KIND_LABEL: Record<EvidenceItem['kind'], string> = {
-  report: '工作者报告',
+  report: '模型自报',
   'project-verification': '项目验证记录',
   hook: '验证钩子',
 };
@@ -15,12 +15,21 @@ const STATE_LABEL: Record<EvidenceItem['state'], string> = {
   passed: '通过',
   findings: '通过但有问题',
   failed: '失败',
-  unknown: '未识别',
+  unknown: '未知',
   missing: '缺失',
   not_configured: '未配置',
   queued: '排队中',
   running: '运行中',
   timedout: '超时',
+};
+
+// The raw item.source value (delivery/exit-file/summary/progress-strip, or a hook's command), mapped to a
+// Chinese name; an unrecognized value (never expected, but never hidden) falls back to itself.
+const SOURCE_LABEL: Record<string, string> = {
+  delivery: '交差文件',
+  'exit-file': '退出文件',
+  summary: '运行记录（.out）',
+  'progress-strip': '项目验证目录（progress.txt）',
 };
 
 interface EvidenceSectionProps {
@@ -54,16 +63,16 @@ export function EvidenceRow({ item }: { item: EvidenceItem }) {
         <strong>{KIND_LABEL[item.kind]}</strong>
         <span className="attempt-evidence-chip">{STATE_LABEL[item.state] ?? item.state}</span>
         {/* F6: missing/not_configured mean there is no record at all, not a wrong-version one — the chip
-            (and its reason line below) already say why, so 未绑定到本次尝试 would only be noise here. */}
+            (and its reason line below) already say why, so 不是这次派遣的 would only be noise here. */}
         {!item.bound && item.state !== 'missing' && item.state !== 'not_configured' ? (
-          <span className="attempt-evidence-chip attempt-evidence-chip-unbound">未绑定到本次尝试</span>
+          <span className="attempt-evidence-chip attempt-evidence-chip-unbound">不是这次派遣的</span>
         ) : null}
       </div>
       {reference.length ? (
         <p className="attempt-evidence-ref">
           {item.source ? (
             <>
-              来源 {item.source}{' '}
+              {item.kind === 'hook' ? '命令' : '来源'} {SOURCE_LABEL[item.source] ?? item.source}{' '}
             </>
           ) : null}
           {item.ref ? (
@@ -117,7 +126,7 @@ export function EvidenceSection({ quest, projectId }: EvidenceSectionProps) {
   if (state.status === 'ready' && !state.evidence) return null;
 
   return (
-    <DrawerSection en="ATTEMPT EVIDENCE" zh="本次尝试的证据">
+    <DrawerSection en="ATTEMPT EVIDENCE" zh="这次派遣的证据">
       {state.status === 'loading' ? <p className="receipt-none">证据读取中…</p> : null}
       {state.status === 'error' ? <p className="receipt-none">证据读取失败：{state.message}</p> : null}
       {state.status === 'ready' && state.evidence ? (
@@ -125,7 +134,9 @@ export function EvidenceSection({ quest, projectId }: EvidenceSectionProps) {
           <p className="attempt-evidence-attempt">
             {/* F6: the worker name (when the server sends it), not the bare attemptId UUID; an older server
                 without attemptName still shows the id so the line is never blank for a real attempt. */}
-            本次尝试：{state.evidence.attemptName ?? state.evidence.attemptId ?? '还没有派遣'}
+            {state.evidence.attemptName ?? state.evidence.attemptId
+              ? `这次派遣：${state.evidence.attemptName ?? state.evidence.attemptId}`
+              : '还没有派遣'}
             {state.evidence.attemptAt ? ` · ${formatClock(state.evidence.attemptAt)}` : ''}
           </p>
           {state.evidence.items.map((item) => (

@@ -168,7 +168,7 @@ describe('the unknown-brief conflict token stays out of quest.files (requirement
     const verdict = check(candidate, withFiles, config);
     const conflict = verdict.reasons.find((r) => r.code === 'conflict_running');
     assert.ok(conflict, 'must still refuse as a conflict');
-    assert.match(conflict.message, /RUN-1 的 brief 目前无法确认/);
+    assert.match(conflict.message, /RUN-1 的简报现在读不了/);
     assert.match(conflict.message, /文件过大/, 'must name the actual cause');
     assert.ok(!conflict.message.includes('正在改同一批文件'), 'must never claim to know the two briefs touch the same files');
   });

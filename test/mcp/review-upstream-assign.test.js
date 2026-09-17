@@ -47,7 +47,7 @@ describe('questboard_assign — F1 upstream-order refusal (real server, real req
         // src/cli/client.js's request() renders `reasons` as one line per message (never the code) — the
         // same text the board's own drop preview and the route test's `reasons` array both carry.
         assert.match(error.message, /^refused/);
-        assert.match(error.message, /项目测试缺失/);
+        assert.match(error.message, /项目验证记录缺失/);
         return true;
       },
     );

@@ -1,17 +1,13 @@
 import { useState } from 'react';
 import { api } from '../../api/client';
 import type { AcceptanceEvidenceRef, Quest, Snapshot } from '../../api/types';
-import { boardAcceptanceDetail, REPORT_SOURCE_LABEL, reviewVerdictOf, VERDICT_LABEL, type ReviewVerdict } from '../../lib/evidence';
+import { boardAcceptanceDetail, REPORT_SOURCE_LABEL, reviewVerdictOf, verdictLabel, VERDICT_LABEL } from '../../lib/evidence';
 import { acceptanceBy, STATUS } from '../../lib/labels';
 import { isArchived, reviewsOf } from '../../lib/questState';
 import { formatClock } from '../../lib/board';
 import { AcceptancePanel } from './AcceptancePanel';
 import { DrawerSection } from './DrawerSection';
 import '../../styles/report-evidence.css';
-
-// The backend verifies 'PASS' | 'FAIL' | 'findings' | 'unknown' (src/core/reportEvidence.js extractVerdict;
-// R2-2 added 'findings' for the review template's third choice, PASS WITH FINDINGS).
-const REPORT_VERDICT_TEXT: Record<ReviewVerdict, string> = { pass: 'PASS', fail: 'FAIL', findings: 'PASS WITH FINDINGS', unknown: '未识别' };
 
 // Item 12: the badge used to read a verdict only out of the reviewer's `lastDetail` tail with a web-only
 // regex — wrong whenever that tail was truncated or the wording did not match. When the backend has already
@@ -26,7 +22,7 @@ function ReviewVerdictLine({ review }: { review: Quest }) {
   if (info.verified && report) {
     return (
       <span className={`review-verdict review-verdict-${info.verdict}`}>
-        模型自报结论：{REPORT_VERDICT_TEXT[info.verdict]}
+        复核结论（模型自报）：{verdictLabel(info)}
         {info.verdict === 'unknown' && info.reason ? `（${info.reason}）` : ''}
         <span className="review-report-verdict-meta">
           {REPORT_SOURCE_LABEL[report.source]} · {formatClock(report.capturedAt)} 记录
@@ -37,7 +33,7 @@ function ReviewVerdictLine({ review }: { review: Quest }) {
   return (
     <span className={`review-verdict review-verdict-${info.verdict} review-verdict-fallback`}>
       复核{VERDICT_LABEL[info.verdict]}
-      <span className="review-report-verdict-meta">未经核验，按记录文字判断</span>
+      <span className="review-report-verdict-meta">没有最终报告，这是从最后几行输出里猜的</span>
     </span>
   );
 }

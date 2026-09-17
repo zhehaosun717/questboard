@@ -109,7 +109,7 @@ describe('QuestReceipt (real JSX, SSR)', () => {
     });
     const snap = makeSnapshot({ quests: [quest] });
     const html = renderToStaticMarkup(<QuestReceipt quest={quest} snap={snap} />);
-    expect(html).toContain('报告超过 2 MB，只显示了前面部分');
+    expect(html).toContain('报告没有读完整，只显示了前面一部分');
     expect(html).toContain('退出文件');
   });
 

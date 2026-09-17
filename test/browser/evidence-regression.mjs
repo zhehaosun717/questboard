@@ -31,7 +31,7 @@ const baseQuest = (id, overrides = {}) => ({
 });
 
 const reportItem = (bound = true) => ({
-  kind: 'report', label: '工作者报告', state: 'passed', source: 'delivery', ref: '.work/codex/w1.md',
+  kind: 'report', label: '模型自报', state: 'passed', source: 'delivery', ref: '.work/codex/w1.md',
   digest: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd', capturedAt: '2026-09-14T00:05:00.000Z',
   attemptId: 'att-1', bound,
 });
@@ -41,7 +41,7 @@ const reportItem = (bound = true) => ({
 const staleVerificationItem = () => ({
   kind: 'project-verification', label: '项目验证记录', state: 'passed', source: 'progress-strip',
   ref: '.work/full/progress.txt', digest: 'deadbeefcafefeed'.repeat(4).slice(0, 64), capturedAt: '2026-09-13T00:00:00.000Z',
-  attemptId: 'att-1', bound: false, reason: '这是上一次尝试之前的记录，不算本次证据',
+  attemptId: 'att-1', bound: false, reason: '这是这次派遣之前的记录，不算这次的证据',
 });
 
 // A FRESH progress.txt written after the attempt: bound:true, styled as passed.
@@ -79,7 +79,7 @@ const quests = {
   'EV-FRESH': { quest: baseQuest('EV-FRESH'), evidence: { version: 1, attemptId: 'att-1', attemptAt: '2026-09-14T00:00:00.000Z', items: [reportItem(true), freshVerificationItem(), hookNotConfigured()] } },
   'EV-FAILED': { quest: baseQuest('EV-FAILED'), evidence: { version: 1, attemptId: 'att-1', attemptAt: '2026-09-14T00:00:00.000Z', items: [reportItem(true), failedVerificationItem(), hookLong()] } },
   'EV-NONE': { quest: baseQuest('EV-NONE', { status: 'posted', assignee: null, dispatches: [] }), evidence: { version: 1, attemptId: null, attemptAt: null, items: [
-    { kind: 'report', label: '工作者报告', state: 'missing', source: null, ref: null, digest: null, capturedAt: null, attemptId: null, bound: false, reason: '没有本次尝试的报告' },
+    { kind: 'report', label: '模型自报', state: 'missing', source: null, ref: null, digest: null, capturedAt: null, attemptId: null, bound: false, reason: '这次派遣没有报告' },
     { kind: 'project-verification', label: '项目验证记录', state: 'not_configured', source: null, ref: null, digest: null, capturedAt: null, attemptId: null, bound: false, reason: '项目没有配置验证目录' },
     hookNotConfigured(),
   ] } },
@@ -142,11 +142,11 @@ const openQuest = async (id) => {
   await page.locator(`article[data-quest="${id}"]`).click();
   await page.waitForSelector('#drawer', { timeout: 10000 });
 };
-const evidenceSection = () => page.locator('.d-sec', { hasText: '本次尝试的证据' });
+const evidenceSection = () => page.locator('.d-sec', { hasText: '这次派遣的证据' });
 const waitEvidenceSettled = async () => {
   await page.waitForFunction(() => {
     const sections = [...document.querySelectorAll('.d-sec')];
-    const sec = sections.find((s) => s.querySelector('h3')?.textContent?.includes('本次尝试的证据'));
+    const sec = sections.find((s) => s.querySelector('h3')?.textContent?.includes('这次派遣的证据'));
     return sec ? !sec.textContent.includes('证据读取中') : true;
   }, null, { timeout: 10000 });
 };
@@ -158,12 +158,12 @@ try {
   await openQuest('EV-STALE');
   await waitEvidenceSettled();
   const staleText = await evidenceSection().innerText();
-  check('EV-STALE section renders all three kinds with Chinese labels', ['工作者报告', '项目验证记录', '验证钩子'].every((s) => staleText.includes(s)), staleText.slice(0, 200));
+  check('EV-STALE section renders all three kinds with Chinese labels', ['模型自报', '项目验证记录', '验证钩子'].every((s) => staleText.includes(s)), staleText.slice(0, 200));
   check('EV-STALE report item shows 通过 and is not marked unbound', staleText.includes('通过') && (await evidenceSection().locator('.attempt-evidence-item').first().locator('.attempt-evidence-chip-unbound').count()) === 0);
   const staleItems = evidenceSection().locator('.attempt-evidence-item');
   const staleVerify = staleItems.nth(1);
   check('EV-STALE project-verification is visibly unbound (chip + class) despite state=passed', (await staleVerify.locator('.attempt-evidence-chip-unbound').count()) === 1 && (await staleVerify.evaluate((el) => el.className.includes('attempt-evidence-unbound'))), await staleVerify.innerText());
-  check('EV-STALE project-verification shows the stale reason text', (await staleVerify.innerText()).includes('这是上一次尝试之前的记录，不算本次证据'));
+  check('EV-STALE project-verification shows the stale reason text', (await staleVerify.innerText()).includes('这是这次派遣之前的记录，不算这次的证据'));
   check('EV-STALE hook item is 未配置 with its reason', (await staleItems.nth(2).innerText()).includes('未配置') && (await staleItems.nth(2).innerText()).includes('项目没有启用验证钩子'));
   check('EV-STALE reference row shows source/ref/digest as copyable text', staleText.includes('.work/codex/w1.md') && staleText.includes('0123456789ab'));
 
@@ -209,7 +209,7 @@ try {
   // ── EV-OLD: older server sends no `evidence` field — section fully hidden after the fetch settles ──
   await openQuest('EV-OLD');
   await page.waitForTimeout(600); // give the on-demand fetch time to resolve
-  check('EV-OLD (no evidence field) renders no attempt-evidence section at all, and no 本次尝试的证据 heading', (await evidenceSection().count()) === 0);
+  check('EV-OLD (no evidence field) renders no attempt-evidence section at all, and no 这次派遣的证据 heading', (await evidenceSection().count()) === 0);
 
   // ── R4-style overflow check at 1024 and 1440 (long hook commandRef/logPath from EV-FAILED) ──
   await openQuest('EV-FAILED');
@@ -218,7 +218,7 @@ try {
     await page.setViewportSize({ width: w, height: 900 });
     await sleep(200);
     const overflow = await page.evaluate(() => {
-      const sec = [...document.querySelectorAll('.d-sec')].find((s) => s.querySelector('h3')?.textContent?.includes('本次尝试的证据'));
+      const sec = [...document.querySelectorAll('.d-sec')].find((s) => s.querySelector('h3')?.textContent?.includes('这次派遣的证据'));
       if (!sec) return { doc: 0, sec: 0, over: [] };
       const right = sec.getBoundingClientRect().right;
       const over = [];

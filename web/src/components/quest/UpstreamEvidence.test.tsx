@@ -33,13 +33,13 @@ describe('UpstreamParentRow (pure, real JSX)', () => {
           states: { report: 'passed', 'project-verification': 'missing', hook: 'not_configured' },
           failing: [],
           gap: true,
-          text: '上游 PKG-1 本次尝试：项目测试缺失、验证钩子未配置、模型自报通过（未经项目验证）',
+          text: '上游 PKG-1 最近一次派遣：项目验证记录缺失、验证钩子未配置、模型自报通过（未经项目验证）',
         }}
       />,
     );
     expect(html).toContain('PKG-1');
     expect(html).toContain('模型自报');
-    expect(html).toContain('项目测试');
+    expect(html).toContain('项目验证记录');
     expect(html).toContain('验证钩子');
     expect(html).toContain('通过');
     expect(html).toContain('缺失');
@@ -56,7 +56,7 @@ describe('UpstreamParentRow (pure, real JSX)', () => {
           states: { report: 'passed', 'project-verification': 'failed', hook: 'not_configured' },
           failing: ['project-verification'],
           gap: true,
-          text: '上游 PKG-2 本次尝试：项目测试失败、验证钩子未配置、模型自报通过（未经项目验证）',
+          text: '上游 PKG-2 最近一次派遣：项目验证记录失败、验证钩子未配置、模型自报通过（未经项目验证）',
         }}
       />,
     );
@@ -73,7 +73,7 @@ describe('UpstreamParentRow (pure, real JSX)', () => {
           states: { report: 'passed', 'project-verification': 'passed', hook: 'not_configured' },
           failing: [],
           gap: false,
-          text: '上游 PKG-3 本次尝试：验证钩子未配置',
+          text: '上游 PKG-3 最近一次派遣：验证钩子未配置',
         }}
       />,
     );

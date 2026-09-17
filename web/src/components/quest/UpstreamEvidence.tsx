@@ -7,14 +7,14 @@ import '../../styles/report-evidence.css';
 
 const KIND_LABEL: Record<UpstreamEvidenceKind, string> = {
   report: '模型自报',
-  'project-verification': '项目测试',
+  'project-verification': '项目验证记录',
   hook: '验证钩子',
 };
 
 const STATE_LABEL: Record<UpstreamEvidenceState, string> = {
   passed: '通过',
   failed: '失败',
-  stale: '未绑定到本次尝试',
+  stale: '不是这次派遣的',
   missing: '缺失',
   not_configured: '未配置',
   unknown: '未知',
@@ -110,7 +110,7 @@ export function UpstreamEvidence({ quest, projectId, parentsKey, refresh, pushTo
     try {
       await api.reviewOverride(quest.id, reason);
       setOverrideReason('');
-      pushToast(`${quest.id} 已记录审核例外`);
+      pushToast(`${quest.id} 已记录复核例外：上游检查不再挡它，拖卡过来即可派遣`);
       refresh();
     } catch (err) {
       pushToast(`记录例外没成功：${errorText(err)}`);
@@ -130,14 +130,14 @@ export function UpstreamEvidence({ quest, projectId, parentsKey, refresh, pushTo
           ))}
           {state.review.blocked ? (
             <p className="upstream-evidence-refusal">
-              这条审核委托要求 {state.review.required.map((k) => KIND_LABEL[k]).join('、')} 都通过，还没满足：
-              {state.review.failingParents.join('、')}。除非记录一次例外，否则派不出去。
+              这条复核委托要求上游的 {state.review.required.map((k) => KIND_LABEL[k]).join('、')} 都通过，还没满足的：
+              {state.review.failingParents.join('、')}。记录一次例外之前，派不出去。
             </p>
           ) : null}
           {state.review.override ? (
             <p className={state.review.override.valid ? 'upstream-evidence-override' : 'upstream-evidence-override upstream-evidence-override-invalid'}>
               {state.review.override.valid
-                ? `已记录例外（${state.review.override.by} · ${formatClock(state.review.override.at)}）：${state.review.override.reason}`
+                ? `已记录例外（${state.review.override.by === 'owner' ? '你' : state.review.override.by} · ${formatClock(state.review.override.at)}）：${state.review.override.reason}`
                 : `记录过的例外已失效（上游有新的派遣，需要重新确认）：${state.review.override.reason}`}
             </p>
           ) : null}
@@ -151,7 +151,7 @@ export function UpstreamEvidence({ quest, projectId, parentsKey, refresh, pushTo
               />
               <div className="row end">
                 <button className="btn" type="button" disabled={busy} onClick={() => void recordOverride()}>
-                  记录例外并继续
+                  记录例外
                 </button>
               </div>
             </div>

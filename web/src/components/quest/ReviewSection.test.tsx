@@ -46,8 +46,7 @@ describe('ReviewSection verdict line (item 12)', () => {
       },
     });
     const html = renderSection({ id: 'A-1' }, [review]);
-    expect(html).toContain('模型自报结论');
-    expect(html).toContain('PASS');
+    expect(html).toContain('复核结论（模型自报）：通过');
     expect(html).toContain('交付文件');
     expect(html).not.toContain('未经核验');
   });
@@ -72,8 +71,8 @@ describe('ReviewSection verdict line (item 12)', () => {
       },
     });
     const html = renderSection({ id: 'A-1' }, [review]);
-    expect(html).toContain('模型自报结论');
-    expect(html).toContain('未识别');
+    expect(html).toContain('复核结论（模型自报）');
+    expect(html).toContain('结论未识别');
     expect(html).toContain('报告超过 2 MB');
     expect(html).toContain('退出文件');
   });
@@ -101,7 +100,7 @@ describe('ReviewSection verdict line (item 12)', () => {
       },
     });
     const html = renderSection({ id: 'A-1' }, [review]);
-    expect(html).toContain('模型自报结论：未识别');
+    expect(html).toContain('复核结论（模型自报）：结论未识别');
     expect(html).not.toContain('未识别（');
     expect(html).not.toContain('VERDICT 行');
   });
@@ -127,7 +126,7 @@ describe('ReviewSection verdict line (item 12)', () => {
       },
     });
     const html = renderSection({ id: 'A-1' }, [review]);
-    expect(html).toContain('模型自报结论：PASS WITH FINDINGS');
+    expect(html).toContain('复核结论（模型自报）：通过但有问题');
     expect(html).not.toContain('未识别');
     expect(html).not.toContain('未经核验');
   });
@@ -141,8 +140,8 @@ describe('ReviewSection verdict line (item 12)', () => {
       lastDetail: 'VERDICT: FAIL',
     });
     const html = renderSection({ id: 'A-1' }, [review]);
-    expect(html).not.toContain('模型自报结论');
+    expect(html).not.toContain('复核结论（模型自报）');
     expect(html).toContain('复核不通过');
-    expect(html).toContain('未经核验');
+    expect(html).toContain('没有最终报告，这是从最后几行输出里猜的');
   });
 });

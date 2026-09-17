@@ -147,7 +147,7 @@ async function runForWidth(browser, width) {
     const text = await upstreamText(page);
     check(`${label}.default.shows-upstream-evidence-block`, text.includes('上游证据'), text.slice(0, 400));
     check(`${label}.default.names-parent-and-gap`, text.includes('RUN-1') && text.includes('未经项目验证'), text.slice(0, 400));
-    check(`${label}.default.not-blocked-no-override-form`, !text.includes('记录例外并继续'), text.slice(0, 400));
+    check(`${label}.default.not-blocked-no-override-form`, !/(?<!已)记录例外/.test(text), text.slice(0, 400));
     check(`${label}.default.no-page-errors`, pageErrors.length === 0, pageErrors);
     await context.close();
     await stopServer(ctx.server);
@@ -167,7 +167,7 @@ async function runForWidth(browser, width) {
     await openDrawer(page, ctx.base, 'REVIEW-RUN-1');
     const blockedText = await upstreamText(page);
     check(`${label}.strict.shows-refusal-explanation`, blockedText.includes('还没满足') || blockedText.includes('派不出去'), blockedText.slice(0, 400));
-    check(`${label}.strict.shows-override-control`, blockedText.includes('记录例外并继续'), blockedText.slice(0, 400));
+    check(`${label}.strict.shows-override-control`, /(?<!已)记录例外/.test(blockedText), blockedText.slice(0, 400));
 
     // F1: the server's plain assign route must refuse this still-blocked review exactly like the preview,
     // checked as a direct API call (no button click; see the module comment on "intercepted, not mocked")
@@ -182,7 +182,7 @@ async function runForWidth(browser, width) {
     await page.click('.upstream-evidence-override-form button');
     const overriddenText = await waitForDrawerText(page, '已记录例外');
     check(`${label}.strict.override-recorded-and-shown`, overriddenText.includes('已记录例外'), overriddenText.slice(0, 400));
-    check(`${label}.strict.override-form-gone-once-recorded`, !overriddenText.includes('记录例外并继续'), overriddenText.slice(0, 400));
+    check(`${label}.strict.override-form-gone-once-recorded`, !/(?<!已)记录例外/.test(overriddenText), overriddenText.slice(0, 400));
     const afterOverride = await ctx.api('/api/quests/REVIEW-RUN-1');
     check(`${label}.strict.eligibility-now-ok`, afterOverride.body.quest.upstreamReview.blocked === false, afterOverride.body.quest.upstreamReview);
 

@@ -78,7 +78,7 @@ describe('questEvidence — report item', () => {
     const project = makeProject();
     const undispatched = questEvidence({ config: project.config, quest: { id: 'EV-7' } }).items[0];
     assert.equal(undispatched.state, 'missing');
-    assert.equal(undispatched.reason, '没有本次尝试的报告');
+    assert.equal(undispatched.reason, '这次派遣没有报告');
 
     const quest = { id: 'EV-8', assignee: attempt() };
     project.write('.work/oc/mod1.md', 'VERDICT: PASS\n');
@@ -131,7 +131,7 @@ describe('questEvidence — project-verification item', () => {
     const evidence = questEvidence({ config: project.config, quest, verification, latestDispatchAt });
     const item = evidence.items[1];
     assert.equal(item.bound, false);
-    assert.equal(item.reason, '这是上一次尝试之前的记录，不算本次证据');
+    assert.equal(item.reason, '这是这次派遣之前的记录，不算这次的证据');
   });
 
   it('reports failed on a compile error step or a failing NUnit total', () => {
@@ -151,7 +151,7 @@ describe('questEvidence — project-verification item', () => {
     const evidence = questEvidence({ config: project.config, quest: { id: 'EV-20' }, verification });
     const item = evidence.items[1];
     assert.equal(item.bound, false);
-    assert.equal(item.reason, '还没有派遣，无法绑定');
+    assert.equal(item.reason, '还没有派遣，没有可以对应的记录');
   });
 });
 
@@ -166,7 +166,7 @@ describe('questEvidence — project-verification binds only to the project-wide 
     const evidence = questEvidence({ config: project.config, quest: { id: 'SA-1', assignee: earlier }, verification, latestDispatchAt: laterDispatchAt });
     const item = evidence.items[1];
     assert.equal(item.bound, false, 'a later dispatch of another quest supersedes this one, even though the file is newer than THIS attempt');
-    assert.equal(item.reason, '这是上一次尝试之前的记录，不算本次证据');
+    assert.equal(item.reason, '这是这次派遣之前的记录，不算这次的证据');
   });
 
   it('is bound:true for the attempt that IS the project-wide latest, with a file newer than it', () => {
@@ -191,11 +191,11 @@ describe('questEvidence — project-verification binds only to the project-wide 
 
     const omitted = questEvidence({ config: project.config, quest, verification });
     assert.equal(omitted.items[1].bound, false);
-    assert.equal(omitted.items[1].reason, '无法确认这是全项目最新一次派遣');
+    assert.equal(omitted.items[1].reason, '看不出这是不是全项目最近的一次派遣，所以不算它的证据');
 
     const nonFinite = questEvidence({ config: project.config, quest, verification, latestDispatchAt: null });
     assert.equal(nonFinite.items[1].bound, false);
-    assert.equal(nonFinite.items[1].reason, '无法确认这是全项目最新一次派遣');
+    assert.equal(nonFinite.items[1].reason, '看不出这是不是全项目最近的一次派遣，所以不算它的证据');
   });
 });
 
@@ -256,7 +256,7 @@ describe('questEvidence — hook item (reserved slot, S1)', () => {
     const hooks = [{ state: 'passed', commandRef: 'npm test', startedAt: null, endedAt: null, exitCode: 0, logPath: null, logDigest: null, attemptId: 'a0' }];
     const evidence = questEvidence({ config: project.config, quest: { id: 'EV-16', assignee: attempt({ hooks }) } });
     assert.equal(evidence.items[2].bound, false);
-    assert.match(evidence.items[2].reason, /上一次尝试的钩子记录/);
+    assert.match(evidence.items[2].reason, /上一次派遣的钩子记录/);
   });
 
   it('refuses an absolute logPath and a path that escapes the data directory', () => {
