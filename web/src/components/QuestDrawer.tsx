@@ -235,6 +235,7 @@ export function QuestDrawer({
           <div className="rec">
             ⚔ {assigneeName} · 模型 {assignee.model} · 编号 <code>{assignee.name}</code> · {formatClock(assignee.at)} 派出
             {live ? ` · ${live.state} · ${formatAgo(live.elapsed)}` : ''}
+            {live?.heartbeat ? ` · 最近心跳：${Math.max(0, Math.floor(live.heartbeat.ageMs / 1000))} 秒前` : ''}
           </div>
           {live && live.lastText ? <pre>{live.lastText}</pre> : null}
         </DrawerSection>

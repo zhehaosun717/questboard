@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const STALE_MS = 20 * 60 * 1000;
+export const HEARTBEAT_DEFAULT_MS = 20 * 1000;
+const HEARTBEAT_MAX_BYTES = 4096;
 // Kept for import compatibility; expiry is intentionally disabled for unknown-duration bounces.
 export const BOUNCE_MAX_AGE_MS = Number.POSITIVE_INFINITY;
 // 402 and "try again at" occur in ordinary test output and HTTP failures. Quota evidence must start with
@@ -82,31 +84,113 @@ function bounceFromExit(line, exitRecord, patterns) {
   return null;
 }
 
+function readBounded(file, maxBytes) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buffer = Buffer.alloc(maxBytes + 1);
+    const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    return { text: buffer.subarray(0, bytesRead).toString('utf8'), oversized: bytesRead > maxBytes };
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
+  }
+}
+
+function heartbeatIntervalMs(record) {
+  if (Object.hasOwn(record, 'intervalMs')) {
+    const value = Number(record.intervalMs);
+    return Number.isFinite(value) && value >= 5000 ? value : null;
+  }
+  for (const field of ['intervalSeconds', 'heartbeatSeconds', 'interval']) {
+    if (!Object.hasOwn(record, field)) continue;
+    const value = Number(record[field]);
+    return Number.isFinite(value) && value >= 5 ? value * 1000 : null;
+  }
+  return HEARTBEAT_DEFAULT_MS;
+}
+
+function readHeartbeat(file, now, expectedToken) {
+  let stat;
+  try { stat = fs.statSync(file); } catch { return { present: false }; }
+  const bounded = readBounded(file, HEARTBEAT_MAX_BYTES);
+  if (!bounded || bounded.oversized) return { present: true, malformed: true };
+  let record;
+  try {
+    const lines = bounded.text.split(/\r?\n/).filter((line) => line.trim() !== '');
+    if (lines.length !== 1) return { present: true, malformed: true };
+    record = JSON.parse(lines[0]);
+  } catch {
+    return { present: true, malformed: true };
+  }
+  const intervalMs = record && typeof record === 'object' ? heartbeatIntervalMs(record) : null;
+  if (!record || typeof record !== 'object' || Array.isArray(record)
+    || typeof record.token !== 'string' || !record.token
+    || typeof record.at !== 'string' || !Number.isFinite(Date.parse(record.at))
+    || typeof record.phase !== 'string' || !record.phase || intervalMs === null) {
+    return { present: true, malformed: true };
+  }
+  try { stat = fs.statSync(file); } catch { return { present: true, malformed: true }; }
+  const heartbeat = {
+    at: record.at,
+    ageMs: Math.max(0, now - stat.mtimeMs),
+    token: record.token,
+    phase: record.phase,
+  };
+  if (typeof expectedToken !== 'string' || !expectedToken) return { present: true, unknownToken: true };
+  if (record.token !== expectedToken) return { present: true, tokenMismatch: true };
+  return { present: true, heartbeat, intervalMs };
+}
+
+function withHeartbeat(result, observation) {
+  if (!observation.present) return result;
+  if (observation.malformed) return { ...result, heartbeat: null, diagnostics: { malformedHeartbeats: 1 } };
+  if (observation.heartbeat) return { ...result, heartbeat: observation.heartbeat };
+  return { ...result, heartbeat: null };
+}
+
+function heartbeatStopMinutes(ageMs) {
+  return Math.max(1, Math.floor(ageMs / 60 / 1000));
+}
+
 // editCounter tells a stream-json lane's tool transcript apart from a lane whose .out is itself prose.
-export function workerState(basePath, now = Date.now(), { editCounter, stallAfterMinutes, bouncePatterns } = {}) {
+export function workerState(basePath, now = Date.now(), options = {}) {
   const outPath = `${basePath}.out`;
   const exitPath = `${basePath}.exit`;
-  if (!fs.existsSync(outPath)) return { state: 'unknown', reason: 'no .out file' };
+  const heartbeat = readHeartbeat(`${basePath}.alive`, now, options.token ?? options.registryToken ?? options.heartbeatToken);
+  const decorate = (result) => withHeartbeat(result, heartbeat);
+  if (!fs.existsSync(outPath)) return decorate({ state: 'unknown', reason: 'no .out file' });
   const exitExists = fs.existsSync(exitPath);
   const exitRecord = exitExists ? parseExitRecord(readText(exitPath)) : null;
   const code = exitRecord ? exitRecord.code : null;
   // A malformed or half-written .exit is not terminal evidence: treat it exactly like no .exit at all —
   // still running, or stalled once .out itself has gone quiet for a long time.
   if (code === null) {
+    if (heartbeat.present) {
+      if (heartbeat.malformed) return decorate({ state: 'unknown', reason: '心跳文件格式错误' });
+      if (heartbeat.unknownToken) return decorate({ state: 'unknown', reason: '心跳 token 未知' });
+      if (heartbeat.tokenMismatch) return decorate({ state: 'unknown', reason: '心跳来自另一次运行' });
+      if (heartbeat.heartbeat.ageMs >= heartbeat.intervalMs * 3) {
+        return decorate({ state: 'stalled', reason: `心跳停止 ${heartbeatStopMinutes(heartbeat.heartbeat.ageMs)} 分钟（worker 可能已经不在了）` });
+      }
+      return decorate({ state: 'running' });
+    }
     // The threshold is the project's own policy.stallAfterMinutes (20 unless the owner changed it); the
     // reason names the configured minutes so the settings page and this line always agree.
+    const { stallAfterMinutes } = options;
     const staleMinutes = Number.isInteger(stallAfterMinutes) && stallAfterMinutes > 0 ? stallAfterMinutes : 20;
     if (now - mtime(outPath) > staleMinutes * 60 * 1000) {
-      return { state: 'stalled', reason: exitExists ? `malformed .exit, .out stale >${staleMinutes}m` : `no .exit, .out stale >${staleMinutes}m` };
+      return decorate({ state: 'stalled', reason: exitExists ? `malformed .exit, .out stale >${staleMinutes}m` : `no .exit, .out stale >${staleMinutes}m` });
     }
-    return { state: 'running' };
+    return decorate({ state: 'running' });
   }
   const outText = readText(outPath, 4000);
   if (code !== 0) {
-    const bounce = bounceFromExit(lastLine(outText), exitRecord, bouncePatterns);
+    const bounce = bounceFromExit(lastLine(outText), exitRecord, options.bouncePatterns);
     const cancel = exitRecord?.cancelRequestId ? { cancelRequestId: exitRecord.cancelRequestId, cancelScope: exitRecord.cancelScope } : {};
-    if (bounce) return { ...bounce, ...cancel };
-    return { state: 'failed', reason: `exit ${code}`, ...cancel };
+    if (bounce) return decorate({ ...bounce, ...cancel });
+    return decorate({ state: 'failed', reason: `exit ${code}`, ...cancel });
   }
   const report = readText(`${basePath}.md`).trim();
   // Exit 0 alone is not proof of a useful delivery, and a confirmed exit with nothing to show for it is
@@ -114,12 +198,12 @@ export function workerState(basePath, now = Date.now(), { editCounter, stallAfte
   // a genuinely stalled (still-running-or-unknown) worker does. But it must not be called failed while the
   // report could still be mid-copy either: give it EXIT_REPORT_GRACE_MS from .exit's own mtime first.
   const cancel = exitRecord?.cancelRequestId ? { cancelRequestId: exitRecord.cancelRequestId, cancelScope: exitRecord.cancelScope } : {};
-  if (report) return { state: 'delivered', ...cancel };
+  if (report) return decorate({ state: 'delivered', ...cancel });
   const withinGrace = now - mtime(exitPath) < EXIT_REPORT_GRACE_MS;
-  if (fs.existsSync(`${basePath}.md`)) return withinGrace ? { state: 'running', ...cancel } : { state: 'failed', reason: 'exit 0 but .md report is empty', ...cancel };
-  if (editCounter === 'stream-json') return withinGrace ? { state: 'running', ...cancel } : { state: 'failed', reason: 'exit 0 but output is a tool transcript, not a report', ...cancel };
-  if (outText.trim()) return { state: 'delivered', reason: 'exit 0 (no .md)', ...cancel };
-  return withinGrace ? { state: 'running', ...cancel } : { state: 'failed', reason: 'exit 0 but no output and no report', ...cancel };
+  if (fs.existsSync(`${basePath}.md`)) return decorate(withinGrace ? { state: 'running', ...cancel } : { state: 'failed', reason: 'exit 0 but .md report is empty', ...cancel });
+  if (options.editCounter === 'stream-json') return decorate(withinGrace ? { state: 'running', ...cancel } : { state: 'failed', reason: 'exit 0 but output is a tool transcript, not a report', ...cancel });
+  if (outText.trim()) return decorate({ state: 'delivered', reason: 'exit 0 (no .md)', ...cancel });
+  return decorate(withinGrace ? { state: 'running', ...cancel } : { state: 'failed', reason: 'exit 0 but no output and no report', ...cancel });
 }
 
 export function countEdits(text, counter) {

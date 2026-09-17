@@ -133,7 +133,9 @@ export function liveByName(laneRows, quests = []) {
     if (!row || !row.name) continue;
     const assignee = assignees.get(row.name);
     if (!assignee || !isCurrentRow(row, assignee)) continue;
-    live[row.name] = { state: row.state, elapsed: row.elapsed, edits: row.edits, lastText: tailText(row.lastText), tokens: row.tokens || null };
+    const liveRow = { state: row.state, elapsed: row.elapsed, edits: row.edits, lastText: tailText(row.lastText), tokens: row.tokens || null };
+    if (Object.hasOwn(row, 'heartbeat')) liveRow.heartbeat = row.heartbeat;
+    live[row.name] = liveRow;
   }
   return live;
 }

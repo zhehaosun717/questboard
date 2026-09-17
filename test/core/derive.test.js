@@ -167,6 +167,14 @@ describe('sync', () => {
     const delivered = deriveTransitions([running], [{ name: 'run4', state: 'delivered', dispatchedAt: at, lastText: `${'a'.repeat(400)} Strictly done` }], later(1));
     assert.match(delivered[0].detail, /^…/);
   });
+
+  it('passes an additive heartbeat through the live worker block', () => {
+    const heartbeat = { at, ageMs: 7000, token: 'run-token', phase: 'running' };
+    const row = { name: 'run4', state: 'running', dispatchedAt: at, elapsed: 1000, edits: 0, lastText: '', tokens: null, heartbeat };
+    assert.deepEqual(liveByName([row], [running]), {
+      run4: { state: 'running', elapsed: 1000, edits: 0, lastText: '', tokens: null, heartbeat },
+    });
+  });
 });
 
 describe('overlay', () => {

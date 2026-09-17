@@ -34,6 +34,23 @@ describe('collector', () => {
     assert.match(byPkg['X-1'].reason, /lane cursor is not configured/);
   });
 
+  it('passes a registry token through to the lane row heartbeat', async () => {
+    const { config, root, write } = makeProject();
+    const now = Date.parse('2026-09-16T12:00:00.000Z');
+    appendJsonLine(config.paths.registry, {
+      at: new Date(now).toISOString(), event: 'dispatch', variant: '', package: 'HB-1', lane: 'codex',
+      model: 'gpt-5.6-luna', name: 'hb-1', token: 'run-token',
+    });
+    write('.work/codex/hb-1.out', 'quiet');
+    const alive = write('.work/codex/hb-1.alive', JSON.stringify({ token: 'run-token', at: new Date(now).toISOString(), phase: 'running' }) + '\n');
+    fs.utimesSync(alive, new Date(now - 1000), new Date(now - 1000));
+    const [row] = (await createCollector(config).collect({ now })).packages;
+    assert.equal(row.state, 'running');
+    assert.deepEqual(row.heartbeat, { at: new Date(now).toISOString(), ageMs: 1000, token: 'run-token', phase: 'running' });
+    assert.equal(row.token, undefined, 'the registry token stays out of the public lane row');
+    assert.equal(fs.existsSync(path.join(root, '.work', 'codex', 'hb-1.alive')), true);
+  });
+
   it('polls API workers and recovers the real model of an unknown row', async () => {
     const { config } = makeProject();
     dispatch(config, { package: 'MOD-1', lane: 'opencode', model: 'unknown', name: 'mod1', session: 'ses_1' });
@@ -250,6 +267,59 @@ describe('workers', () => {
     const now = Date.now();
     write('.work/d.out', 'reading vendor.log...\nfound this in an old log line: "you\'ve hit your usage limit"');
     assert.equal(workerState(base('d'), now).state, 'running', 'no .exit file means no terminal evidence, no matter what the last line says');
+  });
+
+  it('uses a fresh matching heartbeat instead of .out activity, and reports its age', () => {
+    const { root, write } = makeProject();
+    const base = (name) => path.join(root, '.work', name);
+    const now = Date.parse('2026-09-16T12:00:00.000Z');
+    write('.work/h.out', 'working');
+    const alive = write('.work/h.alive', JSON.stringify({ token: 'run-token', at: '2026-09-16T11:59:45.000Z', phase: 'running' }) + '\n');
+    fs.utimesSync(alive, new Date(now - 10 * 1000), new Date(now - 10 * 1000));
+    assert.deepEqual(workerState(base('h'), now, { token: 'run-token' }), {
+      state: 'running',
+      heartbeat: { at: '2026-09-16T11:59:45.000Z', ageMs: 10 * 1000, token: 'run-token', phase: 'running' },
+    });
+  });
+
+  it('stalls a quiet heartbeat even when .out is fresh, using a declared interval', () => {
+    const { root, write } = makeProject();
+    const base = (name) => path.join(root, '.work', name);
+    const now = Date.parse('2026-09-16T12:00:00.000Z');
+    write('.work/hb-stalled.out', 'new output');
+    const alive = write('.work/hb-stalled.alive', JSON.stringify({ token: 'run-token', at: '2026-09-16T11:59:44.000Z', phase: 'running', intervalSeconds: 5 }) + '\n');
+    fs.utimesSync(alive, new Date(now - 16 * 1000), new Date(now - 16 * 1000));
+    const result = workerState(base('hb-stalled'), now, { token: 'run-token', stallAfterMinutes: 1 });
+    assert.equal(result.state, 'stalled');
+    assert.equal(result.reason, '心跳停止 1 分钟（worker 可能已经不在了）');
+    assert.equal(result.heartbeat.ageMs, 16 * 1000);
+  });
+
+  it('rejects a heartbeat from another run and treats malformed heartbeat content as a counted diagnostic', () => {
+    const { root, write } = makeProject();
+    const base = (name) => path.join(root, '.work', name);
+    const now = Date.now();
+    write('.work/foreign.out', 'fresh output');
+    write('.work/foreign.alive', JSON.stringify({ token: 'other-token', at: new Date(now).toISOString(), phase: 'running' }));
+    const foreign = workerState(base('foreign'), now, { token: 'run-token' });
+    assert.deepEqual(foreign, { state: 'unknown', reason: '心跳来自另一次运行', heartbeat: null });
+
+    write('.work/bad.out', 'fresh output');
+    write('.work/bad.alive', 'x'.repeat(4097));
+    const malformed = workerState(base('bad'), now, { token: 'run-token' });
+    assert.equal(malformed.state, 'unknown');
+    assert.equal(malformed.heartbeat, null);
+    assert.deepEqual(malformed.diagnostics, { malformedHeartbeats: 1 });
+  });
+
+  it('lets a valid exit file win over a stale or foreign heartbeat', () => {
+    const { root, write } = makeProject();
+    const base = (name) => path.join(root, '.work', name);
+    const now = Date.now();
+    write('.work/finished.out', 'failed');
+    write('.work/finished.exit', '3');
+    write('.work/finished.alive', JSON.stringify({ token: 'other-token', at: new Date(now - 3600 * 1000).toISOString(), phase: 'running' }));
+    assert.deepEqual(workerState(base('finished'), now, { token: 'run-token' }), { state: 'failed', reason: 'exit 3', heartbeat: null });
   });
 
   it('detects a genuine structured terminal quota failure instead of calling it a plain failure', () => {

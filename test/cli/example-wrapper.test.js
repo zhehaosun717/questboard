@@ -2,13 +2,24 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { tmpDir } from '../helpers.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WRAPPER_SRC = path.join(REPO_ROOT, 'examples', 'basic', 'scripts', 'run-worker.mjs');
 const CONFIG_SRC = path.join(REPO_ROOT, 'examples', 'basic', 'questboard.config.json');
+const runFile = promisify(execFile);
+
+async function waitFor(predicate, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('timed out waiting for wrapper heartbeat');
+}
 
 describe('example-wrapper', () => {
   it('runs worker, logs dispatch, pipes brief, streams output, and records exit code', () => {
@@ -113,6 +124,39 @@ describe('example-wrapper', () => {
     const mdPath = path.join(root, '.questboard-data', 'workers', 'codex', 'report_worker.md');
     assert.ok(fs.existsSync(mdPath));
     assert.equal(fs.readFileSync(mdPath, 'utf8'), '# Summary report');
+  });
+
+  it('writes a token-matching heartbeat periodically and removes it after exit', async () => {
+    const root = tmpDir('example-wrapper-heartbeat-');
+    fs.copyFileSync(CONFIG_SRC, path.join(root, 'questboard.config.json'));
+    fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+    fs.copyFileSync(WRAPPER_SRC, path.join(root, 'scripts', 'run-worker.mjs'));
+    fs.writeFileSync(path.join(root, 'brief.md'), 'heartbeat test');
+
+    const wrapper = path.join(root, 'scripts', 'run-worker.mjs');
+    const outputDir = path.join(root, '.questboard-data', 'workers', 'codex');
+    const alivePath = path.join(outputDir, 'heartbeat_worker.alive');
+    const execution = runFile(process.execPath, [
+      wrapper, '--lane', 'codex', '--name', 'heartbeat_worker', '--brief', 'brief.md', '--package', 'HB-1',
+      '--heartbeat-seconds', '5', '--', process.execPath, '-e', 'setTimeout(() => process.exit(0), 6500)',
+    ], { cwd: root, encoding: 'utf8' });
+
+    await waitFor(() => fs.existsSync(alivePath));
+    const firstStat = fs.statSync(alivePath);
+    const first = JSON.parse(fs.readFileSync(alivePath, 'utf8'));
+    assert.equal(first.intervalSeconds, 5);
+    assert.equal(first.phase, 'running');
+    await waitFor(() => fs.statSync(alivePath).mtimeMs > firstStat.mtimeMs, 6000);
+    const second = JSON.parse(fs.readFileSync(alivePath, 'utf8'));
+    assert.equal(second.token, first.token);
+    assert.notEqual(second.at, first.at);
+
+    const result = await execution;
+    assert.equal(result.stderr, '');
+    assert.equal(fs.existsSync(alivePath), false);
+    assert.equal(fs.readFileSync(path.join(outputDir, 'heartbeat_worker.exit'), 'utf8').trim(), '0');
+    const registry = JSON.parse(fs.readFileSync(path.join(root, '.questboard-data', 'registry.jsonl'), 'utf8').trim());
+    assert.equal(registry.token, first.token);
   });
 
   it('prepends --role card text to the agent stdin prompt', () => {

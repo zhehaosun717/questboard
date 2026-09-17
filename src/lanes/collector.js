@@ -92,9 +92,14 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
   const lastSeen = new Map();
   const models = new Map();
 
-  function fileWorker(entry, lane, now) {
+  function fileWorker(entry, lane, now, registryToken) {
     const basePath = path.join(config.root, lane.outputDir, entry.name);
-    Object.assign(entry, workerState(basePath, now, { editCounter: lane.editCounter, stallAfterMinutes: config.policy.stallAfterMinutes, bouncePatterns: config.policy.bouncePatterns }));
+    Object.assign(entry, workerState(basePath, now, {
+      editCounter: lane.editCounter,
+      stallAfterMinutes: config.policy.stallAfterMinutes,
+      bouncePatterns: config.policy.bouncePatterns,
+      token: registryToken,
+    }));
     if (TERMINAL_STATES.has(entry.state)) {
       const observed = mtime(`${basePath}.exit`) || mtime(`${basePath}.out`);
       if (observed) {
@@ -169,7 +174,7 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
       try {
         if (!lane) entry.reason = `lane ${entry.lane} is not configured`;
         else if (lane.api) jobs.push(() => apiWorker(entry, lane, skipStale, now).catch((error) => { entry.reason = error.message; }));
-        else fileWorker(entry, lane, now);
+        else fileWorker(entry, lane, now, dispatch.token);
       } catch (error) {
         entry.state = 'unknown';
         entry.reason = error.message;

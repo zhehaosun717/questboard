@@ -25,7 +25,7 @@ const agentCmd = args.slice(dashDash + 1);
 if (agentCmd.length === 0) fail('no agent command specified after --');
 
 // 2. Parse flags before '--' (flags may come in any order; unknown flags are an error)
-let lane, name, brief, model = '', variant = '', pkg = '', report = null, role = null;
+let lane, name, brief, model = '', variant = '', pkg = '', report = null, role = null, heartbeatSeconds = 20;
 for (let i = 0; i < wrapperArgs.length; i++) {
   const flag = wrapperArgs[i];
   const next = () => (++i < wrapperArgs.length ? wrapperArgs[i] : fail(`missing value for ${flag}`));
@@ -37,6 +37,11 @@ for (let i = 0; i < wrapperArgs.length; i++) {
   else if (flag === '--package') pkg = next();
   else if (flag === '--report') report = next();
   else if (flag === '--role') role = next();
+  else if (flag === '--heartbeat-seconds') {
+    const value = Number(next());
+    if (!Number.isInteger(value) || value < 5) fail('--heartbeat-seconds must be an integer of at least 5');
+    heartbeatSeconds = value;
+  }
   else fail(`unknown option: ${flag}`);
 }
 
@@ -168,6 +173,7 @@ const dispatchRow = {
   variant,
   name,
   brief,
+  token: lockToken,
 };
 try {
   fs.mkdirSync(path.dirname(registryPath), { recursive: true });
@@ -271,6 +277,52 @@ if (report) {
 
 let settled = false;
 let outClosed = false;
+const heartbeatPath = path.join(outputDir, `${name}.alive`);
+const heartbeatTempPath = `${heartbeatPath}.${process.pid}.${lockToken}.tmp`;
+let heartbeatTimer = null;
+let heartbeatStopped = false;
+let heartbeatPhase = 'running';
+
+// Heartbeats are wrapper-owned liveness evidence, never process evidence. Each replacement is written in
+// the same directory and renamed into place, so a reader sees either the previous complete line or the new
+// complete line. Windows may reject rename-over-existing; its fallback is still one complete write, never a
+// partial append.
+function writeHeartbeat() {
+  if (heartbeatStopped) return;
+  if (!ownsLock()) { stopHeartbeat(); return; }
+  const content = `${JSON.stringify({ token: lockToken, at: new Date().toISOString(), phase: heartbeatPhase, intervalSeconds: heartbeatSeconds })}\n`;
+  try {
+    fs.writeFileSync(heartbeatTempPath, content, 'utf8');
+    try {
+      fs.renameSync(heartbeatTempPath, heartbeatPath);
+    } catch {
+      // Windows does not replace an existing target with renameSync. Remove only after rechecking the
+      // ownership token, then rename the complete temp file; a reader can see a short absence, never a
+      // partially written heartbeat line.
+      if (!ownsLock()) { stopHeartbeat(); return; }
+      try { fs.unlinkSync(heartbeatPath); } catch {}
+      try { fs.renameSync(heartbeatTempPath, heartbeatPath); } catch { try { fs.unlinkSync(heartbeatTempPath); } catch {} }
+    }
+  } catch {
+    try { fs.unlinkSync(heartbeatTempPath); } catch {}
+  }
+}
+
+function startHeartbeat() {
+  writeHeartbeat();
+  heartbeatTimer = setInterval(writeHeartbeat, heartbeatSeconds * 1000);
+}
+
+function stopHeartbeat() {
+  heartbeatStopped = true;
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+function removeHeartbeat() {
+  if (!ownsLock()) return;
+  try { fs.unlinkSync(heartbeatPath); } catch {}
+  try { fs.unlinkSync(heartbeatTempPath); } catch {}
+}
 
 // A note is one stderr line (the dispatch log sees it) and one .out line (the board sees it).
 function note(message) {
@@ -366,6 +418,7 @@ function publishStagedReport(tmpPath) {
 // was actually delivered to the live path). Ownership is checked once for both artifacts together, so a
 // lock lost between publishing the report and publishing the exit code can no longer happen -- that was B2.
 function terminalExit(publishCode, wrapperExitCode, reportTmpPath = null) {
+  stopHeartbeat();
   if (!ownsLock()) {
     publishOrphanedEvidence(publishCode, reportTmpPath);
     process.exit(1);
@@ -383,11 +436,13 @@ function terminalExit(publishCode, wrapperExitCode, reportTmpPath = null) {
       note(`failed to publish staged report for "${name}": ${err.message}; the staged report bytes are ` +
         `still recoverable at ${reportTmpPath}`);
       publishExit(1);
+      removeHeartbeat();
       process.exit(1);
       return;
     }
   }
   publishExit(publishCode);
+  removeHeartbeat();
   process.exit(wrapperExitCode);
 }
 
@@ -445,6 +500,7 @@ function receiveControl(message) {
 }
 
 if (controlAttemptId && controlToken) process.on('message', receiveControl);
+startHeartbeat();
 try {
   const fileArgs = viaShell
     // /v:off disables delayed expansion unconditionally, so an argument containing "!" always passes through
@@ -465,6 +521,8 @@ try {
     windowsVerbatimArguments: viaShell,
     windowsHide: true,
   });
+  heartbeatPhase = 'running';
+  writeHeartbeat();
 } catch (err) {
   settled = true;
   // Covers both a synchronous spawn() throw and quoteForCmd()'s refusal of an unsafe "%" argument: either

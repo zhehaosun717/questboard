@@ -59,6 +59,11 @@ function questLine(quest) {
   return `${quest.id.padEnd(16)} ${quest.status.padEnd(14)} ${quest.kind.padEnd(6)} ${quest.title}${who}${owner}`;
 }
 
+function heartbeatLine(live) {
+  const ageMs = live?.heartbeat?.ageMs;
+  return Number.isFinite(ageMs) ? `  最近心跳：${Math.max(0, Math.floor(ageMs / 1000))} 秒前` : null;
+}
+
 function context(args) {
   const config = projectConfig(args);
   return { config, base: serverUrl(args, config) };
@@ -228,6 +233,9 @@ export const commands = {
       : undefined;
     const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/status`, 'POST', { status, detail: option(args, '--detail'), by, ...(acceptance ? { acceptance } : {}) }, { source: 'cli' });
     out(questLine(quest));
+    const detail = await request(base, `/api/quests/${encodeURIComponent(id)}`).catch(() => null);
+    const heartbeat = heartbeatLine(detail?.quest?.live);
+    if (heartbeat) out(heartbeat);
   },
 
   async ruling(args) {

@@ -72,6 +72,21 @@ describe('QuestDrawer 修改委托 hook-in', () => {
     expect(html).toContain('ON QUEST');
   });
 
+  it('shows the live worker heartbeat age in the ON QUEST block', () => {
+    const quest = makeQuest({ id: 'A-1', status: 'dispatched', assignee: makeAssignee('card-1') });
+    const snap = makeSnapshot({
+      quests: [quest],
+      live: {
+        [quest.assignee!.name]: {
+          state: 'running', elapsed: 5000, edits: 0, lastText: '', tokens: null,
+          heartbeat: { at: '2026-09-13T00:00:00.000Z', ageMs: 7000, token: 'run-token', phase: 'running' },
+        },
+      },
+    });
+    const html = render(quest, snap);
+    expect(html).toContain('最近心跳：7 秒前');
+  });
+
   it('shows the bound reason and manual-required note for a stalled attempt without an adapter', () => {
     const quest = makeQuest({
       id: 'A-3', status: 'stalled', assignee: makeAssignee('card-1'),

@@ -201,6 +201,14 @@ export interface LiveWorker {
   edits: number;
   lastText: string;
   tokens: { input: number; output: number } | null;
+  heartbeat?: WorkerHeartbeat | null;
+}
+
+export interface WorkerHeartbeat {
+  at: string;
+  ageMs: number;
+  token: string;
+  phase: string;
 }
 
 export interface ThreadLink {
@@ -413,6 +421,7 @@ export interface LanePackage {
   bounceUntil: string | null;
   modelSource?: 'session' | 'inferred';
   history: LaneHistoryEntry[];
+  heartbeat?: WorkerHeartbeat | null;
 }
 
 export interface LanesReport {
