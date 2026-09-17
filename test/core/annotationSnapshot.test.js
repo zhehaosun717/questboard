@@ -159,7 +159,7 @@ describe('annotationSnapshot core', () => {
       throw error;
     }
     const candidate = artQuest('docs/briefs/ART-39-link.md');
-    assert.throws(() => prepareAnnotationSnapshot({ config: project.config, quest: candidate }), (error) => error.code === 'brief_containment' && /brief/.test(error.message));
+    assert.throws(() => prepareAnnotationSnapshot({ config: project.config, quest: candidate }), (error) => error.code === 'brief_containment' && /简报/.test(error.message));
   });
 
   it('checks the snapshot junction before mkdir and creates nothing outside data when supported', () => {

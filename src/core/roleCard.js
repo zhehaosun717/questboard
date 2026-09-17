@@ -56,7 +56,7 @@ function reportPathFor(config, attempt) {
 
 export function renderRoleCard({ packageId, kind, workerName, attemptId, at, lane, briefPath, briefDigest, reportPath }) {
   const destination = reportPath || '未配置报告位置';
-  const statement = `你是委托包 ${packageId} 的执行者。只按简报改文件，不改别的文件，不提交，不读其他 worker 的交付物；完成后把报告写到 ${destination}。`;
+  const statement = `你是委托 ${packageId} 的 worker。只按简报改文件，不改别的文件，不提交，不读其他 worker 的交差文件；完成后把报告写到 ${destination}。`;
   return [
     '# Role card',
     '',
@@ -110,7 +110,7 @@ export function writeRoleCard({ config, quest, attempt }) {
   try {
     writeExclusiveFile(target.file, content);
   } catch (error) {
-    if (error.code === 'EEXIST') fail('角色卡已经存在，本次尝试不可覆盖', 'role_card_exists');
+    if (error.code === 'EEXIST') fail('这次派遣的角色卡已经存在，不会覆盖', 'role_card_exists');
     fail(`角色卡写入失败：${error.code || error.message}`, 'role_card_write_failed');
   }
   return { path: relative(config.root, target.file), digest: createHash('sha256').update(content, 'utf8').digest('hex') };

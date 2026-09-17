@@ -20,7 +20,7 @@ describe('role cards and role delivery', () => {
     assert.equal(card.digest, createHash('sha256').update(text).digest('hex'));
     assert.match(text, /canonical brief: docs\/briefs\/RUN-4-the-way-back\.md/);
     assert.match(text, /brief SHA-256: [a-f0-9]{64}/);
-    assert.match(text, /你是委托包 RUN-4 的执行者。只按简报改文件，不改别的文件，不提交，不读其他 worker 的交付物；完成后把报告写到 \.work\/codex\/run4\.md。/);
+    assert.match(text, /你是委托 RUN-4 的 worker。只按简报改文件，不改别的文件，不提交，不读其他 worker 的交差文件；完成后把报告写到 \.work\/codex\/run4\.md。/);
     assert.throws(() => writeRoleCard({ config: project.config, quest: quest({ id: 'RUN-4', brief: briefPath }), attempt }), (error) => error.code === 'role_card_exists');
     assert.equal(fs.readFileSync(file, 'utf8'), text);
   });

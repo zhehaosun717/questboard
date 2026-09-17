@@ -186,7 +186,7 @@ function backupRosterFile(file, action, at = new Date()) {
 }
 
 function assertFresh(expected, actual) {
-  if (expected !== undefined && expected !== actual) throw new RosterBulkStaleError('roster 在预览后已经变化，请重新读取后再操作', actual);
+  if (expected !== undefined && expected !== actual) throw new RosterBulkStaleError('名册在预览后变过了，请重新预览再操作', actual);
 }
 
 function currentStatusMap(statusRecords) {
@@ -239,11 +239,11 @@ function protectionFor(id, quests) {
   const unresolved = quests.filter((quest) => quest.assignee?.adventurerId === id && (quest.assignee.unresolved === true || quest.unresolved === true));
   if (holding.length) {
     const work = holding.map((quest) => `${quest.id} (${quest.status})`).join('、');
-    return { code: 'holds_slot', message: `不能批量修改 ${id}：${work} 仍占着 worker 槽位，先确认 worker 结束并释放` };
+    return { code: 'holds_slot', message: `不能批量修改 ${id}：${work} 还有 worker 在用这张卡，先确认它已停止并释放` };
   }
   if (unresolved.length) {
     const work = unresolved.map((quest) => `${quest.id} (${quest.status})`).join('、');
-    return { code: 'unresolved_attempt', message: `不能批量修改 ${id}：${work} 的执行结果未确定，先人工确认` };
+    return { code: 'unresolved_attempt', message: `不能批量修改 ${id}：${work} 的结果还没确定，先手动确认` };
   }
   return null;
 }
@@ -262,7 +262,7 @@ function quotaEvidenceProtection(id, patch, quotaEvidenceCards) {
 }
 
 function notFound(id) {
-  return { code: 'not_found', message: `找不到冒险者 ${id}` };
+  return { code: 'not_found', message: `名册里找不到 ${id}` };
 }
 
 function summarizeCounts(results) {
@@ -327,7 +327,7 @@ export function previewRosterBulk({ roster, statusRecords = [], quests = [], eff
     changedFields,
     preservedFields,
     deniedActiveCards,
-    statusNote: '这里显示状态记录；实时限额仍由通道覆盖。批量设为可用会拒绝仍有具体限额证据的卡片，请使用单卡“确认额度已恢复”操作。',
+    statusNote: '这里显示的是记下的状态；通道实时发现的限额另外显示。还有具体限额证据的卡不能批量设为空闲，请到那张卡上点「确认额度已恢复」。',
     results,
     counts: summarizeCounts(results),
   };
@@ -374,7 +374,7 @@ export async function applyRosterBulk({
   if (beforeRecheck) await beforeRecheck(firstPreview);
   const state = freshState({ load, getStatusRecords, getQuests, getEffectiveRoster, getQuotaEvidenceRoster });
   // Even without a caller-provided fingerprint, the async preflight must not overwrite another writer's card.
-  if (state.fingerprint !== before.fingerprint) throw new RosterBulkStaleError('roster 在预检期间已经变化，请重新读取后再操作', state.fingerprint);
+  if (state.fingerprint !== before.fingerprint) throw new RosterBulkStaleError('名册在预览后变过了，请重新预览再操作', state.fingerprint);
   const preview = previewRosterBulk({ roster: state.roster, statusRecords: state.statusRecords, quests: state.quests, effectiveRoster: state.effectiveRoster, quotaEvidenceRoster: state.quotaEvidenceRoster, request });
   const values = Object.values(normalized.patch.env?.set || {});
   const results = [];

@@ -77,8 +77,8 @@ function laneEntries(lanes) {
 
 function reasonFor(row, resetsAt, expired) {
   if (expired) return UNVERIFIED_REASON;
-  const label = row.bounceUntil || (resetsAt ? new Date(resetsAt).toISOString() : '');
-  const prefix = row._kind === 'lane-limit' ? `${row.lane || 'lane'} 限额中` : `${row.package || row.lane || 'lane'} 限额退回`;
+  const label = row.bounceUntil || '';
+  const prefix = row._kind === 'lane-limit' ? `${row.lane || '某个通道'} 限额中` : `${row.package || row.lane || '某个通道'} 限额退回`;
   return `${prefix}${label ? `，${label} 恢复` : ''}`;
 }
 

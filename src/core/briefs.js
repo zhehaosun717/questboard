@@ -344,12 +344,12 @@ export function discoverBriefs(config, { postedIds, dispatchedIds, now = Date.no
     if (scan.truncated) {
       truncated = true;
       const reason = scan.iterationCapped
-        ? `目录内容超过扫描上限 ${MAX_DIR_ITERATE} 项，已停止扫描：期间看到 .md 文件 ${scan.mdSeen} 个，已返回 ${scan.returned} 个，目录里还有多少未知`
+        ? `目录里的条目超过扫描上限 ${MAX_DIR_ITERATE} 个，已停止扫描：看到 .md 文件 ${scan.mdSeen} 个，列出了 ${scan.returned} 个；剩下还有多少不知道`
         : `发现 ${scan.mdSeen} 个 .md 文件，超过上限 ${MAX_SCAN_ENTRIES}，仅返回按文件名排序的前 ${scan.returned} 个`;
       errors.push({ folder: dir, reason });
     }
     for (const link of scan.skippedLinks) {
-      excluded.push({ brief: `${dir}/${link}`, reason: '跳过符号链接，不展开', kind: 'symlink' });
+      excluded.push({ brief: `${dir}/${link}`, reason: '这是链接，跳过了，没有跟进去', kind: 'symlink' });
     }
     for (const name of scan.files) {
       const brief = `${dir}/${name}`;
@@ -393,7 +393,7 @@ export function discoverBriefs(config, { postedIds, dispatchedIds, now = Date.no
     if (postedIds.has(id)) { excluded.push({ package: id, brief: primary.brief, reason: '已经发布过', kind: 'posted' }); continue; }
     const writtenAt = new Date(primary.mtimeMs).toISOString();
     if (dispatchedIds.has(id)) {
-      excluded.push({ package: id, brief: primary.brief, title: primary.title, writtenAt, reason: '已经在别处登记派出', kind: 'dispatched' });
+      excluded.push({ package: id, brief: primary.brief, title: primary.title, writtenAt, reason: '已经在别处登记过派遣', kind: 'dispatched' });
       continue;
     }
     if (now - primary.mtimeMs > config.briefs.recentDays * DAY_MS) {

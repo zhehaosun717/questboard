@@ -35,7 +35,7 @@ function pagePath(config, page) {
   const file = path.join(config.paths.data, 'annotations', `${page}.jsonl`);
   if (fs.existsSync(config.paths.data)) {
     const issue = realpathContainmentIssue(config.paths.data, file);
-    if (issue) fail(`评审页面 ${page} 的批注日志不安全：${issue}`, 'annotation_log_containment');
+    if (issue) fail(`评审页的批注记录不能用：${issue}`, 'annotation_log_containment');
   }
   return file;
 }
@@ -44,10 +44,10 @@ function reviewRoot(config) {
   if (!config.reviewPages) fail('项目没有配置评审目录', 'review_pages_unconfigured');
   const root = config.reviewPages.dir;
   const lexical = lexicalContainmentIssue(config.root, root);
-  if (lexical) fail(`评审目录不安全：${lexical}`, 'review_dir_containment');
+  if (lexical) fail(`评审目录不能用：${lexical}`, 'review_dir_containment');
   if (fs.existsSync(root)) {
     const issue = realpathContainmentIssue(config.root, root);
-    if (issue) fail(`评审目录不安全：${issue}`, 'review_dir_containment');
+    if (issue) fail(`评审目录不能用：${issue}`, 'review_dir_containment');
   }
   return root;
 }
@@ -64,7 +64,7 @@ function matchingReviewFiles(root, pattern) {
       pattern.lastIndex = 0;
       if (pattern.test(entry.name) && !entry.name.includes('_static')) {
         const issue = realpathContainmentIssue(root, file);
-        if (issue) fail(`评审文件不安全：${issue}`, 'review_file_containment');
+        if (issue) fail(`评审文件不能用：${issue}`, 'review_file_containment');
         found.push(file);
       }
     }
@@ -116,10 +116,10 @@ function validateAnnotationItem(item, lineNumber, itemNumber) {
   if (typeof item.id !== 'string' || !item.id.length || item.id.length > 128 || /[\0\r\n]/u.test(item.id)) {
     fail(`批注日志第 ${lineNumber} 行的批注编号格式错误`, 'annotation_log_malformed');
   }
-  if (item.note !== undefined && (typeof item.note !== 'string' || item.note.length > 4000)) fail(`批注日志第 ${lineNumber} 行的 note 格式错误`, 'annotation_log_malformed');
-  if (item.verdict !== undefined && (typeof item.verdict !== 'string' || item.verdict.length > 100)) fail(`批注日志第 ${lineNumber} 行的 verdict 格式错误`, 'annotation_log_malformed');
+  if (item.note !== undefined && (typeof item.note !== 'string' || item.note.length > 4000)) fail(`批注日志第 ${lineNumber} 行的备注（note）格式不对`, 'annotation_log_malformed');
+  if (item.verdict !== undefined && (typeof item.verdict !== 'string' || item.verdict.length > 100)) fail(`批注日志第 ${lineNumber} 行的结论（verdict）格式不对`, 'annotation_log_malformed');
   if (item.updatedAt !== undefined && (typeof item.updatedAt !== 'string' || !Number.isFinite(Date.parse(item.updatedAt)))) {
-    fail(`批注日志第 ${lineNumber} 行的 updatedAt 格式错误`, 'annotation_log_malformed');
+    fail(`批注日志第 ${lineNumber} 行的更新时间（updatedAt）格式不对`, 'annotation_log_malformed');
   }
   return { id: item.id, verdict: item.verdict === undefined ? '' : item.verdict, note: item.note === undefined ? '' : item.note };
 }
@@ -185,21 +185,21 @@ export function renderAnnotationSnapshot({ briefText, page, title, capturedAt, i
 // the annotation snapshot or role-card name, but may not turn this helper into an arbitrary file writer.
 export function safeAttemptTarget(config, packageId, attemptId, suffix = '.md') {
   const packagePattern = packageIdPattern(config);
-  if (!packagePattern.test(packageId)) fail(`任务编号 ${packageId} 不符合项目编号格式`, 'invalid_package');
-  if (!ATTEMPT_PATTERN.test(attemptId)) fail(`派遣尝试编号不符合格式`, 'invalid_attempt');
-  if (!['.md', '.role.md'].includes(suffix)) fail('不支持的派遣产物类型', 'snapshot_write_failed');
+  if (!packagePattern.test(packageId)) fail(`委托编号 ${packageId} 不符合这个项目的编号规则`, 'invalid_package');
+  if (!ATTEMPT_PATTERN.test(attemptId)) fail('这次派遣的编号格式不对', 'invalid_attempt');
+  if (!['.md', '.role.md'].includes(suffix)) fail('内部错误：不支持的快照文件类型', 'snapshot_write_failed');
   const directory = path.join(config.paths.data, 'dispatch-briefs', packageId);
   const file = path.join(directory, `${packageId}-${attemptId}${suffix}`);
   const assertContainment = (target) => {
     const dataIssue = realpathContainmentIssue(config.paths.data, target);
-    if (dataIssue) fail(`批注快照路径不安全：${dataIssue}`, 'snapshot_containment');
+    if (dataIssue) fail(`批注快照路径不能用：${dataIssue}`, 'snapshot_containment');
     const projectIssue = realpathContainmentIssue(config.root, target);
     if (projectIssue) fail(`批注快照路径在项目外：${projectIssue}`, 'snapshot_containment');
   };
   // The first role card for a fresh project may be the first artifact under data. Validate the data root
   // from the project before creating it, then the realpath checks below can safely inspect it.
   const dataRootIssue = realpathContainmentIssue(config.root, config.paths.data);
-  if (dataRootIssue) fail(`派遣数据目录不安全：${dataRootIssue}`, 'snapshot_containment');
+  if (dataRootIssue) fail(`派遣数据目录不能用：${dataRootIssue}`, 'snapshot_containment');
   try { fs.mkdirSync(config.paths.data, { recursive: true }); }
   catch (error) { fail(`派遣数据目录创建失败：${error.code || error.message}`, 'snapshot_write_failed'); }
   // Check before mkdir so an existing dispatch-briefs junction cannot create a package folder outside data.
@@ -207,7 +207,7 @@ export function safeAttemptTarget(config, packageId, attemptId, suffix = '.md') 
   try { fs.mkdirSync(directory, { recursive: true }); }
   catch (error) { fail(`批注快照目录创建失败：${error.code || error.message}`, 'snapshot_write_failed'); }
   const issue = realpathContainmentIssue(config.paths.data, file);
-  if (issue) fail(`批注快照路径不安全：${issue}`, 'snapshot_containment');
+  if (issue) fail(`批注快照路径不能用：${issue}`, 'snapshot_containment');
   // Check again after mkdir in case a link appears during the filesystem operation.
   assertContainment(directory);
   assertContainment(file);
@@ -248,7 +248,7 @@ export function writeAnnotationSnapshot({ config, packageId, attemptId, briefTex
     // first capture.
     writeExclusiveFile(target.file, content);
   } catch (error) {
-    if (error.code === 'EEXIST') fail(`批注快照已经存在，不能覆盖这次派遣`, 'snapshot_exists');
+    if (error.code === 'EEXIST') fail('这次派遣的批注快照已经存在，不会覆盖', 'snapshot_exists');
     fail(`批注快照写入失败：${error.code || error.message}`, 'snapshot_write_failed');
   }
   const relative = path.relative(config.root, target.file).split(path.sep).join('/');
@@ -260,17 +260,17 @@ export function prepareAnnotationSnapshot({ config, quest }) {
   const page = String(quest.reviewPage || '').trim();
   const resolved = resolveReviewPage(config, page);
   const brief = String(quest.brief || '').replaceAll('\\', '/');
-  if (!briefPathAllowed(config, brief, 'art')) fail(`brief 文件不在配置的派遣目录中：${brief}`, 'brief_containment');
+  if (!briefPathAllowed(config, brief, 'art')) fail(`简报不在设置里的简报目录中：${brief}`, 'brief_containment');
   const absolute = path.join(config.root, brief);
   const briefDirectory = path.join(config.root, brief.slice(0, brief.lastIndexOf('/')));
   const containment = realpathContainmentIssue(briefDirectory, absolute);
-  if (containment) fail(`brief 文件不安全：${containment}`, 'brief_containment');
+  if (containment) fail(`简报文件不能用：${containment}`, 'brief_containment');
   let stat;
-  try { stat = fs.statSync(absolute); } catch (error) { fail(`brief 文件读取失败：${error.code || error.message}`, 'brief_unreadable'); }
-  if (!stat.isFile()) fail(`brief 文件不是文件：${brief}`, 'brief_unreadable');
-  if (stat.size > MAX_BRIEF_BYTES) fail(`brief 文件过大（上限 ${MAX_BRIEF_BYTES} 字节）`, 'brief_oversized');
+  try { stat = fs.statSync(absolute); } catch (error) { fail(`简报文件读取失败：${error.code || error.message}`, 'brief_unreadable'); }
+  if (!stat.isFile()) fail(`简报文件不是文件：${brief}`, 'brief_unreadable');
+  if (stat.size > MAX_BRIEF_BYTES) fail(`简报文件过大（上限 ${MAX_BRIEF_BYTES} 字节）`, 'brief_oversized');
   let briefText;
-  try { briefText = fs.readFileSync(absolute, 'utf8'); } catch (error) { fail(`brief 文件读取失败：${error.code || error.message}`, 'brief_unreadable'); }
+  try { briefText = fs.readFileSync(absolute, 'utf8'); } catch (error) { fail(`简报文件读取失败：${error.code || error.message}`, 'brief_unreadable'); }
   const items = foldAnnotations(config, page);
   const capturedAt = new Date().toISOString();
   const content = renderAnnotationSnapshot({ briefText, page, title: resolved.title, capturedAt, items });

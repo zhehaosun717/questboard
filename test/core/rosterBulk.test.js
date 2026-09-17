@@ -74,7 +74,7 @@ describe('roster bulk preview and apply', () => {
     assert.equal(preview.counts.denied, 1);
     assert.equal(preview.deniedActiveCards[0].id, 'quota');
     assert.match(preview.deniedActiveCards[0].reasons[0].message, /\u786e\u8ba4\u989d\u5ea6\u5df2\u6062\u590d/);
-    assert.match(preview.statusNote, /\u6279\u91cf\u8bbe\u4e3a\u53ef\u7528\u4f1a\u62d2\u7edd/);
+    assert.match(preview.statusNote, /不能批量设为空闲/);
 
     const dir = tmp('qb-roster-bulk-derived-');
     const file = path.join(dir, 'roster.json');
