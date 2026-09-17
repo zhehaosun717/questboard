@@ -338,7 +338,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // to start rather than silently reuse the stale captured card for a removed adventurer.
   function recheckOpen(questId, attempt, adventurer, planned) {
     const current = store.get(questId);
-    if (current?.cancelRequest?.attemptId === attempt.attemptId) return { ok: false, detail: '该派遣已有取消请求，取消确认前不会启动新的效果' };
+    if (current?.cancelRequest?.attemptId === attempt.attemptId) return { ok: false, detail: '这次派遣已经在等取消结果，确认之前不会再启动新的 worker' };
     if (!stillOurs(questId, attempt)) return { ok: false, detail: '排队等待期间任务被改派、释放或取消，这次派遣不会执行' };
     // withFileSets, same as the initial check: runningConflict (behind conflict_running) reads quest.files
     // and quest.conflictKeys. This attempt already holds its own slot (store.assign ran before it was
@@ -423,7 +423,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       } catch (error) {
         // Assignment is already durable, but no child effect has started. Settle this verified
         // never-started attempt through the normal failed transition so a 409 cannot hide a held slot.
-        const detail = `snapshot write failed for attempt ${assignedAttempt.attemptId}; no child was started: ${error.message}`;
+        const detail = `批注快照没写成（派遣 ${assignedAttempt.attemptId}），worker 没有启动：${error.message}`;
         try {
           store.setStatus(quest.id, 'failed', {
             detail, by: 'board', source: 'dispatcher',
@@ -442,7 +442,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       roleCard = writeRoleCard({ config, quest, attempt: { ...assignedAttempt, kind: quest.kind } });
       running = store.recordRoleCard(quest.id, assignedAttempt, roleCard);
     } catch (error) {
-      const detail = `角色卡写入失败（尝试 ${assignedAttempt.attemptId}，worker 尚未启动）：${error.message}`;
+      const detail = `角色卡写入失败（派遣 ${assignedAttempt.attemptId}，worker 还没启动）：${error.message}`;
       try {
         store.setStatus(quest.id, 'failed', {
           detail, by: 'board', source: 'dispatcher',
@@ -460,7 +460,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         if (!runners && !samePlan(plan, rebuiltPlan)) preflight(config, rebuiltPlan);
         plan = rebuiltPlan;
       } catch (error) {
-        const detail = `角色卡计划失败（尝试 ${assignedAttempt.attemptId}，worker 尚未启动）：${error.message}`;
+        const detail = `角色卡计划失败（派遣 ${assignedAttempt.attemptId}，worker 还没启动）：${error.message}`;
         try {
           store.setStatus(quest.id, 'failed', {
             detail, by: 'board', source: 'dispatcher',
@@ -641,7 +641,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: '无法自动停止，请手动处理', instanceId: dispatcherInstanceId, adapter: 'unsupported' });
         return { status: 200, body: { quest: next, result: 'manual_required', request: next.cancelRequest } };
       }
-      const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: '该 lane 没有可验证的取消控制通道，需要人工确认', instanceId: dispatcherInstanceId, adapter: 'unsupported' });
+      const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: '这个通道的包装脚本不支持可核实的停止，需要手动确认', instanceId: dispatcherInstanceId, adapter: 'unsupported' });
       return { status: 200, body: { quest: next, result: 'manual_required', request: next.cancelRequest } };
     }
     const result = await genericWrapper({ attempt: requested.assignee, request, handle: controlHandles.get(request.attemptId) });
@@ -734,7 +734,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         // exit-file summary), so the failure is readable next to real evidence instead of only a message.
         const report = captureReportFor(current);
         safeguard('deliverFromApi setStatus failed', error.message, () => store.setStatus(quest.id, 'failed', {
-          detail: `交付文件没写成：${error.message}`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
+          detail: `交差文件没写成：${error.message}`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
           ...(report ? { report } : {}),
         }));
       })
