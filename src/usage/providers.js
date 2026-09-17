@@ -80,10 +80,10 @@ export const codexAppServer = {
   },
 };
 
-const MINUTES_PER_UNIT = { TIME_UNIT_MINUTE: 1, TIME_UNIT_HOUR: 60, TIME_UNIT_DAY: 1440 };
-
 const KIMI_ISO_KEYS = ['reset_at', 'resetAt', 'reset_time', 'resetTime'];
 const KIMI_REL_KEYS = ['reset_in', 'resetIn', 'ttl', 'window'];
+const KIMI_SIGNAL_KEYS = ['limit', 'remaining', 'used', 'name', 'title', 'scope', 'window', 'duration', 'timeUnit', ...KIMI_ISO_KEYS, ...KIMI_REL_KEYS];
+const KIMI_RESET_UNIT_NOTE = 'Kimi 返回了数字形式的重置时间，不是文档规定的 ISO 字符串；单位按数值大小推断，未经官方确认。';
 
 function safeKimiLabel(value, key) {
   if (typeof value !== 'string') return null;
@@ -95,102 +95,105 @@ function safeKimiLabel(value, key) {
   return /^[\p{L}\p{N}\p{P}\p{Z}]{1,64}$/u.test(trimmed) ? trimmed : null;
 }
 
-export function parseKimiWindowItem(item, { now = Date.now(), index, key } = {}) {
-  if (!item || typeof item !== 'object') return null;
-  const detail = item.detail && typeof item.detail === 'object' ? item.detail : null;
-  const source = detail || item;
+// A response with none of the fields this parser reads is not a quota row, just noise; treating it as one
+// would show a fake "额度窗口" card for data that never arrived.
+function hasKimiSignal(obj) {
+  if (!obj || typeof obj !== 'object') return false;
+  return KIMI_SIGNAL_KEYS.some((k) => obj[k] !== undefined && obj[k] !== null);
+}
 
-  const limit = toNumber(source.limit) ?? (detail ? toNumber(item.limit) : null);
-  const remaining = toNumber(source.remaining) ?? (detail ? toNumber(item.remaining) : null);
-  let used = toNumber(source.used) ?? (detail ? toNumber(item.used) : null);
-  if (used === null && limit !== null && remaining !== null) {
-    used = limit - remaining;
+// limit/remaining/used describe one quota row. Reading them field-by-field from `detail` with a fallback to
+// the outer item can pair numbers that were never meant to go together (a limit from one object, a used count
+// from another); pick a single object up front and read all three from it.
+function kimiNumberSource(item, detail) {
+  if (detail && ['limit', 'remaining', 'used'].some((k) => detail[k] !== undefined && detail[k] !== null)) {
+    return detail;
   }
+  return item;
+}
 
-  let resetsAt = null;
-  let resetDerived = false;
+function parseKimiNumbers(numberSource) {
+  const limit = toNumber(numberSource.limit);
+  const remaining = toNumber(numberSource.remaining);
+  let used = toNumber(numberSource.used);
+  if (used === null && limit !== null && remaining !== null) used = limit - remaining;
+  return { limit, used };
+}
 
-  // Search ISO keys: source first, then item fallback
-  for (const k of KIMI_ISO_KEYS) {
-    const val = source[k];
-    if (val !== undefined && val !== null) {
-      try {
-        resetsAt = isoOrNull(val);
-      } catch {
-        resetsAt = null;
-      }
-      if (resetsAt) break;
-    }
+function kimiIsoFromValue(value) {
+  if (typeof value === 'string') return { resetsAt: isoOrNull(value), resetUnitAssumed: false };
+  if (typeof value !== 'number' || !Number.isFinite(value)) return { resetsAt: null, resetUnitAssumed: false };
+  // Report 885 documents reset_at/resetAt/reset_time/resetTime as ISO strings only; a numeric value here is
+  // undocumented, so its unit is guessed from its size the same way the Codex app-server reader guesses
+  // seconds versus milliseconds.
+  const resetUnitAssumed = Math.abs(value) > 1e12;
+  const ms = resetUnitAssumed ? value : value * 1000;
+  if (Math.abs(ms) > 8.64e15) return { resetsAt: null, resetUnitAssumed };
+  try {
+    return { resetsAt: new Date(ms).toISOString(), resetUnitAssumed };
+  } catch {
+    return { resetsAt: null, resetUnitAssumed };
   }
-  if (!resetsAt && detail) {
+}
+
+function findKimiIsoReset(source, item, detail) {
+  for (const owner of detail ? [source, item] : [source]) {
     for (const k of KIMI_ISO_KEYS) {
-      const val = item[k];
-      if (val !== undefined && val !== null) {
-        try {
-          resetsAt = isoOrNull(val);
-        } catch {
-          resetsAt = null;
-        }
-        if (resetsAt) break;
-      }
+      const val = owner[k];
+      if (val === undefined || val === null) continue;
+      const found = kimiIsoFromValue(val);
+      if (found.resetsAt) return found;
     }
   }
+  return { resetsAt: null, resetUnitAssumed: false };
+}
 
-  // Search relative keys: source first, then item fallback
-  if (!resetsAt) {
+function findKimiRelativeReset(source, item, detail, now) {
+  for (const owner of detail ? [source, item] : [source]) {
     for (const k of KIMI_REL_KEYS) {
-      const val = source[k];
-      if (val !== undefined && val !== null) {
-        const sec = toNumber(val);
-        if (sec !== null && sec >= 0) {
-          const ms = now + sec * 1000;
-          if (Math.abs(ms) <= 8.64e15) {
-            try {
-              resetsAt = new Date(ms).toISOString();
-              resetDerived = true;
-              break;
-            } catch {
-              // Ignore RangeError on huge numbers; drop this reset
-            }
-          }
-        }
+      const val = owner[k];
+      if (val === undefined || val === null) continue;
+      const sec = toNumber(val);
+      if (sec === null || sec < 0) continue;
+      const ms = now + sec * 1000;
+      if (Math.abs(ms) > 8.64e15) continue;
+      try {
+        return { resetsAt: new Date(ms).toISOString(), resetDerived: true };
+      } catch {
+        // Ignore RangeError on huge numbers; try the next key
       }
     }
   }
-  if (!resetsAt && detail) {
-    for (const k of KIMI_REL_KEYS) {
-      const val = item[k];
-      if (val !== undefined && val !== null) {
-        const sec = toNumber(val);
-        if (sec !== null && sec >= 0) {
-          const ms = now + sec * 1000;
-          if (Math.abs(ms) <= 8.64e15) {
-            try {
-              resetsAt = new Date(ms).toISOString();
-              resetDerived = true;
-              break;
-            } catch {
-              // Ignore RangeError on huge numbers; drop this reset
-            }
-          }
-        }
-      }
-    }
-  }
+  return { resetsAt: null, resetDerived: false };
+}
 
-  const isResetPast = resetsAt !== null && Date.parse(resetsAt) <= now;
-  let usedPercent = null;
-  let state = undefined;
-  if (isResetPast) {
-    state = 'reset';
-    usedPercent = null;
-  } else if (limit !== null && limit > 0 && used !== null) {
-    usedPercent = percent(used, limit);
-  } else {
-    usedPercent = null;
-  }
+function parseKimiReset(source, item, detail, now) {
+  const iso = findKimiIsoReset(source, item, detail);
+  if (iso.resetsAt) return { resetsAt: iso.resetsAt, resetDerived: false, resetUnitAssumed: iso.resetUnitAssumed };
+  const relative = findKimiRelativeReset(source, item, detail, now);
+  return { resetsAt: relative.resetsAt, resetDerived: relative.resetDerived, resetUnitAssumed: false };
+}
 
-  // Label order per Report 885: name / title / scope, then duration+timeUnit (substring MINUTE/HOUR/DAY), then 额度 n
+function kimiDurationLabel(source, item, detail) {
+  const win = (item.window && typeof item.window === 'object')
+    ? item.window
+    : (detail && detail.window && typeof detail.window === 'object' ? detail.window : {});
+  const duration = toNumber(win.duration) ?? toNumber(source.duration) ?? (detail ? toNumber(item.duration) : null);
+  const timeUnit = win.timeUnit ?? source.timeUnit ?? (detail ? item.timeUnit : null);
+  let unitMinutes = null;
+  if (typeof timeUnit === 'string') {
+    const upper = timeUnit.toUpperCase();
+    if (upper.includes('DAY')) unitMinutes = 1440;
+    else if (upper.includes('HOUR')) unitMinutes = 60;
+    else if (upper.includes('MINUTE')) unitMinutes = 1;
+  }
+  const minutes = (unitMinutes && duration !== null) ? duration * unitMinutes : null;
+  return minutes !== null ? windowLabel(minutes) : null;
+}
+
+// Label order per Report 885: name / title / scope, then duration+timeUnit, then a positional fallback. An
+// empty or non-string candidate is skipped rather than accepted, so it falls through to the next source.
+function parseKimiLabel(source, item, detail, index, key) {
   const candidates = [
     source.name,
     detail ? item.name : null,
@@ -199,50 +202,33 @@ export function parseKimiWindowItem(item, { now = Date.now(), index, key } = {})
     source.scope,
     detail ? item.scope : null,
   ];
-  let label = null;
   for (const candidate of candidates) {
     if (typeof candidate === 'string' && candidate.trim()) {
       const safe = safeKimiLabel(candidate, key);
-      if (safe) {
-        label = safe;
-        break;
-      }
+      if (safe) return safe;
     }
   }
+  return kimiDurationLabel(source, item, detail) || (typeof index === 'number' ? `额度 ${index + 1}` : '额度窗口');
+}
 
-  if (!label) {
-    const win = (item.window && typeof item.window === 'object')
-      ? item.window
-      : (detail && detail.window && typeof detail.window === 'object' ? detail.window : {});
-    const duration = toNumber(win.duration) ?? toNumber(source.duration) ?? (detail ? toNumber(item.duration) : null);
-    const timeUnit = win.timeUnit ?? source.timeUnit ?? (detail ? item.timeUnit : null);
-    let unitMinutes = null;
-    if (typeof timeUnit === 'string') {
-      const upper = timeUnit.toUpperCase();
-      if (upper.includes('DAY')) unitMinutes = 1440;
-      else if (upper.includes('HOUR')) unitMinutes = 60;
-      else if (upper.includes('MINUTE')) unitMinutes = 1;
-    }
-    const minutes = (unitMinutes && duration !== null) ? duration * unitMinutes : null;
-    if (minutes !== null) {
-      label = windowLabel(minutes);
-    }
-  }
+export function parseKimiWindowItem(item, { now = Date.now(), index, key } = {}) {
+  if (!item || typeof item !== 'object') return null;
+  const detail = item.detail && typeof item.detail === 'object' ? item.detail : null;
+  if (!hasKimiSignal(item) && !hasKimiSignal(detail)) return null;
+  const source = detail || item;
 
-  if (!label) {
-    if (typeof index === 'number') {
-      label = `额度 ${index + 1}`;
-    } else {
-      label = '额度窗口';
-    }
-  }
+  const { limit, used } = parseKimiNumbers(kimiNumberSource(item, detail));
+  const reset = parseKimiReset(source, item, detail, now);
+  const isResetPast = reset.resetsAt !== null && Date.parse(reset.resetsAt) <= now;
+  const usedPercent = isResetPast ? null : (limit !== null && limit > 0 && used !== null ? percent(used, limit) : null);
 
   return {
-    label,
+    label: parseKimiLabel(source, item, detail, index, key),
     usedPercent,
-    resetsAt,
-    ...(resetDerived ? { resetDerived: true } : {}),
-    ...(state ? { state } : {}),
+    resetsAt: reset.resetsAt,
+    ...(reset.resetDerived ? { resetDerived: true } : {}),
+    ...(isResetPast ? { state: 'reset' } : {}),
+    ...(reset.resetUnitAssumed ? { resetUnitAssumed: true } : {}),
   };
 }
 
@@ -273,7 +259,8 @@ export const kimi = {
       }
     }
     if (!windows.length) throw new UsageError('no_quota_data', { provider: 'Kimi' });
-    return { windows };
+    const resetUnitAssumed = windows.some((w) => w.resetUnitAssumed === true);
+    return { windows, ...(resetUnitAssumed ? { note: KIMI_RESET_UNIT_NOTE } : {}) };
   },
 };
 

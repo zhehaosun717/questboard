@@ -419,6 +419,55 @@ describe('usage providers', () => {
     assert.equal(k.windows[4].label, '本期总额度');
   });
 
+  it('falls back to title when a Kimi limit has an empty string name', async () => {
+    const fetchImpl = async () => json(200, {
+      limits: [{ name: '', title: 'Weekly limit', limit: '100', used: '50' }],
+    });
+    const result = await kimi.fetch({ fetchImpl, key: 'test-key' });
+    assert.equal(result.windows[0].label, 'Weekly limit');
+    assert.equal(result.windows[0].usedPercent, 50);
+  });
+
+  it('reads Kimi limit and used from the same object instead of mixing detail and item', async () => {
+    // The outer item's limit/used are a decoy: detail carries limit and remaining, so used must be derived
+    // from detail's own numbers (100-60=40), never borrowed from the item's unrelated used:5.
+    const fetchImpl = async () => json(200, {
+      limits: [{ limit: 999, used: 5, detail: { limit: 100, remaining: 60 } }],
+    });
+    const result = await kimi.fetch({ fetchImpl, key: 'test-key' });
+    assert.equal(result.windows[0].usedPercent, 40);
+  });
+
+  it('decides a numeric Kimi reset_at unit by magnitude, flags it, and notes the assumption', async () => {
+    const now = 1000;
+    const smallFetch = async () => json(200, {
+      limits: [{ name: 'seconds-row', limit: '10', used: '1', reset_at: 2000000000 }],
+    });
+    const smallResult = await kimi.fetch({ fetchImpl: smallFetch, key: 'test-key', now });
+    assert.equal(smallResult.windows[0].resetsAt, new Date(2000000000 * 1000).toISOString());
+    assert.equal(smallResult.windows[0].resetUnitAssumed, undefined);
+    assert.equal(smallResult.note, undefined);
+
+    const bigFetch = async () => json(200, {
+      limits: [{ name: 'ms-row', limit: '10', used: '1', reset_at: 1758000000000 }],
+    });
+    const bigResult = await kimi.fetch({ fetchImpl: bigFetch, key: 'test-key', now });
+    assert.equal(bigResult.windows[0].resetsAt, new Date(1758000000000).toISOString());
+    assert.equal(bigResult.windows[0].resetUnitAssumed, true);
+    assert.match(bigResult.note, /单位按数值大小推断/);
+  });
+
+  it('treats an all-empty Kimi response as no quota data, not a fresh success', async () => {
+    await assert.rejects(
+      kimi.fetch({ fetchImpl: async () => json(200, { limits: [{}] }), key: 'test-key' }),
+      /Kimi/,
+    );
+    await assert.rejects(
+      kimi.fetch({ fetchImpl: async () => json(200, { usage: {} }), key: 'test-key' }),
+      /Kimi/,
+    );
+  });
+
   it('drops resets on huge relative resets or updated_at values instead of throwing RangeError', async () => {
     const fetchImpl = async () => json(200, {
       limits: [
