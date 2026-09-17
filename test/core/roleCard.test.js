@@ -25,6 +25,54 @@ describe('role cards and role delivery', () => {
     assert.equal(fs.readFileSync(file, 'utf8'), text);
   });
 
+  it('reports its own directory failure instead of borrowing the snapshot wording', () => {
+    const project = makeProject();
+    const briefPath = 'docs/briefs/RUN-4-the-way-back.md';
+    project.write(briefPath, '# Run 4\n');
+    fs.mkdirSync(project.config.paths.data, { recursive: true });
+    // A file where the dispatch-briefs folder belongs: the shared helper's mkdir fails, and the role card
+    // must name that failure as its own step with its own code — never as the annotation snapshot's.
+    fs.writeFileSync(path.join(project.config.paths.data, 'dispatch-briefs'), 'blocking file');
+    const attempt = { attemptId: 'attempt-1', name: 'run4', lane: 'codex', at: '2026-09-16T12:00:00.000Z' };
+    assert.throws(
+      () => writeRoleCard({ config: project.config, quest: quest({ id: 'RUN-4', brief: briefPath }), attempt }),
+      (error) => {
+        assert.equal(error.code, 'role_card_write_failed');
+        assert.match(error.message, /^角色卡目录创建失败：/);
+        assert.doesNotMatch(error.message, /批注快照/);
+        return true;
+      },
+    );
+  });
+
+  it('names a card-file junction as the role card, never as the snapshot', () => {
+    const project = makeProject();
+    const briefPath = 'docs/briefs/RUN-4-the-way-back.md';
+    project.write(briefPath, '# Run 4\n');
+    fs.mkdirSync(path.join(project.config.paths.data, 'dispatch-briefs', 'RUN-4'), { recursive: true });
+    // A junction where the card file belongs: the shared helper's realpath check is what notices, and the
+    // role card must name that refusal as its own step with its own code — never as the annotation snapshot's.
+    const outside = path.join(project.root, '..', `qb-rolecard-outside-${path.basename(project.root)}`);
+    fs.mkdirSync(outside, { recursive: true });
+    const cardFile = path.join(project.config.paths.data, 'dispatch-briefs', 'RUN-4', 'RUN-4-attempt-1.role.md');
+    try {
+      fs.symlinkSync(outside, cardFile, 'junction');
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) return; // junctions unavailable on this filesystem
+      throw error;
+    }
+    const attempt = { attemptId: 'attempt-1', name: 'run4', lane: 'codex', at: '2026-09-16T12:00:00.000Z' };
+    assert.throws(
+      () => writeRoleCard({ config: project.config, quest: quest({ id: 'RUN-4', brief: briefPath }), attempt }),
+      (error) => {
+        assert.equal(error.code, 'role_card_containment');
+        assert.match(error.message, /^角色卡路径不能用：/);
+        assert.doesNotMatch(error.message, /批注快照/);
+        return true;
+      },
+    );
+  });
+
   it('fills the optional role placeholder without changing a lane that does not use it', () => {
     const project = makeProject({ lanes: {
       plain: { run: ['tools/run.sh', '{name}', '{brief}'], outputDir: '.work/plain' },

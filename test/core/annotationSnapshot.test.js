@@ -349,4 +349,22 @@ describe('annotationSnapshot core', () => {
     assert.equal(prepared.page, 'robot8');
     assert.equal(fs.existsSync(project.config.paths.data), false, 'prepare must not create the data folder, and must not report it as broken');
   });
+
+  it('keeps its own wording and code when dispatch-briefs cannot be created', () => {
+    const project = makeProject({ reviewPages: { dir: 'docs/art' } });
+    project.write('docs/briefs/ART-39-x.md', '# original');
+    project.write('docs/art/review_robot8.html', manifest('robot8'));
+    const prepared = prepareAnnotationSnapshot({ config: project.config, quest: artQuest() });
+    fs.mkdirSync(project.config.paths.data, { recursive: true });
+    // The same blocked directory the role-card writer names its own way: the snapshot keeps its wording.
+    fs.writeFileSync(path.join(project.config.paths.data, 'dispatch-briefs'), 'blocking file');
+    assert.throws(
+      () => writeAnnotationSnapshot({ config: project.config, packageId: 'ART-39', attemptId: 'attempt-1', ...prepared }),
+      (error) => {
+        assert.equal(error.code, 'snapshot_write_failed');
+        assert.match(error.message, /^批注快照目录创建失败：/);
+        return true;
+      },
+    );
+  });
 });

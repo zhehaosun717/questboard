@@ -22,6 +22,17 @@ function fail(message, code) {
   throw new RoleCardError(message, code);
 }
 
+// safeAttemptTarget shares its containment and mkdir checks with the snapshot writer, but the failures here
+// must name the role card: a directory problem while writing a role card is a role-card step failing, and
+// the settled detail and reason code have to say so.
+const ROLE_CARD_FAILURES = {
+  containment: (issue) => fail(`角色卡路径不能用：${issue}`, 'role_card_containment'),
+  outside: (issue) => fail(`角色卡路径在项目外：${issue}`, 'role_card_containment'),
+  dataRoot: (issue) => fail(`派遣数据目录不能用：${issue}`, 'role_card_containment'),
+  dataRootWrite: (error) => fail(`派遣数据目录创建失败：${error.code || error.message}`, 'role_card_write_failed'),
+  directoryWrite: (error) => fail(`角色卡目录创建失败：${error.code || error.message}`, 'role_card_write_failed'),
+};
+
 function relative(root, file) {
   const value = path.relative(root, file).split(path.sep).join('/');
   if (value === '..' || value.startsWith('../')) fail('角色卡路径在项目之外', 'role_card_containment');
@@ -106,7 +117,7 @@ export function writeRoleCard({ config, quest, attempt }) {
     briefDigest: brief.digest,
     reportPath,
   });
-  const target = safeAttemptTarget(config, quest.id, attempt.attemptId, '.role.md');
+  const target = safeAttemptTarget(config, quest.id, attempt.attemptId, '.role.md', ROLE_CARD_FAILURES);
   try {
     writeExclusiveFile(target.file, content);
   } catch (error) {

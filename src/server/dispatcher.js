@@ -471,13 +471,19 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       }
     }
     if (needsRole || annotationPreparation) {
+      let rebuilt = false;
       try {
         const effectiveBrief = annotationSnapshot?.path || quest.brief;
         const rebuiltPlan = planDispatch(config, quest, adventurer, name, effectiveBrief, roleCard.path);
+        rebuilt = true;
         if (!runners && !samePlan(plan, rebuiltPlan)) preflight(config, rebuiltPlan);
         plan = rebuiltPlan;
       } catch (error) {
-        const detail = `角色卡计划失败（派遣 ${assignedAttempt.attemptId}，worker 还没启动）：${error.message}`;
+        // Name the step that actually failed: planDispatch reads the role card into a session prompt only for
+        // a roleInPrompt lane, so any other throw while rebuilding belongs to the rebuilt plan.
+        const roleStep = !rebuilt && Boolean(config.lanes[adventurer.lane]?.session) && config.lanes[adventurer.lane]?.roleInPrompt === true;
+        const what = roleStep ? '角色卡计划失败' : '派遣计划重建失败';
+        const detail = `${what}（派遣 ${assignedAttempt.attemptId}，worker 还没启动）：${error.message}`;
         try {
           store.setStatus(quest.id, 'failed', {
             detail, by: 'board', source: 'dispatcher',

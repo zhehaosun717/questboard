@@ -232,8 +232,19 @@ export function renderAnnotationSnapshot({ briefText, page, title, capturedAt, i
 }
 
 // Shared by all immutable per-attempt artifacts. The suffix is deliberately allowlisted: callers may choose
-// the annotation snapshot or role-card name, but may not turn this helper into an arbitrary file writer.
-export function safeAttemptTarget(config, packageId, attemptId, suffix = '.md') {
+// the annotation snapshot or role-card name, but may not turn this helper into an arbitrary file writer. The
+// thrower group lets each caller name its own artifact in its own failure text and code while sharing every
+// containment and mkdir check: the snapshot keeps its historical wording through SNAPSHOT_FAILURES, the role
+// card passes its own group from roleCard.js, so the same directory problem never reads as the other's step.
+export const SNAPSHOT_FAILURES = {
+  containment: (issue) => fail(`批注快照路径不能用：${issue}`, 'snapshot_containment'),
+  outside: (issue) => fail(`批注快照路径在项目外：${issue}`, 'snapshot_containment'),
+  dataRoot: (issue) => fail(`派遣数据目录不能用：${issue}`, 'snapshot_containment'),
+  dataRootWrite: (error) => fail(`派遣数据目录创建失败：${error.code || error.message}`, 'snapshot_write_failed'),
+  directoryWrite: (error) => fail(`批注快照目录创建失败：${error.code || error.message}`, 'snapshot_write_failed'),
+};
+
+export function safeAttemptTarget(config, packageId, attemptId, suffix = '.md', failures = SNAPSHOT_FAILURES) {
   const packagePattern = packageIdPattern(config);
   if (!packagePattern.test(packageId)) fail(`委托编号 ${packageId} 不符合这个项目的编号规则`, 'invalid_package');
   if (!ATTEMPT_PATTERN.test(attemptId)) fail('这次派遣的编号格式不对', 'invalid_attempt');
@@ -242,22 +253,22 @@ export function safeAttemptTarget(config, packageId, attemptId, suffix = '.md') 
   const file = path.join(directory, `${packageId}-${attemptId}${suffix}`);
   const assertContainment = (target) => {
     const dataIssue = realpathContainmentIssue(config.paths.data, target);
-    if (dataIssue) fail(`批注快照路径不能用：${dataIssue}`, 'snapshot_containment');
+    if (dataIssue) failures.containment(dataIssue);
     const projectIssue = realpathContainmentIssue(config.root, target);
-    if (projectIssue) fail(`批注快照路径在项目外：${projectIssue}`, 'snapshot_containment');
+    if (projectIssue) failures.outside(projectIssue);
   };
   // The first role card for a fresh project may be the first artifact under data. Validate the data root
   // from the project before creating it, then the realpath checks below can safely inspect it.
   const dataRootIssue = realpathContainmentIssue(config.root, config.paths.data);
-  if (dataRootIssue) fail(`派遣数据目录不能用：${dataRootIssue}`, 'snapshot_containment');
+  if (dataRootIssue) failures.dataRoot(dataRootIssue);
   try { fs.mkdirSync(config.paths.data, { recursive: true }); }
-  catch (error) { fail(`派遣数据目录创建失败：${error.code || error.message}`, 'snapshot_write_failed'); }
+  catch (error) { failures.dataRootWrite(error); }
   // Check before mkdir so an existing dispatch-briefs junction cannot create a package folder outside data.
   assertContainment(directory);
   try { fs.mkdirSync(directory, { recursive: true }); }
-  catch (error) { fail(`批注快照目录创建失败：${error.code || error.message}`, 'snapshot_write_failed'); }
+  catch (error) { failures.directoryWrite(error); }
   const issue = realpathContainmentIssue(config.paths.data, file);
-  if (issue) fail(`批注快照路径不能用：${issue}`, 'snapshot_containment');
+  if (issue) failures.containment(issue);
   // Check again after mkdir in case a link appears during the filesystem operation.
   assertContainment(directory);
   assertContainment(file);
