@@ -238,6 +238,48 @@ describe('QuestStore', () => {
     assert.equal(events().filter((e) => e.event === 'delivered').length, 2, 'the second attempt emits its own delivered, independently');
   });
 
+  it('F5: restoring delivered after it moved on (delivered -> failed -> delivered) stamps restoredAt without moving the original at, and fires no new event', () => {
+    store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+    store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
+    const delivered = collectorStatus('RUN-4', 'delivered', { detail: 'ok first' });
+    const firstDeliveredAt = delivered.terminalFact.statuses.delivered.at;
+    assert.equal(delivered.terminalFact.statuses.delivered.restoredAt, undefined, 'a first delivery carries no restoredAt yet');
+
+    collectorStatus('RUN-4', 'failed', { detail: 'crashed after delivery' });
+    const countAfterFailed = events().length;
+
+    const restored = collectorStatus('RUN-4', 'delivered', { detail: 'redelivered ok' });
+    assert.equal(restored.status, 'delivered', 'the status moves back to delivered');
+    assert.equal(restored.terminalFact.statuses.delivered.at, firstDeliveredAt, 'the original at is never rewritten');
+    assert.ok(restored.terminalFact.statuses.delivered.restoredAt, 'the later delivery is stamped as restoredAt');
+    assert.notEqual(restored.terminalFact.statuses.delivered.restoredAt, firstDeliveredAt, 'restoredAt records the later time, not the first one');
+    // failed evidence is untouched by the restore.
+    assert.equal(restored.terminalFact.statuses.failed.detail, 'crashed after delivery');
+
+    assert.equal(events().length, countAfterFailed + 1, 'the restore appends exactly one event');
+    assert.equal(events().at(-1).event, 'status_note', 'no second delivered event is fired for the restore');
+    assert.equal(events().filter((e) => e.event === 'delivered').length, 1, 'still only the one original delivered event');
+
+    // Durable: a fresh store reading the same quests.jsonl sees the same restoredAt stamp.
+    const reloaded = new QuestStore(project.config);
+    assert.deepEqual(reloaded.get('RUN-4').terminalFact.statuses.delivered, restored.terminalFact.statuses.delivered);
+  });
+
+  it('N3 ruling (round 6): restoring failed (delivered -> failed -> delivered -> failed) never stamps restoredAt on the failed entry', () => {
+    // The failureContext N3 ruling relies on the store keeping this minimal: only a restored 'delivered'
+    // ever gets a restoredAt stamp, so a repeated failure of the same attempt has no later time to read
+    // off the fact, and questEvidence must fall back to the current status instead.
+    store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+    store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
+    collectorStatus('RUN-4', 'delivered', { detail: 'ok first' });
+    collectorStatus('RUN-4', 'failed', { detail: 'crashed' });
+    collectorStatus('RUN-4', 'delivered', { detail: 'redelivered ok' });
+    const refailed = collectorStatus('RUN-4', 'failed', { detail: 'crashed again' });
+    assert.equal(refailed.status, 'failed');
+    assert.equal(refailed.terminalFact.statuses.failed.restoredAt, undefined, 'a failed/bounced restore is never stamped with restoredAt');
+    assert.equal(refailed.terminalFact.statuses.failed.detail, 'crashed', 'the fact keeps the first failed evidence; new text is a status_note, not a rewrite');
+  });
+
   it('applies the same dedup to a repeated failed/bounced, each independently of the others', () => {
     store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
     store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });

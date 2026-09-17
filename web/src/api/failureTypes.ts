@@ -7,7 +7,7 @@ import type { Snapshot } from './types';
  */
 export interface RecentFailure {
   questId: string;
-  at: string;
+  at: string | null;
   summary: string;
 }
 
@@ -43,7 +43,9 @@ export function failureForCard(
   const entry = recentFailuresOf(snap)[cardId];
   if (!entry || typeof entry !== 'object') return null;
   if (!entry.questId || typeof entry.questId !== 'string') return null;
-  if (!entry.at || typeof entry.at !== 'string') return null;
+  // N1/F4: the server sends `at: null` for legacy rows with no provable time; that is a valid,
+  // still-worth-showing failure (the web renders 时间未知), not a malformed entry to drop.
+  if (entry.at !== null && (typeof entry.at !== 'string' || !entry.at)) return null;
   if (typeof entry.summary !== 'string') return null;
   return entry;
 }

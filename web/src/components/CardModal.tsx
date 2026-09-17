@@ -15,7 +15,8 @@ interface CardModalProps {
   onError: (msg: string) => void;
 }
 
-function failureTimeLabel(iso: string): string {
+function failureTimeLabel(iso: string | null): string {
+  if (iso === null) return '时间未知';
   if (!Number.isFinite(Date.parse(iso))) return iso.slice(0, 40);
   return `${formatMonthDay(iso)} ${formatClock(iso)}`;
 }

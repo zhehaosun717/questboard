@@ -111,6 +111,12 @@ describe('recentFailuresOf / failureForCard / failureQuestExists', () => {
     expect(failureForCard(loaded, 'card-c')).toBeNull();
   });
 
+  it('F4: accepts at: null (a legacy row with no provable time) instead of dropping the failure', () => {
+    const noTime: RecentFailure = { questId: 'RUN-3', at: null, summary: 'legacy error' };
+    const loaded = withFailures(snapshot([card('card-a')]), { 'card-a': noTime });
+    expect(failureForCard(loaded, 'card-a')).toEqual(noTime);
+  });
+
   it('treats a non-object recentFailures value as absent', () => {
     const snap = snapshot([card('card-a')]);
     const broken = { ...snap, recentFailures: 'nope' } as unknown as Snapshot;

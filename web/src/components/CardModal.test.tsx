@@ -47,7 +47,7 @@ describe('CardModal recent execution failure (real JSX)', () => {
     const html = render(failure, () => {});
     expect(html).toContain('最近一次执行失败');
     expect(html).toContain('RUN-7');
-    const monthDay = new Date(failure.at).toLocaleDateString('zh-CN', {
+    const monthDay = new Date(failure.at as string).toLocaleDateString('zh-CN', {
       month: 'numeric',
       day: 'numeric',
     });
@@ -72,6 +72,12 @@ describe('CardModal recent execution failure (real JSX)', () => {
   it('ignores an unusable timestamp without crashing', () => {
     const html = render({ ...failure, at: 'not-a-date' });
     expect(html).toContain('not-a-date');
+  });
+
+  it('F4: shows 时间未知 instead of dropping the failure when at is null (legacy, no provable time)', () => {
+    const html = render({ ...failure, at: null });
+    expect(html).toContain('最近一次执行失败');
+    expect(html).toContain('时间未知');
   });
 
   it('changes nothing for a card without failure, and status editing still renders', () => {

@@ -686,10 +686,20 @@ export class QuestStore extends EventEmitter {
       const statusChanging = quest.status !== status;
       const hasNewText = Boolean(detail) && detail !== firstText;
       if (!statusChanging && !hasNewText) return quest;
+      // PM ruling (F5): restoring 'delivered' after it moved on (e.g. delivered -> failed -> delivered,
+      // same attempt) stamps the recorded delivered evidence with the time of this later delivery, keeping
+      // the original `at` — the store still keeps only the FIRST `at`, so a later failure of the same
+      // attempt cannot be mistaken for happening after this restore. No new event, no other status shape
+      // changes: this is additive to the existing delivered entry only.
+      const restoringDelivered = statusChanging && status === 'delivered' && recorded;
+      const factNext = restoringDelivered
+        ? { ...fact, statuses: { ...fact.statuses, delivered: { ...recorded, restoredAt: now() } } }
+        : null;
       const next = this.save({
         ...quest,
         status,
         ...(statusChanging ? { lastDetail: firstText.slice(0, 2000) } : {}),
+        ...(factNext ? { terminalFact: factNext } : {}),
         updatedAt: now(),
       });
       const record = this.emitEvent(next, 'status_note', { by, detail: detail || `状态改回 ${status}`, assignee }, { notify: false });

@@ -29,7 +29,8 @@ function plainSummary(value) {
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return text.slice(0, MAX_SUMMARY);
+  // Cut on code points (never split surrogate pair / inside an emoji) up to MAX_SUMMARY code points.
+  return Array.from(text.slice(0, MAX_SUMMARY * 2)).slice(0, MAX_SUMMARY).join('');
 }
 
 function timestamp(at) {
@@ -45,6 +46,18 @@ function lastDispatchWithCard(quest) {
   return last;
 }
 
+// PM ruling (F5): the store stamps a restored 'delivered' entry with `restoredAt` (a later re-delivery of
+// the same attempt) without ever moving its original `at`. The evidence time for a delivered fact is
+// therefore the later of the two, never just the first `at`.
+function deliveredEffectiveMs(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const atMs = timestamp(entry.at);
+  const restoredMs = timestamp(entry.restoredAt);
+  if (atMs === null) return restoredMs;
+  if (restoredMs === null) return atMs;
+  return Math.max(atMs, restoredMs);
+}
+
 // Evidence gathered from one quest:
 //   { cardId, kind: 'failure' | 'delivered', at, questId, summary }
 function questEvidence(quest) {
@@ -53,10 +66,63 @@ function questEvidence(quest) {
   const fact = quest.terminalFact;
   if (fact && fact.statuses && typeof fact.statuses === 'object') {
     const dispatches = Array.isArray(quest.dispatches) ? quest.dispatches : [];
-    const attempt = dispatches.find((row) => row && row.adventurerId && factMatchesDispatch(fact, row));
-    // No provable card identity: leave this quest unassociated, never guess.
-    if (!attempt) return [];
-    const cardId = attempt.adventurerId;
+    const matching = dispatches.filter((row) => row && row.adventurerId && factMatchesDispatch(fact, row));
+    const distinctCards = new Set(matching.map((row) => row.adventurerId));
+    // No provable card identity, or ambiguous matches: blame no card unless exactly one distinct card matches.
+    if (distinctCards.size !== 1) return [];
+    const cardId = [...distinctCards][0];
+    const lastDispatch = dispatches[dispatches.length - 1];
+    const isLatestAttempt = Boolean(lastDispatch && factMatchesDispatch(fact, lastDispatch));
+    const hasDeliveredFact = fact.statuses.delivered && typeof fact.statuses.delivered === 'object';
+    const deliveredMs = hasDeliveredFact ? deliveredEffectiveMs(fact.statuses.delivered) : null;
+    // The store keeps only the FIRST delivered record's `at` (a re-delivery stamps `restoredAt`
+    // instead of moving `at`) — so a delivered-then-failed-then-delivered attempt still has a
+    // delivered fact whose `at` is older than the failure; `deliveredMs` above already accounts
+    // for `restoredAt`. A failure/bounced fact newer than that effective time means the delivery
+    // was not the last thing that happened.
+    const failureNewerThanDelivered = hasDeliveredFact && FAILURE_STATUSES.some((status) => {
+      const entry = fact.statuses[status];
+      if (!entry || typeof entry !== 'object') return false;
+      const ms = timestamp(entry.at);
+      return ms !== null && deliveredMs !== null && ms > deliveredMs;
+    });
+
+    // PM ruling G1: the failure note is cleared when the same attempt later ended delivered,
+    // or when the quest was accepted (status done) after the failure; a later failure of a
+    // newer attempt shows again as usual. Never clear on a mere status_note or ruling. F2: a
+    // move to reviewing with no recorded delivered fact is not a delivery and not acceptance
+    // either, so it must not clear. F3: status === 'delivered' is reached after a failure only
+    // through a real delivered report or a restore, so it always clears; but 'reviewing' can
+    // also be reached straight from 'failed' with an older, unrelated delivered fact still on
+    // record, so it clears only when no failed/bounced fact is newer than that delivered fact.
+    const cleared = quest.status === 'done'
+      || (isLatestAttempt && hasDeliveredFact && (
+        quest.status === 'delivered'
+        || (quest.status === 'reviewing' && !failureNewerThanDelivered)
+      ));
+    if (cleared) {
+      // F1: time the clearing evidence from the fact's own delivered record, never from
+      // quest.updatedAt. A later, unrelated save on this very quest (a ruling, a metadata
+      // update, a re-post) moves updatedAt without moving the real delivery time; using
+      // updatedAt let that later save outrank and hide a genuinely newer failure of the same
+      // card on another quest.
+      if (hasDeliveredFact) {
+        const deliveredAt = fact.statuses.delivered.at;
+        return [{ cardId, kind: 'delivered', at: deliveredAt, ms: deliveredMs, questId: quest.id, summary: '' }];
+      }
+      // Accepted (done) with no delivered fact ever recorded for this attempt (e.g. failed ->
+      // done): there is no fact-based time to anchor card-wide clearing evidence to. Hide only
+      // this quest's own failure instead of inventing evidence at a moving time.
+      return [];
+    }
+
+    // PM ruling (N3): the current status wins. When the latest attempt's current status is itself a
+    // failure, the card shows that failure whatever earlier delivered fact this same attempt also
+    // recorded — the store keeps only the first `failed`/`bounced` entry's `at` (never re-stamped on a
+    // repeat failure, by design: F5/F6's restoredAt is delivered-only), so an old delivered fact's
+    // effective time could otherwise misread as newer than a since-repeated failure and hide it.
+    const failingNow = isLatestAttempt && FAILURE_STATUSES.includes(quest.status);
+
     const evidence = [];
     for (const status of FAILURE_STATUSES) {
       const entry = fact.statuses[status];
@@ -65,20 +131,33 @@ function questEvidence(quest) {
       }
     }
     const delivered = fact.statuses.delivered;
-    if (delivered && typeof delivered === 'object') {
-      evidence.push({ cardId, kind: 'delivered', at: delivered.at, questId: quest.id, summary: '' });
+    // PM ruling (F6): time this evidence the same way the cleared branch above does — the later of `at`
+    // and `restoredAt` (`deliveredMs`, already computed) — everywhere delivered evidence is pushed, not
+    // only when the quest's own status already reads as cleared. Skipped entirely while failingNow.
+    if (!failingNow && delivered && typeof delivered === 'object') {
+      evidence.push({ cardId, kind: 'delivered', at: delivered.at, ms: deliveredMs, questId: quest.id, summary: '' });
     }
     return evidence;
   }
-  // Legacy quests saved before terminal facts existed: only the quest row
-  // itself can speak, and only when its latest dispatch names the card.
+  // Legacy quests saved before terminal facts existed: only the quest row itself can speak, and
+  // only when its latest dispatch names the card. PM ruling (N2): this path never reads
+  // quest.updatedAt — a later ruling or metadata update on this very quest moves updatedAt
+  // without moving when the dispatch actually ran, and using it let that later, unrelated save
+  // outrank and hide a genuinely newer fact-based failure of the same card elsewhere. The only
+  // time this path can speak from is the attempt's own dispatch time.
   const attempt = lastDispatchWithCard(quest);
   if (!attempt) return [];
+  const attemptMs = timestamp(attempt.at);
+  // No usable dispatch time at all: keep `at` null for the web's "时间未知" label, but still let
+  // the evidence participate in ordering as the oldest possible fact rather than dropping it
+  // (ms undefined would be recomputed from the null `at` and skipped entirely).
+  const attemptAt = attemptMs !== null ? attempt.at : null;
+  const ms = attemptMs !== null ? attemptMs : 0;
   if (FAILURE_STATUSES.includes(quest.status)) {
-    return [{ cardId: attempt.adventurerId, kind: 'failure', at: quest.updatedAt, questId: quest.id, summary: plainSummary(quest.lastDetail) }];
+    return [{ cardId: attempt.adventurerId, kind: 'failure', at: attemptAt, ms, questId: quest.id, summary: plainSummary(quest.lastDetail) }];
   }
   if (DELIVERED_STATUSES.includes(quest.status)) {
-    return [{ cardId: attempt.adventurerId, kind: 'delivered', at: quest.updatedAt, questId: quest.id, summary: '' }];
+    return [{ cardId: attempt.adventurerId, kind: 'delivered', at: attemptAt, ms, questId: quest.id, summary: '' }];
   }
   return [];
 }
@@ -90,7 +169,7 @@ export function recentFailuresByCard(quests) {
   const best = new Map();
   for (const quest of list) {
     for (const item of questEvidence(quest)) {
-      const ms = timestamp(item.at);
+      const ms = item.ms !== undefined ? item.ms : timestamp(item.at);
       if (ms === null) continue; // Without a usable timestamp nothing can be ordered or cleared.
       const current = best.get(item.cardId);
       const replaces = !current
