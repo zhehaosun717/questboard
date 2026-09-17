@@ -10,7 +10,8 @@ import { effectiveRoster, visibleLaneLimits } from './overlay.js';
 import { withFileSets, discoverBriefs, briefUsable, briefUnusableInfo } from './briefs.js';
 import { isReviewable, reviewEligibility } from './reviewRequest.js';
 import { recentFailuresByCard } from './failureContext.js';
-import { reportSnapshot } from './reportEvidence.js';
+import { reportSnapshot, attemptOf } from './reportEvidence.js';
+import { questEvidence } from './evidence.js';
 
 // tools/review embeds the manifest as <script type="application/json" id="review-data">.
 const MANIFEST_PATTERN = /<script[^>]*\bid="review-data"[^>]*>([\s\S]*?)<\/script>/;
@@ -101,11 +102,47 @@ export function threadsByPackage(boardStore, packageIds) {
   return result;
 }
 
+// The project-wide latest dispatch time, over every quest's CURRENT attempt — see src/server/questRoutes.js's
+// own copy of this (questEvidence's `latestDispatchAt` gate, F2). Kept as a small, independent duplicate
+// here rather than shared: this file must stay free of the server layer, and the computation is a few lines
+// over data snapshot.js already has in hand.
+function projectLatestDispatchAt(quests) {
+  let latest = null;
+  for (const quest of quests) {
+    const at = attemptOf(quest)?.at;
+    const ms = at ? Date.parse(at) : NaN;
+    if (Number.isFinite(ms) && (latest === null || ms > latest)) latest = ms;
+  }
+  return latest;
+}
+
+// Suggestion S3: the eligibility env's evidenceOf(questId) — the one bridge between rules.js (pure, no I/O)
+// and this file's own read of a quest's current-attempt evidence (src/core/evidence.js questEvidence). Built
+// once per snapshot from the RAW quests (with attemptReport still attached; the public `quests` below has it
+// stripped), so a review's upstream check sees the same report/project-verification/hook evidence the detail
+// route and the EVIDENCE section already show for that parent.
+// F2: memoised per quest id — the eligibility loop below calls this once per (review quest × card), and
+// questEvidence hashes progress.txt from disk (digestOf) on every call, so without a cache a project with
+// several open reviews and dozens of cards reads that file dozens of times for one snapshot.
+function makeEvidenceOf(config, rawQuests, verification) {
+  const byId = new Map(rawQuests.map((q) => [q.id, q]));
+  const latestDispatchAt = projectLatestDispatchAt(rawQuests);
+  const cache = new Map();
+  return (questId) => {
+    if (cache.has(questId)) return cache.get(questId);
+    const quest = byId.get(questId);
+    const evidence = quest ? questEvidence({ config, quest, verification, latestDispatchAt }) : null;
+    cache.set(questId, evidence);
+    return evidence;
+  };
+}
+
 export function buildSnapshot({ config, store, adventurers, boardStore, lanes, downLanes = null }) {
+  const rawQuests = withFileSets(config, store.list());
   // Quest rows carry the full internal attemptReport (which may include the report's first paragraph).
   // That is fine in quests.jsonl and the quest-detail route, but a snapshot fan-out must stay small: strip
   // the internal field and expose only the bounded reference/verdict surface (never the full text).
-  const quests = withFileSets(config, store.list()).map((quest) => {
+  const quests = rawQuests.map((quest) => {
     const report = reportSnapshot(quest);
     const { attemptReport, ...rest } = quest;
     return report ? { ...rest, report } : rest;
@@ -116,7 +153,8 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
   // B5: the lane header must agree with the roster below it — a limit whose card is no longer limited
   // (owner acknowledged, paused/disabled, or removed) survives only as cleared evidence, never as a chip.
   const visibleLimits = visibleLaneLimits((lanes && lanes.laneLimits) || {}, roster, (lanes && lanes.laneEvidence) || {});
-  const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), ...(downLanes ? { downLanes } : {}) };
+  const evidenceOf = makeEvidenceOf(config, rawQuests, (lanes && lanes.verification) || null);
+  const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), evidenceOf, ...(downLanes ? { downLanes } : {}) };
   const byQuest = {};
   for (const quest of quests) {
     byQuest[quest.id] = eligibility({ quest, roster, quests, policy: config.policy, env: { ...env, briefExists: briefExists(config, quest), briefUnusable: briefUnusable(config, quest) } });

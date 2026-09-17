@@ -106,3 +106,39 @@
 .attempt-evidence-copy { padding: 1px 8px; font-size: 11px; }
 .attempt-evidence-time { margin: 4px 0 0; font-size: 11px; color: var(--dim); }
 .attempt-evidence-reason { margin: 4px 0 0; font-size: 11px; color: var(--dim); }
+
+/* S3: the review-order upstream check (UpstreamEvidence) — a review quest's own standing record of its
+   parents' evidence, independent of EvidenceSection above (this attempt's own evidence). */
+.upstream-evidence { display: grid; gap: 8px; }
+.upstream-evidence-parent {
+  padding: 7px 8px;
+  background: rgba(255, 255, 255, .03);
+  border-left: 3px solid var(--steel2);
+  border-radius: 2px;
+}
+.upstream-evidence-parent-failing { border-left-color: var(--blood); }
+.upstream-evidence-parent-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.upstream-evidence-parent-head strong { font: 700 12px var(--body); color: var(--tag); }
+.upstream-evidence-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.upstream-evidence-chip {
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--dim);
+  background: var(--hall-edge);
+  border-radius: 10px;
+}
+.upstream-evidence-passed { color: var(--ready-lt); }
+.upstream-evidence-failed { color: var(--wax-lt); }
+.upstream-evidence-chip-failing { color: var(--wax-lt); background: rgba(224, 89, 89, .12); }
+.upstream-evidence-chip-gap { color: var(--brass-lt); background: rgba(240, 207, 138, .12); }
+.upstream-evidence-refusal, .upstream-evidence-override {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--cream);
+  background: var(--hall-edge);
+  border-radius: 2px;
+}
+.upstream-evidence-override-invalid { color: var(--wax-lt); }
+.upstream-evidence-override-form { display: grid; gap: 6px; }

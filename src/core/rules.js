@@ -37,6 +37,7 @@ const MESSAGES = {
   needs_artist: () => '美术委托只派给会画图的模型（strengths 含 art）',
   worker_unconfirmed: (quest) => `上一个 worker（${quest.assignee.name}）只是没动静，可能还在跑：确认它停了，先在档案里释放，再派`,
   tree_locked: () => 'coordinator 正在跑验证（锁文件存在），暂停派遣',
+  upstream_unverified: (quest, adventurer, detail) => detail.text,
   brief_missing: (quest) => `找不到 brief 文件：${quest.brief || '（未填写）'}`,
   // Distinct from brief_missing: the file is there, but cannot be trusted right now (too large, a read
   // error, or it now resolves outside the project) — see briefs.js's briefUnusableInfo. Naming the file and
@@ -127,6 +128,121 @@ function authoredAncestor(quest, adventurer, byId) {
   return null;
 }
 
+// Suggestion S3: review-order warning/refusal. A review quest's own upstream evidence — the parent's
+// CURRENT-attempt evidence (src/core/evidence.js questEvidence, read through env.evidenceOf so this file
+// stays pure and does no I/O of its own) — classified per kind so the model's own claim (report, 模型自报)
+// never gets folded into what the project's own tooling actually verified (project-verification, hook).
+const EVIDENCE_KIND_LABELS = { report: '模型自报', 'project-verification': '项目测试', hook: '验证钩子' };
+const EVIDENCE_STATE_LABELS = { passed: '通过', failed: '失败', stale: '未绑定到本次尝试', missing: '缺失', not_configured: '未配置', unknown: '未知' };
+const REVIEW_UPSTREAM_KINDS = ['report', 'project-verification', 'hook'];
+
+// One of six honest states for one evidence item, in priority order: a kind the project never configured,
+// one it configured but never produced, one bound to an earlier attempt (never counted for this one, even
+// when its own recorded state says passed), then the item's own passed/failed, and anything else (findings,
+// queued, running, timedout, an unrecognized record) as unknown — never dressed up as a pass.
+export function classifyEvidenceItem(item) {
+  if (!item) return 'unknown';
+  if (item.state === 'not_configured') return 'not_configured';
+  if (item.state === 'missing') return 'missing';
+  if (!item.bound) return 'stale';
+  if (item.state === 'passed') return 'passed';
+  if (item.state === 'failed') return 'failed';
+  return 'unknown';
+}
+
+export function parentUpstreamStates(evidence) {
+  const byKind = Object.fromEntries((evidence?.items || []).map((item) => [item.kind, item]));
+  return Object.fromEntries(REVIEW_UPSTREAM_KINDS.map((kind) => [kind, classifyEvidenceItem(byKind[kind])]));
+}
+
+function upstreamClause(kind, state) {
+  return `${EVIDENCE_KIND_LABELS[kind]}${EVIDENCE_STATE_LABELS[state]}`;
+}
+
+// One Chinese line naming a parent's upstream evidence: the two project-test kinds first (what tooling
+// actually showed), the model's own report last, flagged with 未经项目验证 whenever it claims a pass that
+// neither project-verification nor the hook actually backs — the self-claim is never left to read the same
+// as a verified one.
+function parentUpstreamText(parentId, states) {
+  const projectVerified = states['project-verification'] === 'passed' || states.hook === 'passed';
+  const clauses = [];
+  for (const kind of ['project-verification', 'hook']) {
+    if (states[kind] !== 'passed') clauses.push(upstreamClause(kind, states[kind]));
+  }
+  clauses.push(states.report === 'passed' && !projectVerified
+    ? `${upstreamClause('report', 'passed')}（未经项目验证）`
+    : upstreamClause('report', states.report));
+  return `上游 ${parentId} 本次尝试：${clauses.join('、')}`;
+}
+
+/**
+ * The full review-order picture for one review quest (requirement 1-3): every non-review parent's
+ * classified evidence, which policy.reviewRequires kinds it fails, whether a recorded reviewOverride
+ * still covers the parents' CURRENT attempts, and whether that leaves the review blocked. Returns null for
+ * anything that is not a review quest, or when the caller's env carries no evidenceOf (e.g. dispatcher.js's
+ * own recheck env, which does not build one) — silence, never a fabricated pass, is the only safe answer
+ * when the evidence cannot actually be read.
+ */
+export function reviewUpstreamEvidence({ quest, quests, policy, env }) {
+  if (!quest || quest.kind !== 'review' || !env || typeof env.evidenceOf !== 'function') return null;
+  const byId = new Map((quests || []).map((q) => [q.id, q]));
+  const required = [...new Set((policy && policy.reviewRequires) || [])];
+  const parentIds = (quest.parents || []).filter((id) => {
+    const parent = byId.get(id);
+    return !parent || parent.kind !== 'review';
+  });
+  const parents = [];
+  for (const id of parentIds) {
+    const evidence = env.evidenceOf(id);
+    if (!evidence) continue;
+    const states = parentUpstreamStates(evidence);
+    const failing = required.filter((kind) => states[kind] !== 'passed');
+    const projectVerified = states['project-verification'] === 'passed' || states.hook === 'passed';
+    parents.push({
+      id, attemptId: evidence.attemptId, states, failing,
+      gap: !projectVerified || states.report !== 'passed',
+      text: parentUpstreamText(id, states),
+    });
+  }
+  const failingParents = parents.filter((p) => p.failing.length > 0).map((p) => p.id);
+  const rawOverride = quest.reviewOverride || null;
+  const overrideValid = Boolean(rawOverride && rawOverride.parentAttempts && parentIds.length > 0 && parentIds.every((id) => {
+    const parent = parents.find((p) => p.id === id);
+    const recorded = rawOverride.parentAttempts[id];
+    return recorded !== undefined && parent && recorded === parent.attemptId;
+  }));
+  return {
+    required,
+    parents,
+    failingParents,
+    blocked: failingParents.length > 0 && !overrideValid,
+    override: rawOverride ? { reason: rawOverride.reason, by: rawOverride.by, at: rawOverride.at, valid: overrideValid } : null,
+  };
+}
+
+// Turns reviewUpstreamEvidence's structured report into the reasons/warnings shape canDispatch already
+// returns everywhere else: silent when everything checks out, a warning per gap while policy asks for
+// nothing specific, a refusal per failing-required parent, or — once a recorded override still covers the
+// parents' current attempts — that same refusal downgraded to a warning that says so.
+function reviewUpstreamMessages(quest, adventurer, quests, policy, env) {
+  const upstream = reviewUpstreamEvidence({ quest, quests, policy, env });
+  const reasons = [];
+  const warnings = [];
+  if (!upstream) return { reasons, warnings };
+  if (!upstream.required.length) {
+    for (const p of upstream.parents) if (p.gap) warnings.push(reason('upstream_unverified', quest, adventurer, { text: p.text }));
+    return { reasons, warnings };
+  }
+  if (!upstream.failingParents.length) return { reasons, warnings };
+  const invalidNote = upstream.override && !upstream.override.valid ? '（记录的例外已失效：上游有新的派遣，需要重新确认）' : '';
+  for (const id of upstream.failingParents) {
+    const p = upstream.parents.find((x) => x.id === id);
+    if (upstream.blocked) reasons.push(reason('upstream_unverified', quest, adventurer, { text: `${p.text}${invalidNote}` }));
+    else warnings.push(reason('upstream_unverified', quest, adventurer, { text: `${p.text}（已记录例外：${upstream.override.reason}）` }));
+  }
+  return { reasons, warnings };
+}
+
 // Declared conflicts in either direction, a real overlap between the briefs' file lists, or a shared
 // unknown-brief conflict key (briefs.js's conflictKeys — never mixed into files itself, see withFileSets).
 // A declared conflict binds even when the file lists are disjoint, so the result says which kind it is.
@@ -175,6 +291,8 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
   if (quest.needsOwner) reasons.push(reason('needs_owner', quest, adventurer));
   const missing = (quest.parents || []).find((id) => !byId.has(id));
   if (missing) reasons.push(reason('parent_missing', quest, adventurer, missing));
+  const upstream = reviewUpstreamMessages(quest, adventurer, quests, policy, env);
+  reasons.push(...upstream.reasons);
   reasons.push(...adventurerReasons(quest, adventurer, policy, env));
   const holders = busyQuests(adventurer.id, quests, quest.id);
   if (holders.length >= (adventurer.maxParallel || 1)) reasons.push(reason('adventurer_busy', quest, adventurer, { limit: adventurer.maxParallel || 1, holders: holders.map(({ id, status }) => ({ id, status })) }));
@@ -186,10 +304,11 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
   if (env && env.treeLocked) reasons.push(reason('tree_locked', quest, adventurer));
   if (env && env.briefUnusable) reasons.push(reason('brief_unusable', quest, adventurer, env.briefUnusable));
   else if (env && env.briefExists === false) reasons.push(reason('brief_missing', quest, adventurer));
+  const allWarnings = [...variantCheck.warnings, ...upstream.warnings];
   return {
     ok: reasons.length === 0,
     reasons,
-    ...(variantCheck.warnings.length ? { warnings: variantCheck.warnings } : {}),
+    ...(allWarnings.length ? { warnings: allWarnings } : {}),
   };
 }
 

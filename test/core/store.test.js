@@ -66,6 +66,22 @@ describe('QuestStore', () => {
     assert.equal(quest.status, 'needs_owner', 'earlier snapshot is not mutated');
   });
 
+  // Suggestion S3: recordReviewOverride never marks any evidence as passed — it only records why a review
+  // whose upstream check refuses is being dispatched anyway, bound to the parents' attempt ids the caller
+  // (src/server/questRoutes.js) computed from live evidence at the moment it was recorded.
+  it('records a review override with a review_override event, and refuses on a non-review quest or an empty reason', () => {
+    store.post({ package: 'RUN-9', brief: 'docs/briefs/RUN-9-x.md' });
+    store.post({ package: 'REVIEW-9', kind: 'review', brief: 'docs/briefs/REVIEW-9-x.md', parents: ['RUN-9'] });
+    const next = store.recordReviewOverride('REVIEW-9', { reason: ' 手工确认过 ', by: 'owner', parentAttempts: { 'RUN-9': 'a1' } });
+    assert.deepEqual(next.reviewOverride, { reason: '手工确认过', by: 'owner', at: next.reviewOverride.at, parentAttempts: { 'RUN-9': 'a1' } });
+    assert.equal(events().at(-1).event, 'review_override');
+    assert.equal(events().at(-1).detail, '手工确认过');
+
+    assert.throws(() => store.recordReviewOverride('RUN-9', { reason: 'x', parentAttempts: {} }), /不是审核委托/);
+    assert.throws(() => store.recordReviewOverride('REVIEW-9', { reason: '   ', parentAttempts: {} }), /例外原因不能为空/);
+    assert.equal(store.recordReviewOverride('NOPE-1', { reason: 'x' }), null);
+  });
+
   it('assigns with an assigned event, adopts with dispatched, and refuses a re-post while running', () => {
     store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
     const running = store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });

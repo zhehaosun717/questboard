@@ -85,6 +85,17 @@ describe('config', () => {
     assert.equal(config.policy.defaultLane, null);
     assert.equal(config.policy.defaultCard, null);
     assert.deepEqual(config.policy.bouncePatterns, []);
+    assert.deepEqual(config.policy.reviewRequires, []);
+  });
+
+  it('validates policy.reviewRequires (S3): only report|project-verification|hook, deduped', () => {
+    assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes, policy: { reviewRequires: 'report' } }), /policy\.reviewRequires must be an array/);
+    assert.throws(
+      () => resolveConfig('E:/g', { name: 'G', lanes, policy: { reviewRequires: ['ghost'] } }),
+      /policy\.reviewRequires must only name report\|project-verification\|hook, got "ghost"/,
+    );
+    const config = resolveConfig('E:/g', { name: 'G', lanes, policy: { reviewRequires: ['hook', 'report', 'hook'] } });
+    assert.deepEqual(config.policy.reviewRequires, ['hook', 'report']);
   });
 
   it('refuses invalid feedback-38 policy values, naming the field', () => {

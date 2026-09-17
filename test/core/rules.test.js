@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { canDispatch, eligibility, isOwnActiveAttempt } from '../../src/core/rules.js';
+import { canDispatch, classifyEvidenceItem, eligibility, isOwnActiveAttempt, reviewUpstreamEvidence } from '../../src/core/rules.js';
 import { card, quest } from '../helpers.js';
 
 const policy = { bannedModelPatterns: ['gpt-5\\.5', '-fast(\\b|-)'], bannedAgents: ['Sisyphus'] };
@@ -274,5 +274,162 @@ describe('eligibility', () => {
     const result = eligibility({ quest: frozen, roster: [luna, card('codex-astra', { status: 'paused' })], quests: [frozen], policy, env });
     assert.equal(result['codex-luna'].ok, true);
     assert.equal(result['codex-astra'].ok, false);
+  });
+});
+
+// Suggestion S3: the review-order upstream check. evidenceOf is the pure env bridge src/core/snapshot.js
+// builds from src/core/evidence.js questEvidence — these tests supply small fixed evidence shapes directly,
+// since rules.js never reads evidence itself.
+describe('classifyEvidenceItem', () => {
+  it('names the six honest states in priority order', () => {
+    assert.equal(classifyEvidenceItem(undefined), 'unknown');
+    assert.equal(classifyEvidenceItem({ state: 'not_configured', bound: false }), 'not_configured');
+    assert.equal(classifyEvidenceItem({ state: 'missing', bound: false }), 'missing');
+    assert.equal(classifyEvidenceItem({ state: 'passed', bound: false }), 'stale', 'bound:false wins over a passed state — never a stale record read as current');
+    assert.equal(classifyEvidenceItem({ state: 'passed', bound: true }), 'passed');
+    assert.equal(classifyEvidenceItem({ state: 'failed', bound: true }), 'failed');
+    assert.equal(classifyEvidenceItem({ state: 'findings', bound: true }), 'unknown');
+    assert.equal(classifyEvidenceItem({ state: 'queued', bound: true }), 'unknown');
+  });
+});
+
+describe('reviewUpstreamEvidence', () => {
+  const evidence = (overrides = {}) => ({
+    version: 1, attemptId: 'a1', attemptAt: '2026-09-14T00:00:00.000Z',
+    items: [
+      { kind: 'report', state: 'missing', bound: false },
+      { kind: 'project-verification', state: 'not_configured', bound: false },
+      { kind: 'hook', state: 'not_configured', bound: false },
+    ],
+    ...overrides,
+  });
+  const passedReportOnly = () => evidence({ items: [
+    { kind: 'report', state: 'passed', bound: true },
+    { kind: 'project-verification', state: 'not_configured', bound: false },
+    { kind: 'hook', state: 'not_configured', bound: false },
+  ] });
+  const envFor = (byId) => ({ evidenceOf: (id) => byId.get(id) || null });
+
+  it('returns null for anything but a review quest, or when the env has no evidenceOf', () => {
+    const code = quest({ id: 'PKG-1' });
+    assert.equal(reviewUpstreamEvidence({ quest: code, quests: [code], policy: {}, env: envFor(new Map()) }), null);
+    const review = quest({ id: 'REVIEW-1', kind: 'review', parents: ['PKG-1'] });
+    assert.equal(reviewUpstreamEvidence({ quest: review, quests: [review, code], policy: {}, env: {} }), null, 'no evidenceOf at all (e.g. dispatcher.js\'s own recheck env) is silence, never a guess');
+  });
+
+  it('flags a gap when a passed self-report has no actual project test behind it, and names it in the text', () => {
+    const parentEvidence = passedReportOnly();
+    const code = quest({ id: 'PKG-1' });
+    const review = quest({ id: 'REVIEW-1', kind: 'review', parents: ['PKG-1'] });
+    const result = reviewUpstreamEvidence({ quest: review, quests: [review, code], policy: {}, env: envFor(new Map([['PKG-1', parentEvidence]])) });
+    assert.equal(result.parents.length, 1);
+    assert.equal(result.parents[0].gap, true);
+    assert.equal(result.parents[0].states.report, 'passed');
+    assert.equal(result.parents[0].states['project-verification'], 'not_configured');
+    assert.match(result.parents[0].text, /上游 PKG-1 本次尝试/);
+    assert.match(result.parents[0].text, /未经项目验证/);
+    assert.equal(result.blocked, false, 'no reviewRequires means never blocked');
+  });
+
+  it('shows no gap once an actual project test has passed', () => {
+    const parentEvidence = evidence({ items: [
+      { kind: 'report', state: 'passed', bound: true },
+      { kind: 'project-verification', state: 'passed', bound: true },
+      { kind: 'hook', state: 'not_configured', bound: false },
+    ] });
+    const code = quest({ id: 'PKG-1' });
+    const review = quest({ id: 'REVIEW-1', kind: 'review', parents: ['PKG-1'] });
+    const result = reviewUpstreamEvidence({ quest: review, quests: [review, code], policy: {}, env: envFor(new Map([['PKG-1', parentEvidence]])) });
+    assert.equal(result.parents[0].gap, false);
+  });
+
+  it('blocks on a required kind that is not passed, unless a recorded override still matches the current attempt', () => {
+    const code = quest({ id: 'PKG-1' });
+    const parentEvidence = passedReportOnly();
+    const review = quest({ id: 'REVIEW-1', kind: 'review', parents: ['PKG-1'] });
+    const policy = { reviewRequires: ['project-verification'] };
+    const env = envFor(new Map([['PKG-1', parentEvidence]]));
+    const blocked = reviewUpstreamEvidence({ quest: review, quests: [review, code], policy, env });
+    assert.deepEqual(blocked.failingParents, ['PKG-1']);
+    assert.equal(blocked.blocked, true);
+    assert.equal(blocked.override, null);
+
+    const overridden = { ...review, reviewOverride: { reason: '手工确认过', by: 'owner', at: '2026-09-14T01:00:00.000Z', parentAttempts: { 'PKG-1': 'a1' } } };
+    const withOverride = reviewUpstreamEvidence({ quest: overridden, quests: [overridden, code], policy, env });
+    assert.equal(withOverride.blocked, false, 'a matching override lifts the block without touching any evidence');
+    assert.equal(withOverride.override.valid, true);
+
+    const stale = { ...review, reviewOverride: { reason: '手工确认过', by: 'owner', at: '2026-09-14T01:00:00.000Z', parentAttempts: { 'PKG-1': 'a0' } } };
+    const invalidated = reviewUpstreamEvidence({ quest: stale, quests: [stale, code], policy, env });
+    assert.equal(invalidated.blocked, true, 'an override recorded against a different (superseded) attempt id no longer counts');
+    assert.equal(invalidated.override.valid, false);
+  });
+
+  it('never counts a review parent itself as upstream evidence', () => {
+    const earlierReview = quest({ id: 'REVIEW-A', kind: 'review', status: 'done', parents: [] });
+    const review = quest({ id: 'REVIEW-B', kind: 'review', parents: ['REVIEW-A'] });
+    const result = reviewUpstreamEvidence({ quest: review, quests: [review, earlierReview], policy: {}, env: envFor(new Map([['REVIEW-A', passedReportOnly()]])) });
+    assert.deepEqual(result.parents, []);
+  });
+});
+
+describe('canDispatch — review upstream warning/refusal (S3)', () => {
+  const evidence = (items) => ({ version: 1, attemptId: 'a1', attemptAt: '2026-09-14T00:00:00.000Z', items });
+  const gapEvidence = evidence([
+    { kind: 'report', state: 'passed', bound: true },
+    { kind: 'project-verification', state: 'not_configured', bound: false },
+    { kind: 'hook', state: 'not_configured', bound: false },
+  ]);
+
+  it('is silent for a non-review quest even with evidenceOf present', () => {
+    const code = quest({ id: 'PKG-1' });
+    const envWithEvidence = { ...env, evidenceOf: () => gapEvidence };
+    assert.deepEqual(check(code, luna, [code], envWithEvidence), { ok: true, reasons: [], warnings: [{ code: 'variant_unconfirmed', message: '尚未确认这张卡支持 variant「high」，派遣会照常进行' }] });
+  });
+
+  it('warns (never refuses) by default, naming the parent and the gap', () => {
+    const code = quest({ id: 'PKG-1', status: 'done' });
+    const review = quest({ id: 'REVIEW-1', kind: 'review', parents: ['PKG-1'] });
+    const envWithEvidence = { ...env, evidenceOf: (id) => (id === 'PKG-1' ? gapEvidence : null) };
+    const verdict = canDispatch({ quest: review, adventurer: card('agy-gemini'), quests: [review, code], policy, env: envWithEvidence });
+    assert.equal(verdict.ok, true);
+    const warning = verdict.warnings.find((w) => w.code === 'upstream_unverified');
+    assert.ok(warning, JSON.stringify(verdict.warnings));
+    assert.match(warning.message, /上游 PKG-1/);
+  });
+
+  it('refuses when policy.reviewRequires names a kind the parent has not passed, in Chinese', () => {
+    const code = quest({ id: 'PKG-1', status: 'done' });
+    const review = quest({ id: 'REVIEW-1', kind: 'review', parents: ['PKG-1'] });
+    const envWithEvidence = { ...env, evidenceOf: (id) => (id === 'PKG-1' ? gapEvidence : null) };
+    const strictPolicy = { ...policy, reviewRequires: ['project-verification'] };
+    const verdict = canDispatch({ quest: review, adventurer: card('agy-gemini'), quests: [review, code], policy: strictPolicy, env: envWithEvidence });
+    assert.equal(verdict.ok, false);
+    const refusal = verdict.reasons.find((r) => r.code === 'upstream_unverified');
+    assert.ok(refusal);
+    assert.match(refusal.message, /[一-鿿]/u);
+  });
+
+  it('lets a matching recorded override through as a warning instead of a refusal', () => {
+    const code = quest({ id: 'PKG-1', status: 'done' });
+    const review = quest({
+      id: 'REVIEW-1', kind: 'review', parents: ['PKG-1'],
+      reviewOverride: { reason: '已经手工看过了', by: 'owner', at: '2026-09-14T01:00:00.000Z', parentAttempts: { 'PKG-1': 'a1' } },
+    });
+    const envWithEvidence = { ...env, evidenceOf: (id) => (id === 'PKG-1' ? gapEvidence : null) };
+    const strictPolicy = { ...policy, reviewRequires: ['project-verification'] };
+    const verdict = canDispatch({ quest: review, adventurer: card('agy-gemini'), quests: [review, code], policy: strictPolicy, env: envWithEvidence });
+    assert.equal(verdict.ok, true);
+    const warning = verdict.warnings.find((w) => w.code === 'upstream_unverified');
+    assert.match(warning.message, /已经手工看过了/);
+  });
+
+  it('never lets an evidenceOf-less env (e.g. dispatcher.js) silently pass a required-and-failing check as ok — it stays quiet, not fabricated', () => {
+    const code = quest({ id: 'PKG-1', status: 'done' });
+    const review = quest({ id: 'REVIEW-1', kind: 'review', parents: ['PKG-1'] });
+    const strictPolicy = { ...policy, reviewRequires: ['project-verification'] };
+    const verdict = canDispatch({ quest: review, adventurer: card('agy-gemini'), quests: [review, code], policy: strictPolicy, env });
+    assert.equal(verdict.ok, true, 'no evidenceOf means this check cannot run at all — a different gate must guard the real dispatch path');
+    assert.ok(!(verdict.warnings || []).some((w) => w.code === 'upstream_unverified'));
   });
 });

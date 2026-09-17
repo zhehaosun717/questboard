@@ -56,6 +56,17 @@ export interface Ruling {
   question: string;
 }
 
+// Suggestion S3 (src/core/store.js recordReviewOverride): a recorded exception to a review quest's own
+// upstream-evidence refusal. Never marks any evidence as passed — it only lets a review the check would
+// otherwise refuse proceed anyway, with why on record. Bound to the parents' current attempt ids at the
+// moment it was recorded; see UpstreamReview.override.valid for whether it still covers them.
+export interface ReviewOverride {
+  reason: string;
+  by: string;
+  at: string;
+  parentAttempts: Record<string, string | null>;
+}
+
 export interface Quest {
   id: string;
   kind: QuestKind;
@@ -87,6 +98,9 @@ export interface Quest {
   cancelRequest?: CancelRequest;
   manualResolution?: ManualResolution | null;
   roleCard?: RoleCardRef;
+  // Suggestion S3: present only once someone has recorded an exception to this review quest's own
+  // upstream-evidence refusal (POST .../review-override). Absent on every other quest and on an older server.
+  reviewOverride?: ReviewOverride;
 }
 
 // Owner-driven correction of a posted quest's own descriptive fields (POST /api/quests/:id/metadata,
@@ -774,6 +788,32 @@ export interface QuestEvidence {
   items: EvidenceItem[];
 }
 
+// Suggestion S3 (src/core/rules.js reviewUpstreamEvidence): one non-review parent's classified
+// current-attempt evidence, the required kinds it fails (if any), and whether it leaves a gap — no actual
+// project test (project-verification or hook) has passed for it, whatever the model's own report claims.
+export type UpstreamEvidenceKind = 'report' | 'project-verification' | 'hook';
+export type UpstreamEvidenceState = 'passed' | 'failed' | 'stale' | 'missing' | 'not_configured' | 'unknown';
+
+export interface UpstreamParent {
+  id: string;
+  attemptId: string | null;
+  states: Record<UpstreamEvidenceKind, UpstreamEvidenceState>;
+  failing: UpstreamEvidenceKind[];
+  gap: boolean;
+  text: string;
+}
+
+// GET /api/quests/:id .quest.upstreamReview (src/core/rules.js reviewUpstreamEvidence, S3): null for
+// anything but a review quest. Drives the drawer's own 上游证据 block, independently of which card (if any)
+// is selected and of the per-adventurer eligibility warnings the drop preview already shows.
+export interface UpstreamReview {
+  required: UpstreamEvidenceKind[];
+  parents: UpstreamParent[];
+  failingParents: string[];
+  blocked: boolean;
+  override: (Pick<ReviewOverride, 'reason' | 'by' | 'at'> & { valid: boolean }) | null;
+}
+
 // GET /api/quests/:id (src/server/questRoutes.js): the snapshot's quest row enriched with the worker's live
 // output, linked threads, grouped eligibility and the unpruned report reference. Fetched on demand by the
 // receipt (see api/client.ts `api.questDetail`), never polled.
@@ -786,6 +826,9 @@ export interface QuestDetail extends Omit<Quest, 'report' | 'roleCard'> {
   // this field existed (the section hides itself) rather than treat a missing field as an empty items list.
   evidence?: QuestEvidence;
   roleCard?: RoleCardRef | null;
+  // Optional (S3): an older server sends no `upstreamReview` field at all; readers treat a missing field the
+  // same as one that resolved to null (nothing to show), never as an empty/passing report.
+  upstreamReview?: UpstreamReview | null;
 }
 
 // GET /api/quests/:id/report success body (src/server/questRoutes.js), assembled client-side from the

@@ -14,6 +14,7 @@ import { MetadataSection } from './quest/MetadataSection';
 import { OwnerTaskSection } from './quest/OwnerTaskSection';
 import { QuestReceipt } from './quest/QuestReceipt';
 import { ReviewSection } from './quest/ReviewSection';
+import { UpstreamEvidence } from './quest/UpstreamEvidence';
 import { GraphView } from './GraphView';
 
 export interface QuestDrawerProps {
@@ -72,6 +73,10 @@ export function QuestDrawer({
   const archived = isArchived(quest);
   const limitStall = quest.status === 'stalled'
     && Boolean(quest.lastDetail && /超过消息上限|超过时长上限/.test(quest.lastDetail));
+  // F3: each parent's revision (bumped on every server-side change to that quest), so UpstreamEvidence's
+  // effect refetches the review's own upstream evidence when a parent is re-dispatched or redelivered while
+  // this drawer stays open, instead of only on the next quest.id/reviewOverride change.
+  const parentsKey = quest.parents.map((id) => `${id}:${snap.quests.find((q) => q.id === id)?.revision ?? ''}`).join(',');
 
   const handleCancel = async () => {
     const action = cancelActionFor(quest.status);
@@ -188,6 +193,15 @@ export function QuestDrawer({
       ) : null}
 
       {step.action === 'assign' ? <AssignSection quest={quest} snap={snap} onAssignCard={onAssignCard} /> : null}
+
+      <UpstreamEvidence
+        key={`upstream:${snap.project.id ?? ''}:${quest.id}`}
+        quest={quest}
+        projectId={snap.project.id ?? ''}
+        parentsKey={parentsKey}
+        refresh={refresh}
+        pushToast={pushToast}
+      />
 
       {step.action === 'release' && assignee ? (
         <DrawerSection en="RELEASE" zh="确认冒险者已停">

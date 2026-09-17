@@ -335,6 +335,7 @@ function validatePolicyConfig(rawPolicy, laneIds) {
     defaultLane: null,
     defaultCard: null,
     bouncePatterns: [],
+    reviewRequires: [],
   };
   if (policy.stallAfterMinutes !== undefined) {
     if (!Number.isInteger(policy.stallAfterMinutes) || policy.stallAfterMinutes < 1) fail('policy.stallAfterMinutes must be a positive integer (minutes)');
@@ -370,6 +371,15 @@ function validatePolicyConfig(rawPolicy, laneIds) {
       // compiled RegExp rides along in the resolved config and is applied to an exit line only.
       return { code, label, pattern: regex(entry.pattern, `${field}.pattern`) };
     });
+  }
+  // Suggestion S3: which of the parent's current-attempt evidence kinds a review must actually have passed
+  // before it may be dispatched (src/core/rules.js reviewUpstreamEvidence). Empty (the default) means the
+  // board only ever warns, never refuses, on this ground.
+  if (policy.reviewRequires !== undefined) {
+    const list = stringList(policy.reviewRequires, 'policy.reviewRequires', []);
+    const allowed = new Set(['report', 'project-verification', 'hook']);
+    for (const kind of list) if (!allowed.has(kind)) fail(`policy.reviewRequires must only name report|project-verification|hook, got "${kind}"`);
+    result.reviewRequires = [...new Set(list)];
   }
   return result;
 }

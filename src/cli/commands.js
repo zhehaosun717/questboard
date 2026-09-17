@@ -216,6 +216,27 @@ export const commands = {
     // and the board says which card it picked and why before it does anything.
     const adventurer = requested === undefined ? config.policy.defaultCard || undefined : requested;
     if (requested === undefined && adventurer !== undefined) out(`没指定卡，用设置 → 策略 里的默认卡「${adventurer}」`);
+    if (adventurer) {
+      // S3: a review quest's upstream check (src/core/rules.js reviewUpstreamEvidence) is judged here from
+      // the same snapshot the board's own drop preview reads, so the CLI shows the identical warning or
+      // refusal text before ever calling assign — never fabricates a pass by staying silent about it. Only a
+      // review quest needs the extra snapshot fetch; every other kind assigns exactly as before.
+      // F4: once the server enforces the policy itself (questRoutes.js assign branch), a failed detail fetch
+      // here is harmless — assign below still gets the server's own refusal — but staying silent about it
+      // would look like the local pre-check ran and found nothing to warn about. Say so instead.
+      const detail = await request(base, `/api/quests/${encodeURIComponent(args[0])}`).catch(() => null);
+      if (!detail) out('没能读取任务详情，跳过本地的审核前置检查，是否放行由服务器决定。');
+      if (detail && detail.quest && detail.quest.kind === 'review') {
+        const snap = await request(base, '/api/quests');
+        const verdict = (snap.eligibility?.[args[0]] || {})[adventurer];
+        if (verdict) {
+          for (const w of verdict.warnings || []) out(`警告 ${w.code}：${w.message}`);
+          if (!verdict.ok) {
+            throw new Error(`refused\n${verdict.reasons.map((r) => `- 拒绝 ${r.code}：${r.message}`).join('\n')}`);
+          }
+        }
+      }
+    }
     const body = await request(base, `/api/quests/${encodeURIComponent(args[0])}/assign`, 'POST', {
       adventurer, by: option(args, '--by') || 'coordinator',
       requestKey: option(args, '--request-key'), ifRevision: option(args, '--if-revision'),

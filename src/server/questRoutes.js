@@ -10,10 +10,11 @@ import { createDispatcher } from './dispatcher.js';
 import { eventsAfter } from '../core/events.js';
 import { isReviewable, requestReview, reviewEligibility } from '../core/reviewRequest.js';
 import { withFileSets } from '../core/briefs.js';
-import { lockPresent } from '../core/snapshot.js';
+import { briefExists, briefUnusable, lockPresent } from '../core/snapshot.js';
 import { laneServers } from '../core/laneServer.js';
 import { attemptOf, questReportView, readCapturedReport } from '../core/reportEvidence.js';
 import { questEvidence } from '../core/evidence.js';
+import { canDispatch, reviewUpstreamEvidence } from '../core/rules.js';
 import { createRosterBulkRoutes } from './rosterBulkRoutes.js';
 
 const SYNC_INTERVAL_MS = 5000;
@@ -39,6 +40,17 @@ function projectLatestDispatchAt(quests) {
     if (Number.isFinite(ms) && (latest === null || ms > latest)) latest = ms;
   }
   return latest;
+}
+
+// Suggestion S3: the same evidenceOf(questId) bridge src/core/snapshot.js builds for the board's own
+// eligibility loop, built here too for the two call sites in this file that judge or show a review's
+// upstream evidence directly against the store rather than through a full buildSnapshot() env.
+function makeEvidenceOf(config, store, verification) {
+  const latestDispatchAt = projectLatestDispatchAt(store.list());
+  return (questId) => {
+    const quest = store.get(questId);
+    return quest ? questEvidence({ config, quest, verification, latestDispatchAt }) : null;
+  };
 }
 
 // Same grouping the MCP get_quest answers with, so one read serves CLI, board and agents alike.
@@ -149,6 +161,47 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       if (requestKey !== null && !REQUEST_KEY_PATTERN.test(requestKey)) { sendJson(response, 400, { error: `requestKey must match ${REQUEST_KEY_PATTERN}` }); return; }
       const ifRevision = body.ifRevision === undefined || body.ifRevision === null || body.ifRevision === '' ? undefined : Number(body.ifRevision);
       if (ifRevision !== undefined && !Number.isInteger(ifRevision)) { sendJson(response, 400, { error: 'ifRevision must be an integer' }); return; }
+      // F1: a plain assign on an already-posted review quest bypassed dispatcher.assign's own env (which
+      // carries no evidenceOf, see dispatcher.js dispatchEnv), so the upstream-order policy was enforced only
+      // by the web drop preview and the CLI's own pre-check — never by the server itself. Judge it here, with
+      // the exact env buildSnapshot's own eligibility loop uses, so this verdict is byte-identical to the one
+      // GET /api/quests already showed for this card. Never touches dispatcher.js or the queued recheckOpen
+      // (that recheck's own dispatch becomes the project-wide latest and would make the parent's own
+      // project-verification look stale against itself).
+      //
+      // R2-F1: this pre-check must not shadow dispatcher.assign's own idempotent-replay and stale-revision
+      // answers (dispatcher.js repeated()/staleRevision(), checked in that order before canDispatch). A
+      // requestKey that already matches a recorded dispatch, or a stale ifRevision, is answered exactly as on
+      // MAIN — 200 {repeated:true} or {error:'stale'} — by skipping straight to dispatcher.assign below.
+      // Otherwise, only an upstream_unverified reason is refused here; every other reason (including one this
+      // route's own quest/quests read might disagree with, since it skips withFileSets' recheckingId and this
+      // quest's own 'dispatched' exemption) is left for dispatcher.assign's own canDispatch to produce, so a
+      // refusal here is never broader than what MAIN would have refused for a non-review quest.
+      //
+      // R2-F3: adopt stays ungated by this policy — it records a worker that is already running, not a fresh
+      // dispatch decision, so there is nothing here for the upstream check to protect against.
+      if (parts[3] === 'assign') {
+        const quest = store.get(questId);
+        if (quest.kind === 'review') {
+          const alreadyDispatched = requestKey !== null && (quest.dispatches || []).some((d) => d.requestKey === requestKey);
+          const staleRevisionSeen = ifRevision !== undefined && ifRevision !== (quest.revision || 0);
+          if (!alreadyDispatched && !staleRevisionSeen) {
+            const evidenceOf = makeEvidenceOf(config, store, getLanes()?.verification);
+            const quests = withFileSets(config, store.list());
+            const env = {
+              treeLocked: lockPresent(config),
+              laneIds: new Set(Object.keys(config.lanes)),
+              evidenceOf,
+              briefExists: briefExists(config, quest),
+              briefUnusable: briefUnusable(config, quest),
+              ...(downLanes ? { downLanes } : {}),
+            };
+            const verdict = canDispatch({ quest, adventurer: card, quests, policy: config.policy, env });
+            const upstreamReasons = verdict.ok ? [] : verdict.reasons.filter((r) => r.code === 'upstream_unverified');
+            if (upstreamReasons.length) { sendJson(response, 409, { error: 'refused', reasons: upstreamReasons }); return; }
+          }
+        }
+      }
       const options = { requestKey, ifRevision };
       const result = parts[3] === 'assign' ? dispatcher.assign(questId, card, by, options) : dispatcher.adopt(questId, card, body.name, by, options);
       sendJson(response, result.status, result.body);
@@ -187,7 +240,8 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
         if (!card) { sendJson(response, 400, { error: `no adventurer ${body.adventurer}` }); return; }
         const parent = store.get(questId);
         if (isReviewable(parent)) {
-          const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), ...(downLanes ? { downLanes } : {}) };
+          const evidenceOf = makeEvidenceOf(config, store, snapshot().verification);
+          const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), evidenceOf, ...(downLanes ? { downLanes } : {}) };
           const quests = withFileSets(config, store.list());
           const verdict = reviewEligibility({ parent, roster: [card], quests, policy: config.policy, env })[card.id];
           if (!verdict.ok) { sendJson(response, 409, { error: 'refused', reasons: verdict.reasons }); return; }
@@ -201,6 +255,27 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
         return;
       }
       sendJson(response, 201, { review: assigned.body.quest, quest: result.body.quest });
+      return;
+    }
+    if (parts[3] === 'review-override') {
+      // S3: records why the owner or coordinator is deliberately dispatching a review whose upstream check
+      // would otherwise refuse it — never marks any evidence as passed. parentAttempts is computed here,
+      // from the live store, never trusted from the request body: the client sends only the reason.
+      const quest = store.get(questId);
+      const text = String(body.reason || '').trim();
+      if (!text) { sendJson(response, 400, { error: 'reason is required' }); return; }
+      if (quest.kind !== 'review') { sendJson(response, 409, { error: `${questId} 不是审核委托，不能记录审核例外` }); return; }
+      const evidenceOf = makeEvidenceOf(config, store, getLanes()?.verification);
+      const nonReviewParents = (quest.parents || []).filter((id) => {
+        const parent = store.get(id);
+        return !parent || parent.kind !== 'review';
+      });
+      const parentAttempts = Object.fromEntries(nonReviewParents.map((id) => [id, evidenceOf(id)?.attemptId ?? null]));
+      try {
+        sendJson(response, 200, { quest: store.recordReviewOverride(questId, { reason: text, by, parentAttempts }) });
+      } catch (error) {
+        sendJson(response, 409, { error: error.message });
+      }
       return;
     }
     if (parts[3] === 'metadata') {
@@ -268,6 +343,10 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
           // of the snapshot fan-out. Uses the same raw stored quest as `report` above so the attempt identity
           // (assignee/dispatches) and the captured report reference agree.
           evidence: questEvidence({ config, quest: store.get(quest.id), verification: snap.verification, latestDispatchAt: projectLatestDispatchAt(store.list()) }),
+          // S3: null for anything but a review quest — see reviewUpstreamEvidence. Drives the drawer's own
+          // 上游证据 block independently of which card (if any) is selected, and independently of the
+          // per-adventurer eligibility warnings the board's drop preview already shows.
+          upstreamReview: reviewUpstreamEvidence({ quest, quests: snap.quests, policy: config.policy, env: { evidenceOf: makeEvidenceOf(config, store, snap.verification) } }),
           // Requirement 5/R3: a sanitized, process-local, explicitly not restart-durable diagnostic — this
           // process still remembers a session id for the quest's current attempt that its own durable
           // record does not (yet, or ever) confirm. null once there is nothing to report, or once a later

@@ -646,6 +646,28 @@ export class QuestStore extends EventEmitter {
     return next;
   }
 
+  // Suggestion S3: a recorded exception to a review's own upstream-evidence refusal (src/core/rules.js
+  // reviewUpstreamEvidence) — never marks any evidence as passed and never touches it; it only lets a
+  // review that check would otherwise refuse proceed anyway, with why on record. parentAttempts is computed
+  // by the caller from the parents' live current-attempt ids (never trusted from the request body — see
+  // src/server/questRoutes.js), so a later re-dispatch of any parent changes its current attempt id and
+  // rules.js's own check stops matching this override on its own, without this record ever being touched.
+  recordReviewOverride(id, { reason, by = 'owner', parentAttempts = {} }) {
+    const quest = this.quests.get(id);
+    if (!quest) return null;
+    if (quest.kind !== 'review') {
+      const error = new Error(`${id} 不是审核委托，不能记录审核例外`);
+      error.code = 'not_review';
+      throw error;
+    }
+    const text = String(reason || '').trim().slice(0, 2000);
+    if (!text) throw new Error('例外原因不能为空');
+    const at = now();
+    const next = this.save({ ...quest, reviewOverride: { reason: text, by, at, parentAttempts }, updatedAt: at });
+    this.emitEvent(next, 'review_override', { by, detail: text });
+    return next;
+  }
+
   // Revision-guarded correction of title/brief/parents/conflicts/allowedLanes/needsOwner — never assignee,
   // status or dispatch history (those change only through assign/adopt/setStatus/release/rule). Refuses
   // outright (throws, .code 'holds_slot') while the quest actually holds a worker's slot (dispatched or

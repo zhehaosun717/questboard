@@ -49,6 +49,10 @@ export const api = {
   // With an adventurer the review is dispatched to that card in the same step, after the rules accept it.
   requestReview: (questId: string, note: string, adventurer?: string) =>
     call<{ review: Quest; quest: Quest }>(`${quest(questId)}/review`, 'POST', { note, by: 'owner', ...(adventurer ? { adventurer } : {}) }),
+  // Suggestion S3: records why the owner is deliberately dispatching a review whose upstream check would
+  // otherwise refuse it. Never marks any evidence as passed; refused (409) on anything but a review quest.
+  reviewOverride: (questId: string, reason: string) =>
+    call<{ quest: Quest }>(`${quest(questId)}/review-override`, 'POST', { reason, by: 'owner' }),
   setQuestStatus: (questId: string, status: QuestStatus, detail: string, ack = false) => call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, ack, by: 'owner' }),
   cancelQuest: (questId: string, reason: string) => call<{ quest: Quest; result: string }>(`${quest(questId)}/cancel`, 'POST', { reason }),
   // Revision-guarded correction of title/brief/parents/conflicts/allowedLanes/needsOwner — never status,
