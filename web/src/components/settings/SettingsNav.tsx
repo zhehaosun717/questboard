@@ -1,10 +1,10 @@
 import { useT, type I18nKey } from '../../lib/i18n';
 
-export type SettingsGroupId = 'project-files' | 'execution' | 'policy' | 'local';
+export type SettingsGroupId = 'project-files' | 'execution' | 'policy' | 'verification' | 'local';
 
 interface SettingsNavProps {
   activeGroup: SettingsGroupId;
-  groupErrors: Record<SettingsGroupId, boolean>;
+  groupErrors: Partial<Record<SettingsGroupId, boolean>>;
   onSelect: (group: SettingsGroupId) => void;
 }
 
@@ -12,6 +12,7 @@ const groups: Array<{ id: SettingsGroupId; labelKey: I18nKey; hintKey: I18nKey }
   { id: 'project-files', labelKey: 'settings.group.project', hintKey: 'settingsNav.hint.project' },
   { id: 'execution', labelKey: 'settings.group.lanes', hintKey: 'settingsNav.hint.lanes' },
   { id: 'policy', labelKey: 'settings.group.policy', hintKey: 'settingsNav.hint.policy' },
+  { id: 'verification', labelKey: 'settings.group.verification', hintKey: 'settingsNav.hint.verification' },
   { id: 'local', labelKey: 'settings.group.local', hintKey: 'settingsNav.hint.local' },
 ];
 

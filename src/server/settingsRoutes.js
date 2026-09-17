@@ -30,6 +30,10 @@ export function describeProject(config) {
       defaultModel: lane.defaultModel || null,
       optionalArgs: Array.isArray(rawLanes[id]?.optionalArgs) ? rawLanes[id].optionalArgs : (lane.optionalArgs || []),
     })),
+    verification: config.verification ? {
+      progressDirs: config.verification.progressDirs,
+      hooks: config.verification.hooks.map(({ cwdPath, ...hook }) => hook),
+    } : null,
     policy: config.policy,
     usage: config.usage,
   };

@@ -74,6 +74,34 @@ function laneOf(raw: Record<string, unknown>, id: string): Record<string, unknow
 }
 
 describe('settingsForm toDrafts and toRaw', () => {
+  it('round trips verification hook definitions and changes only the owner enable switch', () => {
+    const rawWithHooks = {
+      ...exampleConfig,
+      verification: {
+        progressDirs: ['.work/full'],
+        futureVerificationKey: { keep: true },
+        hooks: [{
+          id: 'smoke', command: ['node', '-e', 'process.exit(0)'], timeoutSeconds: 30, cwd: '.', envKeys: ['CI'],
+          kinds: ['code', 'review'], trigger: 'delivered', enabled: false, futureHookKey: 'keep',
+        }],
+      },
+    };
+    const drafts = toDrafts(rawWithHooks);
+    expect(drafts.verification.hooks[0]).toMatchObject({
+      id: 'smoke', command: ['node', '-e', 'process.exit(0)'], timeoutSeconds: '30', cwd: '.',
+      envKeys: ['CI'], kinds: ['code', 'review'], trigger: 'delivered', enabled: false,
+    });
+    expect(drafts.verification.hooks[0]?.unknownFields).toEqual({ futureHookKey: 'keep' });
+    expect(toRaw(rawWithHooks, drafts)).toEqual(rawWithHooks);
+
+    const enabled = toRaw(rawWithHooks, {
+      ...drafts,
+      verification: { hooks: [{ ...drafts.verification.hooks[0]!, enabled: true }] },
+    });
+    expect((enabled.verification as Record<string, unknown>).futureVerificationKey).toEqual({ keep: true });
+    expect((enabled.verification as Record<string, unknown>).hooks).toEqual([{ ...rawWithHooks.verification.hooks[0], enabled: true }]);
+  });
+
   it('round trips example config with space in lane run argument without corruption', () => {
     const drafts = toDrafts(exampleConfig);
     const roundTripped = toRaw(exampleConfig, drafts);

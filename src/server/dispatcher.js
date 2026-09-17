@@ -14,6 +14,7 @@ import { createNonDurableBindings, sanitizeUnpersistedSession } from '../core/no
 import { prepareAnnotationSnapshot, writeAnnotationSnapshot } from '../core/annotationSnapshot.js';
 import { writeRoleCard } from '../core/roleCard.js';
 import { createGenericWrapperAdapter, createOpenCodeSessionAdapter } from './workerControlAdapters.js';
+import { createVerificationHookRunner } from '../core/verificationHooks.js';
 
 const EVIDENCE_WAIT_MS = 10000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -46,6 +47,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   const genericWrapper = genericWrapperAdapter || createGenericWrapperAdapter({ config });
   const openCodeSession = createOpenCodeSessionAdapter({ fetchImpl });
   const sentCancellationRequests = new Set();
+  const verificationHooks = createVerificationHookRunner({ config, store, instanceId: dispatcherInstanceId });
   // One instance per project/dispatcher, never a module-level singleton (requirement 5/R3): two projects'
   // dispatchers sharing a process (the desktop app, a shared MCP server) must never see or clear each
   // other's noted sessions just because both happen to run here.
@@ -133,6 +135,10 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // transition proceeds with no reference, which the surfaces render as 报告不可用.
   function captureReportFor(quest) {
     try { return captureAttemptReport({ config, quest }); } catch (error) { reportPersistenceFailure('captureAttemptReport', quest.id, error); return null; }
+  }
+
+  function triggerDeliveredHooks(quest) {
+    try { verificationHooks.onDelivered(quest); } catch (error) { reportPersistenceFailure('verification hook trigger', quest.id, error); }
   }
 
   function failIfStillOurs(questId, attempt, detail, evidence = { kind: 'never_started', attempt: attemptEvidence(attempt) }) {
@@ -699,10 +705,13 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         // Capture before the status write so the reference lands in the same durable record as the
         // 'delivered' fact; a captured failure simply carries no reference.
         const report = captureReportFor(current);
-        safeguard('deliverFromApi setStatus delivered', detail, () => store.setStatus(quest.id, 'delivered', {
+        safeguard('deliverFromApi setStatus delivered', detail, () => {
+          const next = store.setStatus(quest.id, 'delivered', {
           detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
           ...(report ? { report } : {}),
-        }));
+          });
+          if (next) triggerDeliveredHooks(next);
+        });
       })
       .catch((error) => {
         const current = stillOurs(quest.id, attempt);
@@ -754,10 +763,11 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
           });
         } else {
           const report = current?.assignee && TERMINAL_STATUSES.has(transition.status) ? captureReportFor(current) : null;
-          store.setStatus(transition.id, transition.status, {
+          const next = store.setStatus(transition.id, transition.status, {
             detail: transition.detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(current?.assignee) },
             ...(report ? { report } : {}),
           });
+          if (transition.status === 'delivered' && next) triggerDeliveredHooks(next);
           if (transition.limitReason && !current?.cancelRequest && ['generic-wrapper', 'opencode-session'].includes(lane?.control?.type)) {
             void cancel(transition.id, 'limit', transition.limitReason).catch((error) => {
               reportPersistenceFailure('limit cancellation', transition.id, error);
@@ -784,5 +794,5 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     return controlHandles.get(attemptId) || null;
   }
 
-  return { assign, adopt, release, cancel, resolve, applyLanes, getUnpersistedSession, getControlHandle };
+  return { assign, adopt, release, cancel, resolve, applyLanes, getUnpersistedSession, getControlHandle, cancelHook: verificationHooks.cancel };
 }

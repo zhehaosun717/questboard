@@ -26,6 +26,16 @@ function positional(args, flagsWithValues = []) {
   return undefined;
 }
 
+function positionals(args, flagsWithValues = []) {
+  const values = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (flagsWithValues.includes(arg)) { index += 1; continue; }
+    if (!arg.startsWith('--')) values.push(arg);
+  }
+  return values;
+}
+
 // A `--port` override, validated the same way the config file's own port is (range, finiteness, browser-
 // unsafe list — see validateBoardPort in core/config.js), before the server starts. An omitted flag keeps
 // the project's configured port as the default; an *invalid* one (0, NaN, out of range, a blocked port,
@@ -327,6 +337,24 @@ export const commands = {
       return;
     }
     out(args.includes('--json') ? JSON.stringify(quest, null, 2) : questDetailText(quest));
+  },
+
+  async 'hook-log'(args) {
+    const { base } = context(args);
+    const [id, hookId] = positionals(args, ['--project', '--url']);
+    if (!id || !hookId) throw new Error('usage: questboard hook-log <quest> <hookId>');
+    let response;
+    try {
+      response = await fetch(`${base}/api/quests/${encodeURIComponent(id)}/hooks/${encodeURIComponent(hookId)}/log`);
+    } catch {
+      throw new Error(`questboard server is not running at ${base}. Start it with: questboard serve`);
+    }
+    if (!response.ok) {
+      const value = await response.json().catch(() => ({}));
+      throw new Error(value.error || `HTTP ${response.status}`);
+    }
+    const text = await response.text();
+    process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
   },
 
   // Frees a stalled quest whose worker someone confirmed is gone. Says how, or the board keeps the slot:

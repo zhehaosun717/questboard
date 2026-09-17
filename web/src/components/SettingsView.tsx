@@ -10,6 +10,7 @@ import {
   type ReviewDraft,
   type SettingsDrafts,
   type UsageDraft,
+  type VerificationDraft,
   toDrafts,
   toRaw,
   validateDrafts,
@@ -23,6 +24,7 @@ import { SettingsProjectSection } from './settings/SettingsProjectSection';
 import { SettingsReviewSection } from './settings/SettingsReviewSection';
 import { SettingsUsageKeysSection } from './settings/SettingsUsageKeysSection';
 import { SettingsUsageProvidersSection } from './settings/SettingsUsageProvidersSection';
+import { SettingsVerificationSection } from './settings/SettingsVerificationSection';
 
 // 本机与连接 mixes read-only checks with 手动查看的用量来源, which DOES write usage.manualProviders and the
 // Alibaba pair into questboard.config.json on save. The old group banner ("本组只读检查，不会写入项目配置。")
@@ -202,6 +204,10 @@ export function SettingsView({ roster }: SettingsViewProps) {
     setErrors((prevErrors) => (Object.keys(prevErrors).length > 0 ? validateDrafts(next) : prevErrors));
   };
 
+  const updateVerification = (patch: Partial<VerificationDraft>) => {
+    setDrafts((prev) => (prev ? { ...prev, verification: { ...prev.verification, ...patch } } : prev));
+  };
+
   const hasGroupErrors = (prefixes: string[]) =>
     Object.keys(errors).some((key) =>
       prefixes.some((prefix) => key === prefix || key.startsWith(`${prefix}.`)),
@@ -249,6 +255,8 @@ export function SettingsView({ roster }: SettingsViewProps) {
             onChange={updatePolicy}
           />
         );
+      case 'verification':
+        return <SettingsVerificationSection draft={drafts.verification} onChange={updateVerification} />;
       case 'local':
         return (
           <SettingsLocalGroup
@@ -273,6 +281,7 @@ export function SettingsView({ roster }: SettingsViewProps) {
           'project-files': hasGroupErrors(['project', 'briefs']),
           execution: hasGroupErrors(['lanes']),
           policy: hasGroupErrors(['policy']),
+          verification: hasGroupErrors(['verification']),
           local: hasGroupErrors(['local', 'usageKeys', 'usage']),
         }}
       />
@@ -286,6 +295,7 @@ export function SettingsView({ roster }: SettingsViewProps) {
               {activeGroup === 'project-files' ? t('settings.group.project') : null}
               {activeGroup === 'execution' ? t('settings.group.lanes') : null}
               {activeGroup === 'policy' ? t('settings.group.policy') : null}
+              {activeGroup === 'verification' ? t('settings.group.verification') : null}
               {activeGroup === 'local' ? t('settings.group.local') : null}
             </p>
           </div>

@@ -101,6 +101,22 @@ export interface UsageDraft {
   alibabaRegion: string;
 }
 
+export interface VerificationHookDraft {
+  id: string;
+  command: string[];
+  timeoutSeconds: string;
+  cwd: string;
+  envKeys: string[];
+  kinds: string[];
+  trigger: string;
+  enabled: boolean;
+  unknownFields: Record<string, unknown>;
+}
+
+export interface VerificationDraft {
+  hooks: VerificationHookDraft[];
+}
+
 export interface SettingsDrafts {
   project: ProjectDraft;
   briefs: BriefsDraft;
@@ -108,6 +124,7 @@ export interface SettingsDrafts {
   policy: PolicyDraft;
   review: ReviewDraft;
   usage: UsageDraft;
+  verification: VerificationDraft;
 }
 
 const LANE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
@@ -125,6 +142,7 @@ const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const OPTIONAL_ARG_WHEN = new Set(['variant', 'agent']);
 const OPTIONAL_ARG_KEYS = new Set(['when', 'args', 'omitWhen', 'insertAt']);
+const VERIFICATION_HOOK_KEYS = new Set(['id', 'command', 'timeoutSeconds', 'cwd', 'envKeys', 'kinds', 'trigger', 'enabled']);
 
 export function parseLaneEnv(text: string): { env: Record<string, string>; error: string | null } {
   return parseCardEnv(text);
@@ -252,6 +270,7 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
   const policy = typeof r.policy === 'object' && r.policy !== null ? (r.policy as Record<string, unknown>) : undefined;
   const rawLanes = typeof r.lanes === 'object' && r.lanes !== null ? (r.lanes as Record<string, unknown>) : undefined;
   const rawUsage = typeof r.usage === 'object' && r.usage !== null ? (r.usage as Record<string, unknown>) : undefined;
+  const verification = typeof r.verification === 'object' && r.verification !== null ? (r.verification as Record<string, unknown>) : undefined;
   const rawAlibaba =
     rawUsage && typeof rawUsage.alibaba === 'object' && rawUsage.alibaba !== null
       ? (rawUsage.alibaba as Record<string, unknown>)
@@ -368,6 +387,25 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
       manualProviders: strList(rawUsage?.manualProviders).map((id) => id.trim()),
       alibabaEdition: str(rawAlibaba?.edition),
       alibabaRegion: str(rawAlibaba?.region),
+    },
+    verification: {
+      hooks: Array.isArray(verification?.hooks)
+        ? verification.hooks.map((rawHook) => {
+          const hook = isPlainObject(rawHook) ? rawHook : {};
+          const unknownFields = Object.fromEntries(Object.entries(hook).filter(([key]) => !VERIFICATION_HOOK_KEYS.has(key)));
+          return {
+            id: str(hook.id),
+            command: strList(hook.command),
+            timeoutSeconds: hook.timeoutSeconds !== undefined && hook.timeoutSeconds !== null ? String(hook.timeoutSeconds) : '',
+            cwd: str(hook.cwd),
+            envKeys: strList(hook.envKeys),
+            kinds: strList(hook.kinds),
+            trigger: str(hook.trigger),
+            enabled: hook.enabled === true,
+            unknownFields,
+          };
+        })
+        : [],
     },
   };
 }
@@ -508,6 +546,31 @@ export function toRaw(raw: Record<string, unknown> | null | undefined, drafts: S
   if (bouncePatternsRaw.length > 0) nextPolicy.bouncePatterns = bouncePatternsRaw;
   else delete nextPolicy.bouncePatterns;
   next.policy = nextPolicy;
+
+  // Verification hooks are configured by the project owner, never by a quest payload. The form only changes
+  // `enabled`; every command, path, kind, trigger and unknown future key is round-tripped from the raw file.
+  const origVerification = isPlainObject(raw?.verification) ? { ...raw.verification } : {};
+  const origHooks = Array.isArray(origVerification.hooks) ? origVerification.hooks : [];
+  const verificationHooks = drafts.verification.hooks.map((draft, index) => {
+    const original = isPlainObject(origHooks[index]) ? { ...origHooks[index] } : {};
+    const hookObj: Record<string, unknown> = { ...original, ...draft.unknownFields };
+    hookObj.id = draft.id;
+    hookObj.command = [...draft.command];
+    const timeout = Number(draft.timeoutSeconds);
+    if (Number.isInteger(timeout)) hookObj.timeoutSeconds = timeout;
+    hookObj.cwd = draft.cwd;
+    hookObj.envKeys = [...draft.envKeys];
+    hookObj.kinds = [...draft.kinds];
+    hookObj.trigger = draft.trigger;
+    if (draft.enabled || Object.prototype.hasOwnProperty.call(original, 'enabled')) hookObj.enabled = draft.enabled;
+    else delete hookObj.enabled;
+    return hookObj;
+  });
+  if (Object.keys(origVerification).length > 0 || verificationHooks.length > 0) {
+    next.verification = { ...origVerification, ...(verificationHooks.length > 0 || Array.isArray(origVerification.hooks) ? { hooks: verificationHooks } : {}) };
+  } else {
+    delete next.verification;
+  }
 
   // usage: spread the original section first, like every other section, so keys this form does not know
   // about survive a save. The Alibaba pair is written together or not at all (validateDrafts refuses a

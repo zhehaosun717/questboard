@@ -17,6 +17,7 @@ import {
 } from './metadataUpdate.js';
 import { validateRoleCard } from './roleCard.js';
 import { validateAcceptanceShape } from './acceptance.js';
+import { validateHookRecord } from './verificationHooks.js';
 
 export const KINDS = new Set(['code', 'review', 'art', 'tool', 'owner']);
 export const QUEST_STATUSES = new Set(['posted', 'dispatched', 'delivered', 'reviewing', 'needs_owner', 'owner_playtest', 'lane_limited',
@@ -245,6 +246,9 @@ export class QuestStore extends EventEmitter {
       ...(fields.result !== undefined ? { result: fields.result } : {}),
       ...(fields.adapter !== undefined ? { adapter: fields.adapter } : {}),
       ...(fields.instanceId !== undefined ? { instanceId: fields.instanceId } : {}),
+      // Verification hook events carry only the fixed, non-stdout payload. The ordinary event envelope remains
+      // intact so existing tails and SSE consumers keep their required fields.
+      ...(fields.hookEvent ? { ...fields.hookEvent } : {}),
     };
     appendJsonLine(this.eventsFile, record);
     if (notify) this.notify(record);
@@ -399,6 +403,28 @@ export class QuestStore extends EventEmitter {
     const assignee = { ...quest.assignee, roleCard: value };
     const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt)
       ? { ...dispatch, roleCard: value } : dispatch);
+    return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
+  }
+
+  // Hook state is append-only: every queued/running/result change is a new exact S2 element. The current
+  // assignee and the matching historical dispatch row receive the same array so the evidence slot survives a
+  // later assignee clear. A recovery update may target a historical row after the assignee is gone.
+  recordHook(id, attempt, hookRecord) {
+    const quest = this.quests.get(id);
+    if (!quest) throw new Error(`${id} not found`);
+    const value = validateHookRecord(this.config, hookRecord);
+    let matched = false;
+    let currentHooks = null;
+    const current = quest.assignee && sameAttempt(quest.assignee, attempt);
+    const dispatches = (quest.dispatches || []).map((dispatch) => {
+      if (!sameAttempt(dispatch, attempt)) return dispatch;
+      matched = true;
+      const hooks = currentHooks || [...(dispatch.hooks || []), value];
+      currentHooks = hooks;
+      return { ...dispatch, hooks };
+    });
+    if (!matched) throw new Error(`${id} has no matching dispatch for hook attempt`);
+    const assignee = current ? { ...quest.assignee, hooks: currentHooks } : quest.assignee;
     return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
   }
 

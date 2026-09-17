@@ -16,6 +16,7 @@ import { attemptOf, questReportView, readCapturedReport } from '../core/reportEv
 import { questEvidence } from '../core/evidence.js';
 import { buildAcceptance } from '../core/acceptance.js';
 import { canDispatch, reviewUpstreamEvidence } from '../core/rules.js';
+import { hookLogRelativePath, readHookLog } from '../core/verificationHooks.js';
 import { createRosterBulkRoutes } from './rosterBulkRoutes.js';
 
 const SYNC_INTERVAL_MS = 5000;
@@ -389,6 +390,24 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
           ...(read.truncated ? { 'x-report-truncated': '1' } : {}),
         });
         response.end(body);
+      } else if (parts[1] === 'quests' && parts.length === 6 && parts[3] === 'hooks' && parts[5] === 'log' && request.method === 'GET') {
+        const quest = store.get(parts[2]);
+        if (!quest) { sendJson(response, 404, { error: 'quest not found' }); return true; }
+        const hook = (config.verification?.hooks || []).find((candidate) => candidate.id === parts[4]);
+        const attempt = attemptOf(quest);
+        if (!hook || !attempt?.attemptId) { sendJson(response, 404, { error: 'verification hook log not found' }); return true; }
+        const logPath = hookLogRelativePath(config, quest.id, attempt.attemptId, hook.id);
+        const record = [...(attempt.hooks || [])].reverse().find((candidate) => candidate.attemptId === attempt.attemptId && candidate.logPath === logPath);
+        const read = record?.logPath ? readHookLog(config, record.logPath) : null;
+        if (!read) { sendJson(response, 404, { error: 'verification hook log not found' }); return true; }
+        response.writeHead(200, {
+          'content-type': 'text/plain; charset=utf-8',
+          'content-length': read.body.length,
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+          ...(read.truncated ? { 'x-hook-truncated': '1' } : {}),
+        });
+        response.end(read.body);
       } else if (url.pathname === '/api/roster' && request.method === 'GET') {
         sendJson(response, 200, { adventurers: effectiveRoster(adventurers(), getLanes()) });
       } else if (url.pathname === '/api/lanes' && request.method === 'GET') {

@@ -553,6 +553,19 @@ export interface SettingsReport {
     briefs: { dispatchDirs: string[]; ownerDirs: string[]; recentDays: number };
     reviewPagesDir: string | null;
     lanes: Array<{ id: string; run: string[]; outputDir: string | null; api: string | null; serve: string[] | null; serialize: boolean; defaultModel: string | null; optionalArgs?: OptionalArgGroup[] }>;
+    verification: {
+      progressDirs: string[];
+      hooks: Array<{
+        id: string;
+        command: string[];
+        timeoutSeconds: number;
+        cwd: string;
+        envKeys: string[];
+        kinds: string[];
+        trigger: 'delivered';
+        enabled: boolean;
+      }>;
+    } | null;
     // Additive policy fields (feedback 38); bouncePatterns are compiled on the server (RegExp serializes as {}) so the form edits the raw file through `raw` instead.
     policy: {
       bannedModelPatterns: string[];

@@ -30,6 +30,9 @@ const MAX_OMIT_WHEN = 20;
 // Comfortably longer than any real flag value (a path, a model name, a short id) yet far short of Windows'
 // ~32K total command-line length, so one oversized argument can never by itself blow past that OS limit.
 const MAX_ARG_LENGTH = 4096;
+const HOOK_ID = /^[a-z][a-z0-9_-]{1,40}$/;
+const HOOK_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const HOOK_KINDS = new Set(['code', 'art', 'review', 'owner']);
 
 const KNOWN_MANUAL_PROVIDER_IDS = new Set(MANUAL_PROVIDERS.map((provider) => provider.id));
 const KNOWN_EXPERIMENTAL_PROVIDER_IDS = new Set(['codex-app-server']);
@@ -319,6 +322,63 @@ function validateUsageConfig(rawUsage) {
   return result;
 }
 
+function validateVerificationHooks(rawHooks, base) {
+  if (rawHooks === undefined) return [];
+  if (!Array.isArray(rawHooks)) fail('verification.hooks must be an array');
+  const seen = new Set();
+  return rawHooks.map((hook, index) => {
+    const field = `verification.hooks[${index}]`;
+    if (!hook || typeof hook !== 'object' || Array.isArray(hook)) fail(`${field} must be an object`);
+    const id = requireString(hook.id, `${field}.id`);
+    if (!HOOK_ID.test(id)) fail(`${field}.id must match /^[a-z][a-z0-9_-]{1,40}$/`);
+    if (seen.has(id)) fail(`${field}.id must not repeat`);
+    seen.add(id);
+    if (!Array.isArray(hook.command) || !hook.command.length || hook.command.some((arg) => typeof arg !== 'string' || !arg.trim())) {
+      fail(`${field}.command must be a non-empty array of non-empty strings`);
+    }
+    if (!Number.isInteger(hook.timeoutSeconds) || hook.timeoutSeconds < 1 || hook.timeoutSeconds > 3600) {
+      fail(`${field}.timeoutSeconds must be a positive integer no greater than 3600`);
+    }
+    const cwd = requireString(hook.cwd, `${field}.cwd`);
+    if (cwd.includes('\0') || path.isAbsolute(cwd) || /^[A-Za-z]:/.test(cwd) || cwd.startsWith('\\\\')) {
+      fail(`${field}.cwd must be a relative path inside the project`);
+    }
+    const cwdPath = path.resolve(base, cwd);
+    if (lexicalContainmentIssue(base, cwd) || realpathContainmentIssue(base, cwdPath)) {
+      fail(`${field}.cwd must resolve inside the project`);
+    }
+    const envKeys = hook.envKeys === undefined ? [] : hook.envKeys;
+    if (!Array.isArray(envKeys) || envKeys.some((key) => typeof key !== 'string' || !HOOK_ENV_KEY.test(key))) {
+      fail(`${field}.envKeys must be an array of environment variable names`);
+    }
+    if (new Set(envKeys).size !== envKeys.length) fail(`${field}.envKeys must not repeat`);
+    if (!Array.isArray(hook.kinds) || !hook.kinds.length || hook.kinds.some((kind) => !HOOK_KINDS.has(kind))) {
+      fail(`${field}.kinds must be a non-empty subset of code|art|review|owner`);
+    }
+    if (new Set(hook.kinds).size !== hook.kinds.length) fail(`${field}.kinds must not repeat`);
+    if (hook.trigger !== 'delivered') fail(`${field}.trigger must be delivered`);
+    if (hook.enabled !== undefined && typeof hook.enabled !== 'boolean') fail(`${field}.enabled must be a boolean`);
+    return {
+      id,
+      command: [...hook.command],
+      timeoutSeconds: hook.timeoutSeconds,
+      cwd,
+      cwdPath,
+      envKeys: [...envKeys],
+      kinds: [...hook.kinds],
+      trigger: 'delivered',
+      enabled: hook.enabled === true,
+    };
+  });
+}
+
+function validateVerificationConfig(rawVerification, base) {
+  if (!rawVerification) return null;
+  if (!rawVerification || typeof rawVerification !== 'object' || Array.isArray(rawVerification)) fail('verification must be an object');
+  const progressDirs = stringList(rawVerification.progressDirs, 'verification.progressDirs', []).map((dir) => path.resolve(base, dir));
+  return { progressDirs, hooks: validateVerificationHooks(rawVerification.hooks, base) };
+}
+
 // The project policy: what the board refuses to dispatch, plus the limits and preferences the owner edits
 // on the settings page. Every field is additive and optional — a config file that never mentions any of
 // them resolves to exactly the behaviour from before they existed (stall after 20 minutes, no per-lane
@@ -415,7 +475,7 @@ export function resolveConfig(root, raw) {
       recentDays: briefs.recentDays === undefined ? 7 : briefs.recentDays,
     },
     reviewPages: raw.reviewPages ? { dir: abs(raw.reviewPages.dir, 'reviewPages.dir'), filePattern: regex(raw.reviewPages.filePattern || '^review_.+\\.html$', 'reviewPages.filePattern') } : null,
-    verification: raw.verification ? { progressDirs: stringList(raw.verification.progressDirs, 'verification.progressDirs', []).map((dir) => path.resolve(base, dir)) } : null,
+    verification: validateVerificationConfig(raw.verification, base),
     bash: raw.bash === undefined ? null : requireString(raw.bash, 'bash'),
     // No prototype: `config.lanes[name]` is asked with names from briefs, rosters and requests, and
     // "constructor" must not count as a lane.
