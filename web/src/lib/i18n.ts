@@ -775,6 +775,8 @@ export const TRANSLATIONS = {
   'notifications.permission.default': { zh: '未询问', en: 'Not asked yet' },
   'notifications.permission.granted': { zh: '已允许', en: 'Allowed' },
   'notifications.permission.denied': { zh: '已拒绝（在浏览器设置里改）', en: 'Denied (change it in browser settings)' },
+  'notifications.notAsked': { zh: '还没申请权限，先点下面的按钮向浏览器申请。', en: 'Permission has not been asked yet; use the button below to ask the browser.' },
+  'notifications.deniedHelp': { zh: '浏览器拒绝了通知权限，想开启的话只能去浏览器的设置里改。', en: 'The browser denied notification permission; to turn it on, change it in the browser settings.' },
   'notifications.readingProject': { zh: '正在读取项目', en: 'Reading the project' },
   'notifications.unsupported': { zh: '这个浏览器没有桌面通知功能，看板上的提示还在，只是不会弹系统通知。', en: 'This browser has no desktop notifications; board messages still show, they just will not pop up.' },
   'notifications.boardUnsupported': { zh: '此版本的看板不支持', en: 'This board version does not support it' },

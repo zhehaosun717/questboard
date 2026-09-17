@@ -43,7 +43,8 @@ export function NotificationsSectionView({
   // The master switch and every event switch need the board to have named its project first — a preference
   // is stored per project, and without an id there is nowhere safe to keep the choice — and then a granted
   // browser permission. Until both hold they stay off and disabled, so nothing here can be mistaken for a
-  // working setting.
+  // working setting. A disabled box must also not read as "on": the stored choice shows only while the
+  // switch could actually run, and rendering never writes it back.
   const waiting = !state.scope.loaded;
   const noProjectId = state.scope.loaded && state.scope.projectId === null;
   const allowed =
@@ -62,6 +63,9 @@ export function NotificationsSectionView({
         {state.permission === 'unsupported' ? (
           <p className="muted">{t('notifications.unsupported')}</p>
         ) : null}
+        {state.permission === 'denied' ? (
+          <p className="muted">{t('notifications.deniedHelp')}</p>
+        ) : null}
         {state.support === 'unsupported' ? (
           <p className="muted">{t('notifications.boardUnsupported')}</p>
         ) : null}
@@ -69,16 +73,19 @@ export function NotificationsSectionView({
           <p className="muted">{t('notifications.noProjectId')}</p>
         ) : null}
         {state.permission === 'default' ? (
-          <div className="notifications-actions">
-            <button type="button" className="btn" onClick={onRequestPermission}>
-              {t('notifications.request')}
-            </button>
-          </div>
+          <>
+            <p className="muted">{t('notifications.notAsked')}</p>
+            <div className="notifications-actions">
+              <button type="button" className="btn" onClick={onRequestPermission}>
+                {t('notifications.request')}
+              </button>
+            </div>
+          </>
         ) : null}
         <label className="notifications-toggle">
           <input
             type="checkbox"
-            checked={state.enabled}
+            checked={allowed && state.enabled}
             disabled={!allowed}
             onChange={(event) => onSetEnabled(event.target.checked)}
           />
@@ -89,7 +96,7 @@ export function NotificationsSectionView({
             <label key={key} className="notifications-toggle">
               <input
                 type="checkbox"
-                checked={state.events[key]}
+                checked={allowed && state.events[key]}
                 disabled={!allowed}
                 onChange={(event) => onSetEventEnabled(key, event.target.checked)}
               />

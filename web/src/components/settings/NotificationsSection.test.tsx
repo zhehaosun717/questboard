@@ -41,6 +41,18 @@ describe('NotificationsSectionView', () => {
     expect(count(html, 'disabled')).toBe(6);
   });
 
+  it('default with a stored choice: makes no "on" claim and keeps the ask button', () => {
+    const html = render({
+      permission: 'default',
+      enabled: true,
+      events: { ...DEFAULT_NOTIFICATION_PREFERENCE.events, delivered: true },
+    });
+    expect(html).toContain('还没申请权限');
+    expect(html).toContain('开启通知');
+    expect(count(html, 'checked')).toBe(0);
+    expect(count(html, 'disabled')).toBe(6);
+  });
+
   it('shows 已允许 and lets every switch work once granted', () => {
     const html = render({ permission: 'granted' });
     expect(html).toContain('已允许');
@@ -55,6 +67,18 @@ describe('NotificationsSectionView', () => {
     expect(count(html, 'disabled')).toBe(6);
   });
 
+  it('denied with a stored choice: unticked, disabled, and one sentence saying why', () => {
+    const html = render({
+      permission: 'denied',
+      enabled: true,
+      events: { ...DEFAULT_NOTIFICATION_PREFERENCE.events, delivered: true },
+    });
+    expect(html).toContain('浏览器拒绝了通知权限');
+    expect(html).not.toContain('开启通知');
+    expect(count(html, 'checked')).toBe(0);
+    expect(count(html, 'disabled')).toBe(6);
+  });
+
   it('says 浏览器不支持 when there is no Notification API', () => {
     const html = render({ permission: 'unsupported' });
     expect(html).toContain('浏览器不支持');
@@ -62,10 +86,19 @@ describe('NotificationsSectionView', () => {
     expect(count(html, 'disabled')).toBe(6);
   });
 
+  it('unsupported with a stored choice: unticked, disabled, and one sentence saying why', () => {
+    const html = render({ permission: 'unsupported', enabled: true });
+    expect(html).toContain('这个浏览器没有桌面通知功能');
+    expect(html).not.toContain('开启通知');
+    expect(count(html, 'checked')).toBe(0);
+    expect(count(html, 'disabled')).toBe(6);
+  });
+
   it('says 此版本的看板不支持 and keeps everything off for an old board', () => {
-    const html = render({ permission: 'granted', support: 'unsupported' });
+    const html = render({ permission: 'granted', support: 'unsupported', enabled: true });
     expect(html).toContain('此版本的看板不支持');
     expect(count(html, 'disabled')).toBe(6);
+    expect(count(html, 'checked')).toBe(0);
   });
 
   it('labels the five event switches with the board words', () => {
