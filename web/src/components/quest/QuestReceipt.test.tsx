@@ -2,7 +2,25 @@ import type { ReactElement, ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { makeQuest, makeSnapshot } from '../../lib/testFixtures';
-import { QuestReceipt } from './QuestReceipt';
+import { copyAttempt, QuestReceipt } from './QuestReceipt';
+
+const REPORT_A = {
+  source: 'delivery' as const,
+  ref: 'delivery/A-1-worker.md',
+  digest: 'digest-one',
+  bytes: 10,
+  sizeBytes: 10,
+  truncated: false,
+  capturedAt: '2026-09-16T03:00:00.000Z',
+  attemptId: 'att-1',
+  verdict: 'PASS' as const,
+};
+const REPORT_B = {
+  ...REPORT_A,
+  ref: 'delivery/A-1-worker-2.md',
+  digest: 'digest-two',
+  attemptId: 'att-2',
+};
 
 // This project has no DOM test environment installed (jsdom/happy-dom/react-test-renderer — see the same
 // gap noted in LaneCard.test.tsx), and the brief for this fix bars installing one. A literal mount-effect
@@ -120,8 +138,8 @@ describe('QuestReceipt (real JSX, SSR)', () => {
       const snap = makeSnapshot({ quests: [questA, questB] });
       const keyA = reportSectionKey(questA, snap);
       const keyB = reportSectionKey(questB, snap);
-      expect(keyA).toBe(`${snap.project.id ?? ''}:${questA.id}`);
-      expect(keyB).toBe(`${snap.project.id ?? ''}:${questB.id}`);
+      expect(keyA).toBe(`${snap.project.id ?? ''}:${questA.id}::`);
+      expect(keyB).toBe(`${snap.project.id ?? ''}:${questB.id}::`);
       expect(keyA).not.toBe(keyB);
     });
 
@@ -130,5 +148,51 @@ describe('QuestReceipt (real JSX, SSR)', () => {
       const snap = makeSnapshot({ quests: [quest] });
       expect(reportSectionKey(quest, snap)).toBe(reportSectionKey(quest, snap));
     });
+  });
+
+  // Item 1 (N4): the key also carries the report's own ref+digest, not just project+quest — a same quest id
+  // whose report changed (a new dispatch attempt captured while the drawer stayed open) must remount
+  // ReportSection instead of reusing its `state`/`panelOpen`, so switching between two attempts' reports
+  // never shows the previous attempt's stale summary or panel for even one frame.
+  describe('item 1: ReportSection is also keyed on the report reference, so a new attempt never reuses a stale panel', () => {
+    it('gives the same quest id two different keys across its two reports (two attempts, one frame each)', () => {
+      const questFrame1 = makeQuest({ id: 'A-1', report: REPORT_A });
+      const questFrame2 = makeQuest({ id: 'A-1', report: REPORT_B });
+      const snap1 = makeSnapshot({ quests: [questFrame1] });
+      const snap2 = makeSnapshot({ quests: [questFrame2] });
+      const key1 = reportSectionKey(questFrame1, snap1);
+      const key2 = reportSectionKey(questFrame2, snap2);
+      expect(key1).toBe(`${snap1.project.id ?? ''}:A-1:${REPORT_A.ref}:${REPORT_A.digest}`);
+      expect(key2).toBe(`${snap2.project.id ?? ''}:A-1:${REPORT_B.ref}:${REPORT_B.digest}`);
+      expect(key1).not.toBe(key2);
+    });
+
+    it('keeps the same key across re-renders of the same attempt, so it is not remounted needlessly', () => {
+      const quest = makeQuest({ id: 'A-1', report: REPORT_A });
+      const snap = makeSnapshot({ quests: [quest] });
+      expect(reportSectionKey(quest, snap)).toBe(reportSectionKey(quest, snap));
+    });
+  });
+});
+
+// Item 6 (M5): a copy failure — the clipboard API rejects, or is entirely absent (an insecure context, or a
+// very old browser) — must not be silently ignored. `copyAttempt` is the whole decision QuestReceipt's own
+// click handler delegates to, so it is directly testable without a DOM or a real clipboard.
+describe('copyAttempt (item 6/M5)', () => {
+  it('writes through to a real clipboard when one is available', async () => {
+    const writeText = (text: string) => Promise.resolve(text).then(() => undefined);
+    const calls: string[] = [];
+    const clipboard = { writeText: (text: string) => { calls.push(text); return writeText(text); } };
+    await expect(copyAttempt(clipboard, '交付文件 delivery/x.md abc123')).resolves.toBeUndefined();
+    expect(calls).toEqual(['交付文件 delivery/x.md abc123']);
+  });
+
+  it('rejects immediately when there is no clipboard API at all, instead of silently doing nothing', async () => {
+    await expect(copyAttempt(undefined, 'text')).rejects.toThrow();
+  });
+
+  it('surfaces a real clipboard rejection (e.g. permission denied) instead of swallowing it', async () => {
+    const clipboard = { writeText: () => Promise.reject(new Error('permission denied')) };
+    await expect(copyAttempt(clipboard, 'text')).rejects.toThrow('permission denied');
   });
 });

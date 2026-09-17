@@ -41,13 +41,24 @@ describe('parseVerdict', () => {
   it('reads the verdict line the review brief asks for', () => {
     expect(parseVerdict('PASS — scope\nVERDICT: PASS')).toBe('pass');
     expect(parseVerdict('FINDINGS\n1. x\nVERDICT: PASS WITH FINDINGS')).toBe('findings');
-    expect(parseVerdict('verdict: fail\n')).toBe('fail');
+    expect(parseVerdict('VERDICT: FAIL\n')).toBe('fail');
   });
 
   it('does not read the echoed template or a missing verdict as a result, and takes the last verdict', () => {
     expect(parseVerdict('VERDICT: PASS | PASS WITH FINDINGS | FAIL')).toBe('unknown');
     expect(parseVerdict('looks fine to me')).toBe('unknown');
     expect(parseVerdict('VERDICT: PASS\nre-checked the tests\nVERDICT: FAIL')).toBe('fail');
+  });
+
+  // Item 3 (N3): the backend's own extractVerdict (src/core/reportEvidence.js) only recognises the exact
+  // uppercase token — a lowercase or mixed-case line is not a genuine verdict there, so this tail-parse
+  // fallback must not disagree and read one out of it anyway.
+  it('is case-sensitive like the backend: only an exact uppercase VERDICT/PASS/FAIL line counts', () => {
+    expect(parseVerdict('verdict: fail\n')).toBe('unknown');
+    expect(parseVerdict('Verdict: FAIL\n')).toBe('unknown');
+    expect(parseVerdict('VERDICT: Fail\n')).toBe('unknown');
+    expect(parseVerdict('VERDICT: fail\n')).toBe('unknown');
+    expect(parseVerdict('verdict: PASS WITH FINDINGS\n')).toBe('unknown');
   });
 });
 

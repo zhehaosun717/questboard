@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import type { Quest, QuestReportDetail, Snapshot, Verification } from '../../api/types';
-import { REPORT_SOURCE_LABEL } from '../../lib/evidence';
+import { RAW_TAIL_LABEL, REPORT_SOURCE_LABEL } from '../../lib/evidence';
 import { formatAgo, formatClock } from '../../lib/board';
 import { ReportPanel } from './ReportPanel';
 import '../../styles/report-evidence.css';
@@ -22,27 +22,46 @@ function ReceiptBlock({ title, children }: { title: string; children: React.Reac
   );
 }
 
+// M5: a copy failure (the clipboard API rejects, or is absent entirely — e.g. an insecure context) used to
+// be silently ignored, leaving the button reading 复制 with nothing to show for the click. It now says so,
+// the same short-lived way a success does, so the owner knows to copy the reference by hand instead of
+// clicking 复制 again expecting a different result.
+type CopyState = 'idle' | 'copied' | 'failed';
+
+// Pulled out so the "no clipboard API at all" branch (an insecure context, or a very old browser) is
+// unit-testable directly: `navigator.clipboard?.writeText(text)` alone silently evaluates to `undefined`
+// there — no `.then` ever runs, so the click used to leave the button with nothing to show for it at all,
+// not even the "failed" state below.
+export function copyAttempt(clipboard: Pick<Clipboard, 'writeText'> | undefined, text: string): Promise<void> {
+  return clipboard ? clipboard.writeText(text) : Promise.reject(new Error('clipboard API unavailable'));
+}
+
 function ReportReference({ report }: { report: NonNullable<Quest['report']> }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<CopyState>('idle');
   const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(resetTimer.current), []);
   const copy = () => {
     const text = `${REPORT_SOURCE_LABEL[report.source]} ${report.ref} ${report.digest}`;
-    navigator.clipboard?.writeText(text).then(
+    copyAttempt(navigator.clipboard, text).then(
       () => {
-        setCopied(true);
+        setCopyState('copied');
         clearTimeout(resetTimer.current);
-        resetTimer.current = setTimeout(() => setCopied(false), 1500);
+        resetTimer.current = setTimeout(() => setCopyState('idle'), 1500);
       },
-      () => undefined,
+      () => {
+        setCopyState('failed');
+        clearTimeout(resetTimer.current);
+        resetTimer.current = setTimeout(() => setCopyState('idle'), 3000);
+      },
     );
   };
   return (
     <p className="report-ref">
       来源 {REPORT_SOURCE_LABEL[report.source]} · 路径 <code>{report.ref}</code> · 摘要 <code>{report.digest.slice(0, 12)}</code>
       <button type="button" className="btn report-ref-copy" onClick={copy}>
-        {copied ? '已复制' : '复制'}
+        {copyState === 'copied' ? '已复制' : '复制'}
       </button>
+      {copyState === 'failed' ? <span className="report-panel-error">复制失败，请手动复制</span> : null}
     </p>
   );
 }
@@ -183,10 +202,17 @@ export function QuestReceipt({ quest, snap }: QuestReceiptProps) {
         )}
       </ReceiptBlock>
 
-      <ReportSection key={`${snap.project.id ?? ''}:${quest.id}`} quest={quest} projectId={snap.project.id ?? ''} />
+      {/* N4/item 1: keyed on the report's own ref+digest too, not just project+quest — a same quest that
+          gets a new dispatch attempt while its drawer stays open must remount ReportSection instead of
+          reusing its state, so switching between two attempts' reports never shows a stale panel. */}
+      <ReportSection
+        key={`${snap.project.id ?? ''}:${quest.id}:${quest.report?.ref ?? ''}:${quest.report?.digest ?? ''}`}
+        quest={quest}
+        projectId={snap.project.id ?? ''}
+      />
 
       {hasReport && quest.lastDetail ? (
-        <ReceiptBlock title="最近记录（末尾片段）">
+        <ReceiptBlock title={RAW_TAIL_LABEL}>
           <p className="receipt-none">{quest.lastDetail}</p>
         </ReceiptBlock>
       ) : null}

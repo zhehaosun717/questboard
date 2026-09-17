@@ -24,14 +24,24 @@ export const REPORT_SOURCE_LABEL: Record<ReportSource, string> = {
   summary: '运行记录（.out）',
 };
 
+// The label every surface must show beside a raw, unverified `lastDetail` tail (M5/N1 — item 2 & 6): never
+// printed bare next to a verdict, since it can hold an echoed review template or a mid-word cut that would
+// otherwise read as if it were evidence for whatever verdict sits next to it — most sharply wrong right
+// beside a verified 结论未识别, which this label now always accompanies. Shared so QuestReceipt's own tail
+// block and the review row's cannot drift apart.
+export const RAW_TAIL_LABEL = '最近记录（末尾片段）';
+
 // The review brief asks the reviewer to end with `VERDICT: PASS | PASS WITH FINDINGS | FAIL`. Only a line
 // holding a single verdict counts — an echoed template line lists all three and must not read as PASS —
-// and the last such line wins.
-const VERDICT_LINE = /^\s*VERDICT:\s*(PASS WITH FINDINGS|PASS|FAIL)\s*$/gim;
+// and the last such line wins. Case-sensitive on purpose (item 3/N3): the backend's own extractVerdict
+// (src/core/reportEvidence.js VERDICT_RE) only ever recognises the exact uppercase token, so a lowercase or
+// mixed-case "verdict: pass" is not a genuine verdict line there either — this fallback must agree, or a
+// review with no captured report could read a verdict here that the backend would call 'unknown'.
+const VERDICT_LINE = /^\s*VERDICT:\s*(PASS WITH FINDINGS|PASS|FAIL)\s*$/gm;
 
 export function parseVerdict(report: string): ReviewVerdict {
   const matches = [...report.matchAll(VERDICT_LINE)];
-  const last = matches[matches.length - 1]?.[1]?.toUpperCase();
+  const last = matches[matches.length - 1]?.[1];
   if (last === 'PASS WITH FINDINGS') return 'findings';
   if (last === 'PASS') return 'pass';
   if (last === 'FAIL') return 'fail';

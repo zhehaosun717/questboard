@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../api/client';
 import type { AcceptanceEvidenceRef, Quest, Snapshot } from '../../api/types';
-import { boardAcceptanceDetail, REPORT_SOURCE_LABEL, reviewVerdictOf, verdictLabel, VERDICT_LABEL } from '../../lib/evidence';
+import { boardAcceptanceDetail, RAW_TAIL_LABEL, REPORT_SOURCE_LABEL, reviewVerdictOf, verdictLabel, VERDICT_LABEL } from '../../lib/evidence';
 import { acceptanceBy, STATUS } from '../../lib/labels';
 import { isArchived, reviewsOf } from '../../lib/questState';
 import { formatClock } from '../../lib/board';
@@ -141,8 +141,15 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
                   <strong>{review.id}</strong>
                   <span className="review-link-status">{STATUS[review.status] ?? review.status}</span>
                   {reported ? <ReviewVerdictLine review={review} /> : null}
+                  {/* N1/item 2 & 6: a raw lastDetail tail — possibly an echoed review template, possibly cut
+                      mid-word — must never sit next to a verdict (verified or guessed) unlabelled, or it
+                      reads as if it were evidence for that verdict. Always labelled, with the same wording
+                      QuestReceipt's own tail block uses, so this can never drift into "labelled sometimes". */}
                   {reported && review.lastDetail ? (
-                    <pre className="review-link-detail">{review.lastDetail}</pre>
+                    <>
+                      <div className="review-link-none">{RAW_TAIL_LABEL}</div>
+                      <pre className="review-link-detail">{review.lastDetail}</pre>
+                    </>
                   ) : (
                     <div className="review-link-none">{reported ? '没有记录复核报告' : '还没有复核结论'}</div>
                   )}

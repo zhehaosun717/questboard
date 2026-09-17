@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { RAW_TAIL_LABEL } from '../../lib/evidence';
 import { makeQuest, makeSnapshot } from '../../lib/testFixtures';
 import { ReviewSection } from './ReviewSection';
 
@@ -143,5 +144,59 @@ describe('ReviewSection verdict line (item 12)', () => {
     expect(html).not.toContain('复核结论（模型自报）');
     expect(html).toContain('复核不通过');
     expect(html).toContain('没有最终报告，这是从最后几行输出里猜的');
+  });
+
+  // N1/item 2: a raw lastDetail tail must never sit next to a verdict unlabelled — most sharply wrong right
+  // beside a verified 结论未识别, where it could be an echoed review template that reads as if it were the
+  // verdict's own evidence. It is shown labelled instead, following the receipt's own wording, never hidden
+  // or bare — this holds for every verdict state, not only the verified-unknown case.
+  it('labels a raw lastDetail tail beside a verified 结论未识别, never showing it bare (N1)', () => {
+    const review = makeQuest({
+      id: 'R-6',
+      kind: 'review',
+      parents: ['A-1'],
+      status: 'delivered',
+      lastDetail: '…审核填充 VERDICT: PASS | PASS WITH FINDINGS | FAIL',
+      report: {
+        source: 'delivery',
+        ref: 'delivery/R-6-worker.md',
+        digest: 'ccc333',
+        bytes: 40,
+        sizeBytes: 40,
+        truncated: false,
+        capturedAt: '2026-09-16T07:00:00.000Z',
+        attemptId: 'att-6',
+        verdict: 'unknown',
+      },
+    });
+    const html = renderSection({ id: 'A-1' }, [review]);
+    expect(html).toContain('结论未识别');
+    expect(html).toContain(RAW_TAIL_LABEL);
+    expect(html).toContain('…审核填充 VERDICT: PASS | PASS WITH FINDINGS | FAIL');
+    // The label sits before the raw tail, not after — it reads as "here is a fragment", not a caption below it.
+    expect(html.indexOf(RAW_TAIL_LABEL)).toBeLessThan(html.indexOf('…审核填充'));
+  });
+
+  it('also labels a raw lastDetail tail beside a verified pass, not only the unknown case', () => {
+    const review = makeQuest({
+      id: 'R-7',
+      kind: 'review',
+      parents: ['A-1'],
+      status: 'delivered',
+      lastDetail: '看起来过程记录被截断了',
+      report: {
+        source: 'delivery',
+        ref: 'delivery/R-7-worker.md',
+        digest: 'ddd444',
+        bytes: 40,
+        sizeBytes: 40,
+        truncated: false,
+        capturedAt: '2026-09-16T08:00:00.000Z',
+        attemptId: 'att-7',
+        verdict: 'PASS',
+      },
+    });
+    const html = renderSection({ id: 'A-1' }, [review]);
+    expect(html).toContain(RAW_TAIL_LABEL);
   });
 });

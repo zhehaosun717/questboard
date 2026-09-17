@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
-import { bareReason, errorLine, ReportPanel } from './ReportPanel';
+import { describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../api/client';
+import { bareReason, errorLine, loadReport, ReportPanel, restoreOpenerFocus } from './ReportPanel';
 
 // SSR only: no DOM is installed here, so the fetch effect never fires (same approach as
 // MetadataSection.test.tsx) — this just proves the initial shell and the pure error-formatting helpers.
@@ -49,5 +50,89 @@ describe('errorLine', () => {
     const line = errorLine({ code: 'server', message: 'HTTP 500' });
     expect(line).toContain('服务器读取报告出错');
     expect(line).not.toContain('网络请求失败');
+  });
+});
+
+// Item 7/M6: the async fetch, and its 404/409 mapping, driven with a stubbed `api.report` — never a real
+// fetch, never a browser. This is what `loadReport` was pulled out of the effect for (see its own comment):
+// with no DOM test environment installed here, a real mount is out of reach, but the state-transition logic
+// itself — loading → ready, or loading → one of the four error codes — is real production code and fully
+// reachable this way.
+describe('loadReport (item 7: async, 404 and 409 paths with a stubbed API)', () => {
+  it('stays pending (the loading state) until the stubbed api settles', async () => {
+    let settle!: (value: { text: string; truncated: boolean; digest: string | null }) => void;
+    const pending = new Promise<{ text: string; truncated: boolean; digest: string | null }>((resolve) => { settle = resolve; });
+    const stub = { report: () => pending };
+    let settled = false;
+    const run = loadReport(stub, 'A-1').then((next) => { settled = true; return next; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    settle({ text: 'hello', truncated: false, digest: 'abc' });
+    const result = await run;
+    expect(settled).toBe(true);
+    expect(result).toEqual({ status: 'ready', text: 'hello', truncated: false });
+  });
+
+  it('returns ready with the text and truncated flag on success', async () => {
+    const stub = { report: async () => ({ text: '完整报告正文', truncated: true, digest: 'abc123' }) };
+    await expect(loadReport(stub, 'A-1')).resolves.toEqual({ status: 'ready', text: '完整报告正文', truncated: true });
+  });
+
+  // The missing-report path (404): the server's ApiError status maps to code 'gone'.
+  it('maps a 404 ApiError to a gone error, carrying the server message', async () => {
+    const stub = { report: async () => { throw new ApiError('报告不可用：文件被删了', undefined, undefined, undefined, 404); } };
+    await expect(loadReport(stub, 'A-1')).resolves.toEqual({ status: 'error', code: 'gone', message: '报告不可用：文件被删了' });
+  });
+
+  // The changed-report path (409): the digest no longer matches what was recorded.
+  it('maps a 409 ApiError to a changed error, carrying the server message', async () => {
+    const stub = { report: async () => { throw new ApiError('报告内容在记录之后被改过（内容摘要对不上），不敢当作同一份报告展示', undefined, undefined, undefined, 409); } };
+    await expect(loadReport(stub, 'A-1')).resolves.toEqual({
+      status: 'error',
+      code: 'changed',
+      message: '报告内容在记录之后被改过（内容摘要对不上），不敢当作同一份报告展示',
+    });
+  });
+
+  it('maps any other ApiError status (e.g. HTTP 500) to a server error', async () => {
+    const stub = { report: async () => { throw new ApiError('HTTP 500', undefined, undefined, undefined, 500); } };
+    await expect(loadReport(stub, 'A-1')).resolves.toEqual({ status: 'error', code: 'server', message: 'HTTP 500' });
+  });
+
+  it('maps a non-ApiError failure (a genuine network abort) to a network error', async () => {
+    const stub = { report: async () => { throw new Error('Failed to fetch'); } };
+    await expect(loadReport(stub, 'A-1')).resolves.toEqual({ status: 'error', code: 'network', message: 'Failed to fetch' });
+  });
+});
+
+// Item 4/M2: after 收起, focus goes to the toggle button, never `<body>`. `restoreOpenerFocus` is the whole
+// decision ReportPanel's unmount effect makes with `document.activeElement` captured at mount — this project
+// has no DOM test environment installed (see QuestReceipt.test.tsx's own note on the same gap, and the brief
+// for this fix bars installing one), so a literal mounted-panel assertion against a real `document.
+// activeElement` is not reachable from vitest here. What is reachable, and is the actual fix, is this
+// function: duck-typed exactly like threadAsyncGuards.test.ts's canReceiveFocus, so it is provable with a
+// plain object standing in for the toggle button, never a stand-in for the behaviour itself.
+describe('restoreOpenerFocus (item 4/M2)', () => {
+  it('refocuses a still-connected, enabled opener (e.g. the receipt toggle button)', () => {
+    const opener = { isConnected: true, disabled: false, focus: vi.fn() };
+    restoreOpenerFocus(opener);
+    expect(opener.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing for an opener the panel outlived (removed from the document)', () => {
+    const opener = { isConnected: false, focus: vi.fn() };
+    restoreOpenerFocus(opener);
+    expect(opener.focus).not.toHaveBeenCalled();
+  });
+
+  it('does nothing for a disabled opener', () => {
+    const opener = { isConnected: true, disabled: true, focus: vi.fn() };
+    restoreOpenerFocus(opener);
+    expect(opener.focus).not.toHaveBeenCalled();
+  });
+
+  it('does nothing, and never throws, when nothing was captured', () => {
+    expect(() => restoreOpenerFocus(null)).not.toThrow();
   });
 });
