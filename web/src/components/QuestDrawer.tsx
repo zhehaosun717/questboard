@@ -17,6 +17,24 @@ import { ReviewSection } from './quest/ReviewSection';
 import { UpstreamEvidence } from './quest/UpstreamEvidence';
 import { GraphView } from './GraphView';
 
+// Display labels for cancellation codes and sources — the drawer shows these words, never the raw codes.
+const CANCEL_RESULT: Record<string, string> = {
+  pending: '停止请求已发出，还没收到确认',
+  never_started: 'worker 还没启动',
+  stopped_by_wrapper: '包装脚本已停下它直接启动的进程',
+  stopped_by_api: '已通过通道接口停止',
+  manual_required: '无法自动停止，需要手动处理',
+  unknown: '不确定是否已停止',
+};
+
+const CANCEL_SOURCE: Record<string, string> = {
+  ui: '看板',
+  cli: '命令行',
+  mcp: 'MCP',
+  limit: '超限自动取消',
+  unknown: '未知来源',
+};
+
 export interface QuestDrawerProps {
   quest: Quest;
   snap: Snapshot;
@@ -39,7 +57,7 @@ export function cancelActionFor(status: Quest['status']): 'request' | 'held-stat
 
 export function cancelReasonPromptFor(action: ReturnType<typeof cancelActionFor>): string | null {
   if (action === 'request') return '请写明取消原因';
-  if (action === 'held-status') return '请写明你如何确认这个冒险者已经停止；这会记录为人工释放理由';
+  if (action === 'held-status') return '请写明你怎么确认这个 worker 已经停了；这句话会记成手动释放的理由';
   return null;
 }
 
@@ -82,14 +100,14 @@ export function QuestDrawer({
     const action = cancelActionFor(quest.status);
     const holdsWorker = Boolean(assignee && action !== 'status');
     const warning = holdsWorker
-      ? `取消 ${quest.id}？这个冒险者可能仍在修改文件，取消请求不会自动证明它已经停止；请确认后再继续。`
+      ? `取消 ${quest.id}？它的 worker 可能还在改文件。取消只是发出停止请求，不代表 worker 已经停了。确定继续吗？`
       : `取消 ${quest.id}？`;
     if (!window.confirm(warning)) {
       return;
     }
     try {
       const reasonPrompt = cancelReasonPromptFor(action);
-      const reason = reasonPrompt ? window.prompt(reasonPrompt)?.trim() : 'owner 在看板上请求取消';
+      const reason = reasonPrompt ? window.prompt(reasonPrompt)?.trim() : '在看板上手动取消';
       if (!reason) return;
       if (action === 'request') await api.cancelQuest(quest.id, reason);
       else await api.setQuestStatus(quest.id, 'cancelled', reason, holdsWorker);
@@ -102,13 +120,13 @@ export function QuestDrawer({
   const canResolve = Boolean(assignee && quest.cancelRequest
     && ['manual_required', 'stopped_by_wrapper', 'stopped_by_api', 'unknown'].includes(quest.cancelRequest.result));
   const handleResolve = async () => {
-    const reason = window.prompt('请写明你如何确认这个冒险者已经停止；这会记录为人工释放理由')?.trim();
+    const reason = window.prompt('请写明你怎么确认这个 worker 已经停了；这句话会记成手动释放的理由')?.trim();
     if (!reason) return;
     try {
       await api.resolveWorker(quest.id, reason);
       refresh();
     } catch (err) {
-      pushToast(`人工处理失败：${err instanceof Error ? err.message : String(err)}`);
+      pushToast(`手动释放失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -153,7 +171,7 @@ export function QuestDrawer({
         <DrawerSection en="CANCELLATION" zh="取消请求">
           <div className="rec">
             {quest.cancelRequest
-              ? `${quest.cancelRequest.result} · ${quest.cancelRequest.bySource} · ${quest.cancelRequest.reason}${quest.cancelRequest.detail ? ` · ${quest.cancelRequest.detail}` : ''}`
+              ? `${CANCEL_RESULT[quest.cancelRequest.result] ?? quest.cancelRequest.result} · 来自${CANCEL_SOURCE[quest.cancelRequest.bySource] ?? quest.cancelRequest.bySource} · ${quest.cancelRequest.reason}${quest.cancelRequest.detail ? ` · ${quest.cancelRequest.detail}` : ''}`
               : quest.lastDetail}
           </div>
           {quest.cancelRequest?.result === 'manual_required' || (!quest.cancelRequest && limitStall) ? (
@@ -161,16 +179,16 @@ export function QuestDrawer({
           ) : null}
           {canResolve ? (
             <div className="row end">
-              <button className="btn primary" type="button" onClick={handleResolve}>确认已停止并人工释放</button>
+              <button className="btn primary" type="button" onClick={handleResolve}>确认已停止，手动释放</button>
             </div>
           ) : null}
         </DrawerSection>
       ) : null}
 
       {quest.manualResolution ? (
-        <DrawerSection en="RESOLUTION" zh="人工处理记录">
+        <DrawerSection en="RESOLUTION" zh="手动处理记录">
           <div className="rec">
-            {quest.manualResolution.actorSource} · {quest.manualResolution.reason} · {quest.manualResolution.time}
+            {CANCEL_SOURCE[quest.manualResolution.actorSource] ?? quest.manualResolution.actorSource} · {quest.manualResolution.reason} · {quest.manualResolution.time}
           </div>
         </DrawerSection>
       ) : null}
@@ -262,7 +280,7 @@ export function QuestDrawer({
               <span className="rv-title">{reviewPage.title}</span>
               <span className="rv-count">已批注 {reviewPage.answered}/{reviewPage.total}</span>
               {reviewSource ? (
-                <span className="rv-source">绑定来源：评审目录/{reviewSource}</span>
+                <span className="rv-source">评审页文件：评审目录/{reviewSource}</span>
               ) : null}
             </a>
           ) : (
@@ -270,7 +288,7 @@ export function QuestDrawer({
               <span className="rv-title">{reviewPage.title}</span>
               <span className="rv-count">已批注 {reviewPage.answered}/{reviewPage.total}</span>
               {reviewSource ? (
-                <span className="rv-source">绑定来源：评审目录/{reviewSource}</span>
+                <span className="rv-source">评审页文件：评审目录/{reviewSource}</span>
               ) : null}
             </div>
           )}

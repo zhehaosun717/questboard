@@ -638,7 +638,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     }
     if (lane?.control?.type !== 'generic-wrapper') {
       if (source === 'limit') {
-        const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: 'manual_required：无法自动停止，请手动处理', instanceId: dispatcherInstanceId, adapter: 'unsupported' });
+        const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: '无法自动停止，请手动处理', instanceId: dispatcherInstanceId, adapter: 'unsupported' });
         return { status: 200, body: { quest: next, result: 'manual_required', request: next.cancelRequest } };
       }
       const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: '该 lane 没有可验证的取消控制通道，需要人工确认', instanceId: dispatcherInstanceId, adapter: 'unsupported' });
@@ -646,7 +646,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     }
     const result = await genericWrapper({ attempt: requested.assignee, request, handle: controlHandles.get(request.attemptId) });
     const cancellation = source === 'limit' && result.result === 'manual_required'
-      ? { ...result, detail: 'manual_required：无法自动停止，请手动处理' } : result;
+      ? { ...result, detail: '无法自动停止，请手动处理' } : result;
     const beforeRecord = store.get(questId);
     const sameRequest = beforeRecord?.cancelRequest
       && beforeRecord.cancelRequest.requestId === request.requestId

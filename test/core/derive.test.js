@@ -145,7 +145,7 @@ describe('sync', () => {
     const bounded = { name: 'run4', state: 'stalled', reason: '超过时长上限 1 分钟', limitReason: '超过时长上限 1 分钟', manualRequired: true, dispatchedAt: at };
     const [transition] = deriveTransitions([silent], [bounded], later(30));
     assert.deepEqual(transition, {
-      id: 'RUN-4', status: 'stalled', detail: '超过时长上限 1 分钟 | manual_required：无法自动停止，请手动处理',
+      id: 'RUN-4', status: 'stalled', detail: '超过时长上限 1 分钟 | 无法自动停止，请手动处理',
       limitReason: '超过时长上限 1 分钟', manualRequired: true,
     });
     assert.deepEqual(deriveTransitions([{ ...silent, lastDetail: transition.detail }], [bounded], later(30)), []);

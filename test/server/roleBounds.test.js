@@ -37,7 +37,7 @@ describe('feedback 10 bound cancellation', () => {
     assert.equal(next.status, 'stalled');
     assert.equal(next.cancelRequest, null);
     assert.match(next.lastDetail, /超过时长上限 1 分钟/);
-    assert.match(next.lastDetail, /manual_required：无法自动停止，请手动处理/);
+    assert.match(next.lastDetail, /无法自动停止，请手动处理/);
   });
 
   it('uses the generic-wrapper cancellation path once per attempt and records manual_required without a handle', async () => {
@@ -61,7 +61,7 @@ describe('feedback 10 bound cancellation', () => {
     assert.equal(next.cancelRequest.bySource, 'limit');
     assert.equal(next.cancelRequest.result, 'manual_required');
     assert.equal(next.cancelRequest.reason, '超过时长上限 1 分钟');
-    assert.match(next.cancelRequest.detail, /manual_required：无法自动停止，请手动处理/);
+    assert.match(next.cancelRequest.detail, /无法自动停止，请手动处理/);
     assert.equal(readJsonLines(project.config.paths.events).filter((event) => event.event === 'cancel_requested').length, 1);
   });
 

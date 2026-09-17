@@ -60,7 +60,7 @@ function detailFor(row) {
   else if (row.reason) parts.push(row.reason);
   if (row.bounceUntil) parts.push(`${row.bounceUntil} 恢复`);
   if (row.lastText) parts.push(tailText(row.lastText));
-  if (row.manualRequired) parts.push('manual_required：无法自动停止，请手动处理');
+  if (row.manualRequired) parts.push('无法自动停止，请手动处理');
   return parts.join(' | ');
 }
 
@@ -99,7 +99,7 @@ export function deriveTransitions(quests, laneRows, now = Date.now()) {
         // This exit record is scoped wrapper evidence, not ordinary terminal evidence. The store records it
         // while keeping the attempt dispatched/stalled; treating it as failed/delivered here would release
         // file reservations while a descendant of the wrapper can still be editing.
-        id: quest.id, status: quest.status, detail: '通用包装器已确认直接子进程停止',
+        id: quest.id, status: quest.status, detail: '包装脚本已确认停下它直接启动的进程（更深一层的进程不保证已停，委托仍占着）',
         cancellationResult: 'stopped_by_wrapper',
         evidence: {
           kind: 'collector', attempt: attemptEvidence(quest.assignee),

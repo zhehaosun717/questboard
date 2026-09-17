@@ -29,7 +29,7 @@ describe('QuestDrawer 修改委托 hook-in', () => {
     expect(cancelReasonPromptFor('request')).toBe('请写明取消原因');
     expect(cancelReasonPromptFor('request')).not.toContain('停止');
     expect(cancelReasonPromptFor('request')).not.toContain('释放');
-    expect(cancelReasonPromptFor('held-status')).toContain('如何确认这个冒险者已经停止');
+    expect(cancelReasonPromptFor('held-status')).toContain('你怎么确认这个 worker 已经停了');
     expect(cancelReasonPromptFor('status')).toBeNull();
     for (const status of ['posted', 'needs_owner', 'delivered', 'reviewing'] as const) {
       expect(cancelActionFor(status)).toBe('status');
@@ -68,7 +68,7 @@ describe('QuestDrawer 修改委托 hook-in', () => {
       },
     });
     const html = render(quest, makeSnapshot({ quests: [quest] }));
-    expect(html).toContain('确认已停止并人工释放');
+    expect(html).toContain('确认已停止，手动释放');
     expect(html).toContain('ON QUEST');
   });
 
@@ -99,13 +99,13 @@ describe('QuestDrawer 修改委托 hook-in', () => {
     });
     const html = render(quest, makeSnapshot({ quests: [quest] }));
     expect(html).toContain('后续读取确认 session 已结束');
-    expect(html).toContain('确认已停止并人工释放');
+    expect(html).toContain('确认已停止，手动释放');
   });
 
   it('shows the bound reason and manual-required note for a stalled attempt without an adapter', () => {
     const quest = makeQuest({
       id: 'A-3', status: 'stalled', assignee: makeAssignee('card-1'),
-      lastDetail: '超过消息上限 10 条 | manual_required：无法自动停止，请手动处理',
+      lastDetail: '超过消息上限 10 条 | 无法自动停止，请手动处理',
     });
     const html = render(quest, makeSnapshot({ quests: [quest] }));
     expect(html).toContain('超过消息上限 10 条');
@@ -113,7 +113,10 @@ describe('QuestDrawer 修改委托 hook-in', () => {
   });
 
   it('shows an existing cancellation request state without the no-adapter manual hint', () => {
-    for (const result of ['pending', 'stopped_by_wrapper'] as const) {
+    for (const [result, label] of [
+      ['pending', '停止请求已发出，还没收到确认'],
+      ['stopped_by_wrapper', '包装脚本已停下它直接启动的进程'],
+    ] as const) {
       const quest = makeQuest({
         id: `A-${result}`, status: 'stalled', assignee: makeAssignee('card-1'),
         lastDetail: '超过时长上限 1 分钟',
@@ -123,7 +126,7 @@ describe('QuestDrawer 修改委托 hook-in', () => {
         },
       });
       const html = render(quest, makeSnapshot({ quests: [quest] }));
-      expect(html).toContain(result);
+      expect(html).toContain(label);
       expect(html).not.toContain('无法自动停止，请手动处理');
     }
   });
@@ -137,7 +140,7 @@ describe('QuestDrawer 修改委托 hook-in', () => {
       ],
     });
     const html = render(quest, snap);
-    expect(html).toContain('绑定来源：评审目录/art/charA/final.html');
+    expect(html).toContain('评审页文件：评审目录/art/charA/final.html');
     expect(html).toContain('已批注 1/2');
   });
 });

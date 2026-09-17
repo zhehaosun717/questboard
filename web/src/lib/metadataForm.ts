@@ -58,7 +58,7 @@ export function isQuestOccupied(quest: Quest): boolean {
 
 export function occupiedReason(quest: Quest): string {
   if (quest.status === 'dispatched') {
-    return '有冒险者正在做这个委托，先别改——等它交差，或者先取消这个委托。';
+    return '有 worker 正在做这个委托，先别改——等它交差，或者先取消这个委托。';
   }
-  return '冒险者失联了但还没确认停止，这个委托还占着；到上面确认已停并释放后再改。';
+  return 'worker 失联了，但还没确认它已停止，这个委托还占着；在上面确认它已停止并释放后再改。';
 }
