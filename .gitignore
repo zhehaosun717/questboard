@@ -13,3 +13,7 @@ CLAUDE.local.md
 _import/
 # machine-local project configs and notes (e.g. configs pointing at private game repos); never commit
 local/
+
+# executor scratch state must never be committed
+.omo/
+.codex/
