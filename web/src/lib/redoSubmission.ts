@@ -29,13 +29,13 @@ const REDO_FIELD_ORDER: RedoFieldName[] = [
 ];
 
 export const REDO_FIELD_LABELS: Record<RedoFieldName, string> = {
-  package: '委托包编号',
+  package: '委托编号',
   brief: '简报路径',
   kind: '类型',
   reviewPage: '评审页',
   parents: '前置委托',
-  conflicts: '冲突',
-  allowedLanes: '限定车道',
+  conflicts: '不能同时做',
+  allowedLanes: '限定通道',
   priority: '优先级',
 };
 
@@ -46,35 +46,41 @@ function describeField(name: RedoFieldName, message: string): string {
   // Feedback 11 round 3 (L3): the server attaches the worker-held message to several fields
   // (title/brief/parents/conflicts/allowedLanes as well as package), so it maps for any field.
   if (text.includes('有 worker 占着')) {
-    return '这个委托包还有 worker 占着，先释放再重新提交。';
+    return '这个委托还有 worker 占着，先确认它已停止并释放，再重新提交。';
   }
   if (name === 'package') {
     if (text.startsWith('package must match')) {
       // Feedback 11 round 3 (N1): the id pattern is per project (config.briefs.packagePattern), so the
       // advice must stay pattern-neutral and suggest an id the default project accepts.
-      return '委托包编号不符合这个项目的编号规则，请照简报文件名开头的编号来写（例如 ART-REDO-1）。';
+      return '委托编号不符合这个项目的编号规则，请照简报文件名开头的编号来写（例如 ART-REDO-1）。';
     }
     if (text.includes('is running; cancel it')) {
-      return '这个委托包还有 worker 在跑，先取消它再重新提交。';
+      return '这个委托还有 worker 在跑，先取消它再重新提交。';
     }
   }
   if (name === 'brief') {
     if (text === 'brief is required') return '请填写简报路径。';
     if (text.startsWith('brief must be')) {
-      return '简报路径要写成 docs/briefs/文件名.md 这样的形式。';
+      const marker = 'one of ';
+      const idx = text.indexOf(marker);
+      const dirs = idx !== -1 ? text.slice(idx + marker.length).trim() : '';
+      if (dirs.length > 0) {
+        return `简报要放在这些目录里，文件名以 .md 结尾：${dirs}`;
+      }
+      return '简报路径不在这个项目允许的简报目录里。';
     }
   }
   if (name === 'kind' && text.startsWith('kind must be one of')) {
     return '类型只能是美术。';
   }
   if (name === 'parents' && text.startsWith('parents must be package ids')) {
-    return '前置委托里出现了不是委托包编号的内容。';
+    return '前置委托里出现了不是委托编号的内容。';
   }
   if (name === 'conflicts' && text.startsWith('conflicts must be package ids')) {
-    return '冲突列表里出现了不是委托包编号的内容。';
+    return '「不能同时做」里出现了不是委托编号的内容。';
   }
   if (name === 'allowedLanes' && text.startsWith('unknown lane')) {
-    return '车道不在这个项目的配置里。';
+    return '这个通道不在项目设置里。';
   }
   if (name === 'priority' && text === 'priority must be 1, 2 or 3') {
     return '优先级只能是 1、2 或 3。';
@@ -109,10 +115,10 @@ export function describeRedoProblem(input: { message?: string; status?: number }
   if (message === 'validation failed') return '填写内容有误，请检查后再试。';
   if (HTTP_STATUS_RE.test(message)) return `看板服务返回了错误：${message}。`;
   if (message.startsWith('cross-site request refused')) {
-    return '跨站请求被拒绝：只有本机的板页能写入。';
+    return '跨站请求被拒绝：只有本机打开的看板页面能写入。';
   }
   if (message.startsWith('origin ') && message.endsWith(' refused')) {
-    return '该来源被拒绝：只有本机的板页能写入。';
+    return '该来源被拒绝：只有本机打开的看板页面能写入。';
   }
   return '服务器拒绝了这次提交，请检查后再试。';
 }

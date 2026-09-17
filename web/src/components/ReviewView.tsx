@@ -201,7 +201,7 @@ export function ReviewView({
             发起重做委托
           </button>
         ) : (
-          <span className="review-redo-note">手工页面，没有可绑定的页面编号</span>
+          <span className="review-redo-note">这是手写的页面，没有页面编号，没法从这里发起重做</span>
         )}
       </div>
     );

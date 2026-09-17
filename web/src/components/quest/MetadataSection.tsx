@@ -83,7 +83,7 @@ export function MetadataSection({ quest, snap, refresh, pushToast }: MetadataSec
     if (awaitingReload && baseline && quest.revision !== baseline.revision) {
       beginEdit(quest);
       setAwaitingReload(false);
-      pushToast(`${quest.id} 已更新到第 ${quest.revision ?? '?'} 版`);
+      pushToast(quest.revision == null ? `${quest.id} 已更新` : `${quest.id} 已更新到第 ${quest.revision} 版`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quest.revision, awaitingReload]);
@@ -215,7 +215,7 @@ export function MetadataSection({ quest, snap, refresh, pushToast }: MetadataSec
         </label>
 
         <label className="meta-field">
-          <span>委托书路径</span>
+          <span>简报路径</span>
           <input type="text" className="mono" value={draft.brief} disabled={fieldsDisabled} onChange={(e) => update('brief', e.target.value)} />
           {fieldErrors.brief ? <p className="meta-err">{fieldErrors.brief}</p> : null}
         </label>
@@ -238,7 +238,7 @@ export function MetadataSection({ quest, snap, refresh, pushToast }: MetadataSec
           ) : (
             <>
               {missing.length > 0 ? (
-                <p className="meta-hint">看板上已经没有这些编号了（历史记录里的旧数据），普通委托可以直接移除或换成别的。</p>
+                <p className="meta-hint">看板上已经没有这些编号了（历史记录里的旧数据），可以直接移除或换成别的。</p>
               ) : null}
               <TaskChipPicker
                 ariaLabel="前置委托（先完成哪些）"

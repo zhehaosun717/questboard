@@ -231,7 +231,7 @@ export function RedoArtDialog({
           </div>
           {sourcePath ? (
             <div className="redo-row">
-              <span className="redo-label">绑定来源</span>
+              <span className="redo-label">页面文件</span>
               <span className="redo-value redo-path">评审目录/{sourcePath}</span>
             </div>
           ) : null}
@@ -282,7 +282,7 @@ export function RedoArtDialog({
               className="redo-input redo-path"
               type="text"
               value={customBrief}
-              placeholder="例如 docs/briefs/ART-REDO-1.md"
+              placeholder="例如 <简报目录>/ART-REDO-1.md"
               onChange={(event) => changeCustomBrief(event.target.value)}
             />
           </label>
@@ -290,7 +290,7 @@ export function RedoArtDialog({
         </div>
 
         <label className="redo-field">
-          <span className="redo-label">委托包编号</span>
+          <span className="redo-label">委托编号</span>
           <input
             className="redo-input"
             type="text"
@@ -305,7 +305,7 @@ export function RedoArtDialog({
         <div className="redo-preview">
           <h4 className="redo-subtitle">将要提交的内容</h4>
           <div className="redo-row">
-            <span className="redo-label">委托包</span>
+            <span className="redo-label">委托编号</span>
             <span className="redo-value">{packageId.trim() || '未填写'}</span>
           </div>
           <div className="redo-row">
@@ -314,10 +314,10 @@ export function RedoArtDialog({
           </div>
           <div className="redo-row">
             <span className="redo-label">类型</span>
-            <span className="redo-value">美术（art）</span>
+            <span className="redo-value">美术</span>
           </div>
           <div className="redo-row">
-            <span className="redo-label">绑定评审页</span>
+            <span className="redo-label">对应的评审页</span>
             <span className="redo-value">{pageId}</span>
           </div>
           {otherFieldErrors.length > 0 ? (

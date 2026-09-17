@@ -47,7 +47,7 @@ describe('parentLock', () => {
     const lock = parentLock(review, [review, makeQuest({ id: 'CODE-1' })]);
     expect(lock?.ownReview).toBe(true);
     expect(lock?.reviewId).toBe('REV-1');
-    expect(lock?.message).toMatch(/取消 REV-1 也不会解锁它/);
+    expect(lock?.message).toMatch(/取消 REV-1 也不会解锁/);
   });
 
   it('locks an ordinary quest reached by a posted review as an ancestor, naming the protecting review', () => {

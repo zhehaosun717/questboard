@@ -66,7 +66,7 @@ describe('RedoArtDialog', () => {
     expect(html).toContain('共 4 处，已批注 1 处');
     expect(html).toContain('评审目录/art/charA/final.html');
     expect(html).toContain('将要提交的内容');
-    expect(html).toContain('美术（art）');
+    expect(html).toContain('美术');
   });
 
   it('列出未发布简报，初始不选中也不自动填委托包', () => {

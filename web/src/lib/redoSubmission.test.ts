@@ -11,20 +11,20 @@ import {
 import { makeQuest } from './testFixtures';
 
 describe('describeRedoFieldErrors', () => {
-  it('把委托包编号的已知拒绝翻译成固定中文', () => {
+  it('把委托编号的已知拒绝翻译成固定中文', () => {
     // 默认项目的真实拒绝原文（store.js:68：package must match + 编译后的编号规则）。
     expect(
       describeRedoFieldErrors({ package: 'package must match /^(?:[A-Z]+(?:-[A-Z]+)*-\\d+[A-Z]?)$/' })
         .package,
-    ).toBe('委托包编号不符合这个项目的编号规则，请照简报文件名开头的编号来写（例如 ART-REDO-1）。');
+    ).toBe('委托编号不符合这个项目的编号规则，请照简报文件名开头的编号来写（例如 ART-REDO-1）。');
     expect(
       describeRedoFieldErrors({ package: 'ART-OLD-7 is running; cancel it before re-posting' }).package,
-    ).toBe('这个委托包还有 worker 在跑，先取消它再重新提交。');
+    ).toBe('这个委托还有 worker 在跑，先取消它再重新提交。');
   });
 
   it('有 worker 占着 的拒绝在任何一个字段上都翻成同一句中文', () => {
     const message = 'ART-OLD-7 有 worker 占着（dispatched），先释放再改';
-    const expected = '这个委托包还有 worker 占着，先释放再重新提交。';
+    const expected = '这个委托还有 worker 占着，先确认它已停止并释放，再重新提交。';
     expect(describeRedoFieldErrors({ package: message }).package).toBe(expected);
     expect(describeRedoFieldErrors({ brief: message }).brief).toBe(expected);
     expect(describeRedoFieldErrors({ parents: message }).parents).toBe(expected);
@@ -37,7 +37,15 @@ describe('describeRedoFieldErrors', () => {
     expect(
       describeRedoFieldErrors({ brief: 'brief must be <dir>/<file>.md with <dir> one of docs/briefs' })
         .brief,
-    ).toBe('简报路径要写成 docs/briefs/文件名.md 这样的形式。');
+    ).toBe('简报要放在这些目录里，文件名以 .md 结尾：docs/briefs');
+    expect(
+      describeRedoFieldErrors({ brief: 'brief must be <dir>/<file>.md with <dir> one of docs/briefs, briefs' })
+        .brief,
+    ).toBe('简报要放在这些目录里，文件名以 .md 结尾：docs/briefs, briefs');
+    expect(
+      describeRedoFieldErrors({ brief: 'brief must be <dir>/<file>.md' })
+        .brief,
+    ).toBe('简报路径不在这个项目允许的简报目录里。');
   });
 
   it('把其他已知字段拒绝翻译成固定中文', () => {
@@ -46,15 +54,15 @@ describe('describeRedoFieldErrors', () => {
       '优先级只能是 1、2 或 3。',
     );
     expect(describeRedoFieldErrors({ parents: 'parents must be package ids, got nope' }).parents).toBe(
-      '前置委托里出现了不是委托包编号的内容。',
+      '前置委托里出现了不是委托编号的内容。',
     );
     expect(describeRedoFieldErrors({ conflicts: 'conflicts must be package ids, got nope' }).conflicts).toBe(
-      '冲突列表里出现了不是委托包编号的内容。',
+      '「不能同时做」里出现了不是委托编号的内容。',
     );
     expect(
       describeRedoFieldErrors({ allowedLanes: 'unknown lane ghost; this project defines codex' })
         .allowedLanes,
-    ).toBe('车道不在这个项目的配置里。');
+    ).toBe('这个通道不在项目设置里。');
   });
 
   it('不认识的字段名不进结果，字段值不是字符串时给通用提示', () => {
@@ -99,10 +107,10 @@ describe('describeRedoProblem', () => {
   it('把已知的顶层拒绝翻译成固定中文', () => {
     expect(describeRedoProblem({ message: 'validation failed' })).toBe('填写内容有误，请检查后再试。');
     expect(describeRedoProblem({ message: 'cross-site request refused' })).toBe(
-      '跨站请求被拒绝：只有本机的板页能写入。',
+      '跨站请求被拒绝：只有本机打开的看板页面能写入。',
     );
     expect(describeRedoProblem({ message: 'origin http://evil.example refused' })).toBe(
-      '该来源被拒绝：只有本机的板页能写入。',
+      '该来源被拒绝：只有本机打开的看板页面能写入。',
     );
   });
 
@@ -146,8 +154,10 @@ describe('describeExistingPackageRefusal', () => {
 
 describe('REDO_FIELD_LABELS', () => {
   it('预览里用的是固定的中文字段名', () => {
-    expect(REDO_FIELD_LABELS.package).toBe('委托包编号');
+    expect(REDO_FIELD_LABELS.package).toBe('委托编号');
     expect(REDO_FIELD_LABELS.brief).toBe('简报路径');
     expect(REDO_FIELD_LABELS.kind).toBe('类型');
+    expect(REDO_FIELD_LABELS.conflicts).toBe('不能同时做');
+    expect(REDO_FIELD_LABELS.allowedLanes).toBe('限定通道');
   });
 });

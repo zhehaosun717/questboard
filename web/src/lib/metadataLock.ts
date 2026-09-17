@@ -39,8 +39,8 @@ export function parentLock(quest: Quest, quests: Quest[]): ParentLock | null {
     return {
       reviewId: quest.id,
       ownReview: true,
-      message: `${quest.id} 本身是已发布的复核，它审的目标不能在这里清空或改指——取消 ${quest.id} 也不会解锁它；`
-        + `要改指只能用新的编号重新发一个委托（需要的话再发一个新复核）。`,
+      message: `${quest.id} 是已发布的复核，它复核的是哪个委托，不能在这里清空或改掉——取消 ${quest.id} 也不会解锁。`
+        + `想换对象，只能用新编号重新发一个委托（需要的话再发一个新复核）。`,
     };
   }
   const reviewId = findReviewAncestorLock(quest.id, quests);
@@ -48,8 +48,8 @@ export function parentLock(quest: Quest, quests: Quest[]): ParentLock | null {
   return {
     reviewId,
     ownReview: false,
-    message: `已发布的复核 ${reviewId} 的溯源链接到了 ${quest.id}，前置委托在这里被锁定——取消 ${reviewId} 也不会解锁 ${quest.id}；`
-      + `要改这条链，只能用新的编号重新发一个挂载正确的委托。`,
+    message: `已发布的复核 ${reviewId} 指向 ${quest.id}，所以这里的前置委托改不了——取消 ${reviewId} 也不会解锁。`
+      + `想改，只能用新编号重新发一个前置委托正确的委托。`,
   };
 }
 

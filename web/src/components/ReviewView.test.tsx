@@ -128,13 +128,13 @@ describe('ReviewView (real render)', () => {
     ];
     const html = render({ reviewPages: pages });
     expect(html).toContain('发起重做委托');
-    expect(html).toContain('手工页面，没有可绑定的页面编号');
+    expect(html).toContain('这是手写的页面，没有页面编号，没法从这里发起重做');
   });
 
   it('a manual page gets no redo action at all', () => {
     const html = render({ reviewPages: [legacy('only.html')] });
     expect(html).not.toContain('发起重做委托');
-    expect(html).toContain('手工页面，没有可绑定的页面编号');
+    expect(html).toContain('这是手写的页面，没有页面编号，没法从这里发起重做');
   });
 
   it('row action names its page in the aria-label (L1)', () => {
