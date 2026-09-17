@@ -113,27 +113,27 @@ export function currentReviews(quest: Quest, snap: Snapshot): Quest[] {
 
 function claimedRung(quest: Quest, snap: Snapshot): Rung {
   const last = quest.dispatches[quest.dispatches.length - 1];
-  const base = { key: 'claimed' as const, label: '冒险者交差' };
-  if (!last) return { ...base, state: 'skipped', note: '还没派过冒险者' };
+  const base = { key: 'claimed' as const, label: t('rung.claimed') };
+  if (!last) return { ...base, state: 'skipped', note: t('rung.notDispatched') };
   // A dispatch row without a resolvable card is reported as unknown, never dressed up as a known worker.
-  const who = snap.roster.find((card) => card.id === last.adventurerId)?.name ?? (last.model.trim() || '没记录是谁交的差');
+  const who = snap.roster.find((card) => card.id === last.adventurerId)?.name ?? (last.model.trim() || t('rung.noWorkerName'));
   const named = snap.roster.some((card) => card.id === last.adventurerId) || last.model.trim() !== '';
-  if (CLAIMED.has(quest.status)) return { ...base, state: 'done', note: named ? `${who} 说做完了——它自己说的，不算核实` : '有交差记录但说不清是谁，不算核实' };
-  if (quest.status === 'dispatched') return { ...base, state: 'pending', note: named ? `${who} 还在做` : '冒险者还在做（名字没记录）' };
-  return { ...base, state: 'pending', note: '还没交差' };
+  if (CLAIMED.has(quest.status)) return { ...base, state: 'done', note: named ? t('rung.claimedDone', { who }) : t('rung.claimedUnknown') };
+  if (quest.status === 'dispatched') return { ...base, state: 'pending', note: named ? t('rung.claimedWorking', { who }) : t('rung.claimedWorkingUnknown') };
+  return { ...base, state: 'pending', note: t('rung.notHandedIn') };
 }
 
 function reviewedRung(quest: Quest, snap: Snapshot): Rung {
-  const base = { key: 'reviewed' as const, label: '复核结论' };
+  const base = { key: 'reviewed' as const, label: t('rung.reviewed') };
   const reviews = currentReviews(quest, snap);
   const latest = reviews[reviews.length - 1];
-  if (!latest) return { ...base, state: 'skipped', note: '没有派复核' };
+  if (!latest) return { ...base, state: 'skipped', note: t('rung.noReview') };
   if (!REPORTED.has(latest.status)) {
-    return { ...base, state: 'pending', note: latest.assignee ? `${latest.id} 复核中` : `${latest.id} 还没派出去` };
+    return { ...base, state: 'pending', note: latest.assignee ? t('rung.reviewing', { id: latest.id }) : t('rung.reviewNotDispatched', { id: latest.id }) };
   }
   const info = reviewVerdictOf(latest);
   const state: RungState = info.verdict === 'fail' ? 'bad' : info.verdict === 'unknown' ? 'pending' : 'done';
-  return { ...base, state, note: `${latest.id}：复核${verdictLabel(info)}` };
+  return { ...base, state, note: t('rung.reviewedNote', { id: latest.id, verdict: verdictLabel(info) }) };
 }
 
 /**
@@ -171,7 +171,7 @@ export function boardAcceptanceDetail(note: string): string {
 
 function acceptedRung(quest: Quest): Rung {
   const by = acceptanceBy(quest.kind);
-  const base = { key: 'accepted' as const, label: by === 'coordinator' ? 'coordinator 验收' : '你验收' };
+  const base = { key: 'accepted' as const, label: by === 'coordinator' ? t('rung.accepted.coordinator') : t('rung.accepted.you') };
   if (quest.status === 'done') {
     // Feedback 15: a structured acceptance record is authoritative — actor and the evidence it named, never
     // guessed from the note text. A done quest from before this field existed (or an older server) has none
@@ -180,9 +180,9 @@ function acceptedRung(quest: Quest): Rung {
     if (record) {
       const label = record.actor === 'owner' ? 'owner 验收' : 'coordinator 验收';
       const mismatch = record.actor === 'owner' && by === 'coordinator'
-        ? '（技术活本该 coordinator 先核验）'
+        ? t('rung.mismatch.coordinator')
         : record.actor === 'coordinator' && by === 'owner'
-          ? '（这本该由你验收）'
+          ? t('rung.mismatch.owner')
           : '';
       return { ...base, label, state: 'done', note: `${label}${mismatch}`, ...(record.evidenceRefs.length ? { refs: record.evidenceRefs } : {}) };
     }
@@ -190,17 +190,17 @@ function acceptedRung(quest: Quest): Rung {
     // A completed quest is labelled by who the record actually names. An owner clicking 验收 on technical
     // work stays the owner's click — the rung must not quietly hand the coordinator credit for it.
     if (actor === 'owner') {
-      return { ...base, label: 'owner 验收', state: 'done', note: by === 'coordinator' ? '你在看板上验收（技术活本该 coordinator 先核验）' : '你在看板上验收' };
+      return { ...base, label: 'owner 验收', state: 'done', note: by === 'coordinator' ? t('rung.ownerBoardAccept.technical') : t('rung.ownerBoardAccept') };
     }
     if (actor === 'coordinator') {
-      return { ...base, label: 'coordinator 验收', state: 'done', note: by === 'coordinator' ? 'coordinator 在看板上验收' : 'coordinator 在看板上验收（这本该由你验收）' };
+      return { ...base, label: 'coordinator 验收', state: 'done', note: by === 'coordinator' ? t('rung.coordinatorBoardAccept') : t('rung.coordinatorBoardAccept.mismatch') };
     }
-    const note = actor === 'unknown' ? '看板上记了验收，没写是谁' : '已标成完成，不是在看板上验收的';
-    return { ...base, label: actor === 'unknown' ? '验收（记录没写是谁）' : base.label, state: 'done', note };
+    const note = actor === 'unknown' ? t('rung.acceptedUnknownActor') : t('rung.doneNotOnBoard');
+    return { ...base, label: actor === 'unknown' ? t('rung.acceptedUnknownLabel') : base.label, state: 'done', note };
   }
-  if (quest.status === 'superseded' || quest.status === 'cancelled') return { ...base, state: 'skipped', note: '委托已不再需要' };
-  const waiting = by === 'coordinator' ? '等 coordinator 核验' : '等你验收';
-  return { ...base, state: 'pending', note: isAwaitingSignOff(quest) ? waiting : '还没到这一步' };
+  if (quest.status === 'superseded' || quest.status === 'cancelled') return { ...base, state: 'skipped', note: t('rung.superseded') };
+  const waiting = by === 'coordinator' ? t('rung.waitCoordinator') : t('rung.waitYou');
+  return { ...base, state: 'pending', note: isAwaitingSignOff(quest) ? waiting : t('rung.notThereYet') };
 }
 
 /** The three rungs for dispatched work. A 你来 quest has no worker, and a review is judged on its parent. */
