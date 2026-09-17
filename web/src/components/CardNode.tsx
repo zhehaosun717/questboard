@@ -4,6 +4,7 @@ import type { Card } from '../api/types';
 import { formatAgo } from '../lib/board';
 import { EMPTY_CARD_ACTIVITY, type CardActivity } from '../lib/cardActivity';
 import { CARD_STATUS, STATUS } from '../lib/labels';
+import { useT } from '../lib/i18n';
 
 export interface CardNodeData extends Record<string, unknown> {
   card: Card;
@@ -16,6 +17,7 @@ export interface CardNodeData extends Record<string, unknown> {
 export type CardNodeType = Node<CardNodeData, 'card'>;
 
 export function CardNode({ data }: NodeProps<CardNodeType>) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const tokenRef = useRef<HTMLDivElement>(null);
   const card = data.card;
@@ -63,7 +65,7 @@ export function CardNode({ data }: NodeProps<CardNodeType>) {
   };
 
   const liveText = (live: CardActivity['current'][number]['live']) =>
-    live ? ` · ${live.state} · ${formatAgo(live.elapsed)} · ${live.edits || 0} 处改动` : '';
+    live ? ` · ${live.state} · ${formatAgo(live.elapsed)}${t('cardNode.liveEdits', { edits: live.edits || 0 })}` : '';
 
   return (
     <div className={`rf-card-node ${isWorking ? 'working' : ''}`} data-adv={card.id}>
@@ -97,7 +99,7 @@ export function CardNode({ data }: NodeProps<CardNodeType>) {
           // or click the panel, never drag the node or pan/zoom the canvas underneath it.
           className="rf-card-detail nodrag nowheel nopan"
           role="dialog"
-          aria-label={`${name} 详情`}
+          aria-label={t('cardNode.detailAria', { name })}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={handlePanelKeyDown}
         >
@@ -112,18 +114,18 @@ export function CardNode({ data }: NodeProps<CardNodeType>) {
           <div className="rf-card-detail-status">
             {CARD_STATUS[card.status] ?? card.status}
             {card.derived && card.baseStatus && card.baseStatus !== card.status
-              ? `（名册里记的是：${CARD_STATUS[card.baseStatus] ?? card.baseStatus}）`
+              ? t('cardNode.baseStatusNote', { status: CARD_STATUS[card.baseStatus] ?? card.baseStatus })
               : ''}
           </div>
           {card.derived ? (
             <div className="rf-card-detail-derived">
-              自动判断：{card.derived.reason}
-              {card.derived.resetsAt ? '' : '（重置时间未知）'}
+              {t('common.autoJudged', { reason: card.derived.reason })}
+              {card.derived.resetsAt ? '' : t('cardNode.resetUnknown')}
             </div>
           ) : null}
           {activity.current.length > 0 ? (
             <div className="rf-card-detail-section">
-              <span className="rf-card-detail-label">正在做</span>
+              <span className="rf-card-detail-label">{t('cardNode.current')}</span>
               <ul>
                 {activity.current.map((a) => (
                   <li key={a.questId}>
@@ -138,13 +140,13 @@ export function CardNode({ data }: NodeProps<CardNodeType>) {
           ) : null}
           {activity.history.length > 0 ? (
             <div className="rf-card-detail-section">
-              <span className="rf-card-detail-label">做过</span>
+              <span className="rf-card-detail-label">{t('cardNode.history')}</span>
               <ul>
                 {activity.history.map((a) => (
                   <li key={a.questId}>
                     <button type="button" className="link-btn" onClick={selectQuest(a.questId)}>
-                      {a.questId} · {a.title}（{STATUS[a.status] ?? a.status}
-                      {a.heldByOther ? '·现在换了别的冒险者' : ''}）
+                      {a.questId} · {a.title}{t('cardNode.activityParenOpen')}{STATUS[a.status] ?? a.status}
+                      {a.heldByOther ? t('cardNode.heldByOther') : ''}{t('cardNode.activityParenClose')}
                     </button>
                   </li>
                 ))}
@@ -152,7 +154,7 @@ export function CardNode({ data }: NodeProps<CardNodeType>) {
             </div>
           ) : null}
           {activity.current.length === 0 && activity.history.length === 0 ? (
-            <div className="rf-card-detail-empty">还没有委托记录</div>
+            <div className="rf-card-detail-empty">{t('cardNode.empty')}</div>
           ) : null}
         </div>
       ) : null}

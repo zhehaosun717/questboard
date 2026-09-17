@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { RAW_TAIL_LABEL } from '../../lib/evidence';
 import { makeQuest, makeSnapshot } from '../../lib/testFixtures';
+import { DEFAULT_LOCALE, setLocale } from '../../lib/i18n';
 import { ReviewSection } from './ReviewSection';
 
 const noop = () => undefined;
@@ -171,10 +172,10 @@ describe('ReviewSection verdict line (item 12)', () => {
     });
     const html = renderSection({ id: 'A-1' }, [review]);
     expect(html).toContain('结论未识别');
-    expect(html).toContain(RAW_TAIL_LABEL);
+    expect(html).toContain(RAW_TAIL_LABEL());
     expect(html).toContain('…审核填充 VERDICT: PASS | PASS WITH FINDINGS | FAIL');
     // The label sits before the raw tail, not after — it reads as "here is a fragment", not a caption below it.
-    expect(html.indexOf(RAW_TAIL_LABEL)).toBeLessThan(html.indexOf('…审核填充'));
+    expect(html.indexOf(RAW_TAIL_LABEL())).toBeLessThan(html.indexOf('…审核填充'));
   });
 
   it('also labels a raw lastDetail tail beside a verified pass, not only the unknown case', () => {
@@ -197,6 +198,96 @@ describe('ReviewSection verdict line (item 12)', () => {
       },
     });
     const html = renderSection({ id: 'A-1' }, [review]);
-    expect(html).toContain(RAW_TAIL_LABEL);
+    expect(html).toContain(RAW_TAIL_LABEL());
+  });
+});
+
+describe('ReviewSection language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('renders the technical-review chrome and verdict line in English, with no residual CJK outside ids', () => {
+    setLocale('en');
+    const review = makeQuest({
+      id: 'R-EN-1',
+      kind: 'review',
+      parents: ['A-EN-1'],
+      status: 'delivered',
+      report: {
+        source: 'delivery',
+        ref: 'delivery/R-EN-1-worker.md',
+        digest: 'abc123',
+        bytes: 10,
+        sizeBytes: 10,
+        truncated: false,
+        capturedAt: '2026-09-16T03:00:00.000Z',
+        attemptId: 'att-1',
+        verdict: 'PASS',
+      },
+    });
+    const html = renderSection({ id: 'A-EN-1', kind: 'code' }, [review]);
+    expect(html).toContain('Coordinator review');
+    expect(html).toContain('Review verdict (model self-report): Pass');
+    expect(html).toContain('Delivery file');
+    expect(html).toContain('Sign-off note (optional)');
+    expect(html).toContain('Send back for redo');
+    expect(html).toContain('Sign off');
+    // AcceptancePanel.tsx is a separate component, out of this slice's scope, and stays Chinese-only.
+    expect(
+      html.replace(/A-EN-1|R-EN-1|delivery\/R-EN-1-worker\.md|选择这次验收依据的证据（未绑定或缺失的不能选）：|证据读取中…/g, ''),
+    ).not.toMatch(/[一-鿿]/);
+  });
+
+  it('renders a verified unknown verdict with its reason in English, with no Chinese label or full-width punctuation', () => {
+    setLocale('en');
+    const review = makeQuest({
+      id: 'R-EN-UNK',
+      kind: 'review',
+      parents: ['A-EN-UNK'],
+      status: 'delivered',
+      lastDetail: '',
+      report: {
+        source: 'delivery',
+        ref: 'delivery/R-EN-UNK-worker.md',
+        digest: 'abc456',
+        bytes: 10,
+        sizeBytes: 10,
+        truncated: false,
+        capturedAt: '2026-09-16T03:00:00.000Z',
+        attemptId: 'att-2',
+        verdict: 'unknown',
+        verdictReason: 'the report was truncated',
+      },
+    });
+    const html = renderSection({ id: 'A-EN-UNK', kind: 'code' }, [review]);
+    expect(html).toContain('Verdict not recognised');
+    expect(html).toContain('the report was truncated');
+    expect(
+      html.replace(/A-EN-UNK|R-EN-UNK|delivery\/R-EN-UNK-worker\.md|选择这次验收依据的证据（未绑定或缺失的不能选）：|证据读取中…/g, ''),
+    ).not.toMatch(/[一-鿿]/);
+    expect(
+      html.replace(/A-EN-UNK|R-EN-UNK|delivery\/R-EN-UNK-worker\.md|选择这次验收依据的证据（未绑定或缺失的不能选）：|证据读取中…/g, ''),
+    ).not.toMatch(/[：（）]/);
+  });
+
+  it('renders the sign-off chrome and the fallback verdict line in English for non-technical kinds', () => {
+    setLocale('en');
+    const review = makeQuest({
+      id: 'R-EN-2',
+      kind: 'review',
+      parents: ['A-EN-2'],
+      status: 'delivered',
+      lastDetail: 'VERDICT: FAIL',
+    });
+    const html = renderSection({ id: 'A-EN-2', kind: 'art' }, [review]);
+    expect(html).toContain('Sign-off');
+    expect(html).toContain('Review: Failed');
+    expect(html).toContain('No final report; this is guessed from the last lines of output');
+    expect(html).toContain('Open');
+    // AcceptancePanel.tsx is a separate component, out of this slice's scope, and stays Chinese-only.
+    expect(
+      html.replace(/A-EN-2|R-EN-2|选择这次验收依据的证据（未绑定或缺失的不能选）：|证据读取中…/g, ''),
+    ).not.toMatch(/[一-鿿]/);
   });
 });

@@ -21,6 +21,7 @@ import {
   summarizeReviewStats,
   type ReviewStatsFilter,
 } from '../lib/reviewList';
+import { useT } from '../lib/i18n';
 import { RedoArtDialog } from './review/RedoArtDialog';
 import './../styles/review.css';
 import './../styles/review-redo.css';
@@ -39,12 +40,6 @@ interface ReviewViewProps {
   onRedoPosted?: (questId: string) => void;
 }
 
-const STATS_FILTER_OPTIONS: { value: ReviewStatsFilter; label: string }[] = [
-  { value: 'all', label: '全部' },
-  { value: 'available', label: '有统计' },
-  { value: 'unavailable', label: '统计不可用' },
-];
-
 export function ReviewView({
   reviewPages = [],
   selectedUrl,
@@ -54,6 +49,12 @@ export function ReviewView({
   projectId,
   onRedoPosted,
 }: ReviewViewProps) {
+  const t = useT();
+  const STATS_FILTER_OPTIONS: { value: ReviewStatsFilter; label: string }[] = [
+    { value: 'all', label: t('reviewView.filterAll') },
+    { value: 'available', label: t('reviewView.filterAvailable') },
+    { value: 'unavailable', label: t('reviewView.filterUnavailable') },
+  ];
   const [onlyUnanswered, setOnlyUnanswered] = useState(false);
   const [redoPage, setRedoPage] = useState<ReviewPage | null>(null);
   const [statsFilter, setStatsFilter] = useState<ReviewStatsFilter>('all');
@@ -152,7 +153,7 @@ export function ReviewView({
           <span
             className="review-progress-track"
             role="progressbar"
-            aria-label={`${getReviewDisplayTitle(page)} 批注进度`}
+            aria-label={t('reviewView.annotationProgressAria', { title: getReviewDisplayTitle(page) })}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={progress}
@@ -195,13 +196,13 @@ export function ReviewView({
             }}
             className="review-redo-action"
             type="button"
-            aria-label={`为 ${pageId} 发起重做委托`}
+            aria-label={t('reviewView.redoActionAria', { id: pageId })}
             onClick={() => setRedoPage(page)}
           >
-            发起重做委托
+            {t('reviewView.redoAction')}
           </button>
         ) : (
-          <span className="review-redo-note">这是手写的页面，没有页面编号，没法从这里发起重做</span>
+          <span className="review-redo-note">{t('reviewView.noRedoNote')}</span>
         )}
       </div>
     );
@@ -211,21 +212,21 @@ export function ReviewView({
     <div className={isSidebarOpen ? 'reviews-tab-view' : 'reviews-tab-view sidebar-closed'}>
       <div className="review-shell">
         {isSidebarOpen && (
-          <aside className="review-sidebar" aria-label="评审页列表">
+          <aside className="review-sidebar" aria-label={t('reviewView.sidebarAria')}>
             <div className="review-sidebar-head">
               <div>
-                <span className="eyebrow">评审列表</span>
-                <h2>评审顺序</h2>
+                <span className="eyebrow">{t('reviewView.listEyebrow')}</span>
+                <h2>{t('reviewView.listTitle')}</h2>
               </div>
               <input
                 className="review-search"
                 type="search"
-                placeholder="搜索标题或页面 ID"
-                aria-label="搜索评审页"
+                placeholder={t('reviewView.searchPlaceholder')}
+                aria-label={t('reviewView.searchAria')}
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
               />
-              <div className="review-stats-filter" role="group" aria-label="按统计可用性筛选">
+              <div className="review-stats-filter" role="group" aria-label={t('reviewView.statsFilterAria')}>
                 {STATS_FILTER_OPTIONS.map((option) => (
                   <button
                     key={option.value}
@@ -244,28 +245,28 @@ export function ReviewView({
                   checked={onlyUnanswered}
                   onChange={(event) => setOnlyUnanswered(event.target.checked)}
                 />
-                <span>只看未处理</span>
+                <span>{t('reviewView.onlyUnanswered')}</span>
               </label>
             </div>
             <div className="review-sidebar-summary">
-              {reviewPages.length === 0 ? '暂无评审页' : getReviewSummaryText(reviewPages)}
+              {reviewPages.length === 0 ? t('reviewView.noPagesShort') : getReviewSummaryText(reviewPages)}
             </div>
             {isFilterScoped && reviewPages.length > 0 && (
               <div className="review-sidebar-scoped-summary">{getReviewScopedSummaryText(filteredPages)}</div>
             )}
             {isSelectedHidden && (
               <div className="review-sidebar-note">
-                当前选中的页面不在筛选结果中，右侧仍可继续查看；调整筛选或搜索可以重新看到它。
+                {t('reviewView.selectedHiddenNote')}
               </div>
             )}
             <div
               className="review-page-list"
               role="listbox"
-              aria-label="评审页顺序"
+              aria-label={t('reviewView.pageListAria')}
               onKeyDown={handleListKeyDown}
             >
               {reviewPages.length === 0 ? (
-                <p className="review-list-empty">暂无评审页，页面加载后会显示在这里。</p>
+                <p className="review-list-empty">{t('reviewView.noPagesLong')}</p>
               ) : filteredPages.length === 0 ? (
                 <p className="review-list-empty">
                   {getReviewListEmptyMessage({
@@ -284,11 +285,11 @@ export function ReviewView({
           </aside>
         )}
 
-        <section className="review-reader" aria-label="评审阅读区">
+        <section className="review-reader" aria-label={t('reviewView.readerAria')}>
           <div className="review-toolbar">
             <div className="review-toolbar-title">
-              <span className="eyebrow">当前评审</span>
-              <h2>{selectedPage ? getReviewDisplayTitle(selectedPage) : '还没有选择评审页'}</h2>
+              <span className="eyebrow">{t('reviewView.currentReview')}</span>
+              <h2>{selectedPage ? getReviewDisplayTitle(selectedPage) : t('reviewView.noPageSelected')}</h2>
             </div>
             <div className="review-toolbar-actions">
               {selectedUrl && isSafeReviewUrl(selectedUrl) && (
@@ -298,7 +299,7 @@ export function ReviewView({
                     type="button"
                     onClick={() => setFrameVersion((version) => version + 1)}
                   >
-                    重新载入
+                    {t('reviewView.reload')}
                   </button>
                   <a
                     className="btn ghost"
@@ -306,16 +307,16 @@ export function ReviewView({
                     target="_blank"
                     rel="noreferrer"
                   >
-                    新窗口打开 ↗
+                    {t('reviewView.openNewWindow')}
                   </a>
-                  <div className="review-nav" aria-label="连续评审">
+                  <div className="review-nav" aria-label={t('reviewView.continuousAria')}>
                     <button
                       className="btn ghost"
                       type="button"
                       onClick={() => goToAdjacent('previous')}
                       disabled={!getAdjacentReviewPage(navigablePages, selectedUrl, 'previous')}
                     >
-                      ← 上一份
+                      {t('reviewView.prevPage')}
                     </button>
                     <button
                       className="btn ghost"
@@ -324,12 +325,12 @@ export function ReviewView({
                       disabled={!nextUnanswered}
                       title={nextUnansweredHint}
                     >
-                      下一份未处理
+                      {t('reviewView.nextUnanswered')}
                       {!nextUnanswered && <span className="review-disabled-note">{nextUnansweredHint}</span>}
                     </button>
                     {!nextUnanswered && laterPendingBreakdown.filterHiddenCount > 0 && (
                       <button className="btn ghost" type="button" onClick={clearFilters}>
-                        清空筛选
+                        {t('reviewView.clearFilters')}
                       </button>
                     )}
                     <button
@@ -338,7 +339,7 @@ export function ReviewView({
                       onClick={() => goToAdjacent('next')}
                       disabled={!getAdjacentReviewPage(navigablePages, selectedUrl, 'next')}
                     >
-                      下一份 →
+                      {t('reviewView.nextPage')}
                     </button>
                   </div>
                 </>
@@ -349,7 +350,7 @@ export function ReviewView({
                 aria-pressed={isSidebarOpen}
                 onClick={() => setIsSidebarOpen((open) => !open)}
               >
-                {isSidebarOpen ? '收起列表' : '展开列表'}
+                {isSidebarOpen ? t('reviewView.collapseList') : t('reviewView.expandList')}
               </button>
             </div>
           </div>
@@ -360,13 +361,13 @@ export function ReviewView({
                 key={frameVersion}
                 className="review-iframe"
                 src={selectedUrl}
-                title={selectedPage ? getReviewDisplayTitle(selectedPage) : '美术评审页'}
+                title={selectedPage ? getReviewDisplayTitle(selectedPage) : t('reviewView.artReviewPage')}
               />
             </div>
           ) : (
             <div className="review-reader-empty">
-              <p>先从左侧选择一份评审页。</p>
-              <span>打开后，按页面内容写批注或给出判断；完成一份再继续下一份。</span>
+              <p>{t('reviewView.pickFromLeft')}</p>
+              <span>{t('reviewView.readerHint')}</span>
             </div>
           )}
         </section>

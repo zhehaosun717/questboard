@@ -3,6 +3,7 @@ import type { RecentFailure } from '../api/failureTypes';
 import { cardLabel, formatMonthDay } from '../lib/board';
 import { BILLING, CARD_STATUS } from '../lib/labels';
 import { cardProvider } from '../lib/rosterFilter';
+import { t, useT } from '../lib/i18n';
 import '../styles/failure-note.css';
 
 interface CardBadgeProps {
@@ -23,8 +24,8 @@ interface CardBadgeProps {
 function derivedNote(derived: NonNullable<Card['derived']>): string {
   const resetsAt = derived.resetsAt;
   if (resetsAt && Date.parse(resetsAt) <= Date.now()) return derived.reason;
-  if (!resetsAt) return `${derived.reason}（重置时间未知，成功一次或你手动确认后恢复）`;
-  return `${derived.reason}（自动判断：到点后不再算限额，但额度没有核实过）`;
+  if (!resetsAt) return `${derived.reason}${t('cardBadge.resetUnknownAuto')}`;
+  return `${derived.reason}${t('cardBadge.autoRecovered')}`;
 }
 
 const LED: Record<CardStatus, string> = {
@@ -45,6 +46,7 @@ export function CardBadge({
   onDragStart,
   onDragEnd,
 }: CardBadgeProps) {
+  const t = useT();
   const max = card.maxParallel || 1;
   const full = card.status === 'available' && busyQuests.length >= max;
   const label = cardLabel(card, busyQuests.length);
@@ -86,7 +88,7 @@ export function CardBadge({
 
   const initial = (card.name.trim()[0] || '?').toUpperCase();
   const provider = cardProvider(card);
-  const busyIds = busyQuests.map((q) => q.id).join('、');
+  const busyIds = busyQuests.map((q) => q.id).join(t('common.listSeparator'));
 
   const classNames = [
     'adv',
@@ -102,8 +104,17 @@ export function CardBadge({
     <article
       className={classNames}
       data-adv={card.id}
-      title={`${card.name} · ${card.id} · ${card.model}${card.variant ? `（变体 ${card.variant}）` : ''} · ${provider} / ${card.lane} · ${label}${busyIds ? ` · 正在做 ${busyIds}` : ''}`}
-      aria-label={`冒险者工牌 ${card.id}：${card.name}，模型 ${card.model}${card.variant ? `，变体 ${card.variant}` : ''}，服务商 ${provider}，接入方式 ${card.lane}，状态 ${label}${busyIds ? `，正在做 ${busyIds}` : ''}`}
+      title={`${card.name} · ${card.id} · ${card.model}${card.variant ? t('rosterRow.variantSuffix', { variant: card.variant }) : ''} · ${provider} / ${card.lane} · ${label}${busyIds ? t('cardBadge.busyTitle', { ids: busyIds }) : ''}`}
+      aria-label={t('cardBadge.ariaLabel', {
+        id: card.id,
+        name: card.name,
+        model: card.model,
+        variant: card.variant ? t('cardBadge.ariaVariant', { variant: card.variant }) : '',
+        provider,
+        lane: card.lane,
+        status: label,
+        busy: busyIds ? t('cardBadge.ariaBusy', { ids: busyIds }) : '',
+      })}
       draggable={canDrag}
       tabIndex={0}
       onClick={handleClick}
@@ -123,11 +134,11 @@ export function CardBadge({
             <span className="a-st">{label}</span>
           </div>
           <div className="a-model">
-            <span className="a-key">模型</span> {card.model}
+            <span className="a-key">{t('cardBadge.modelLabel')}</span> {card.model}
             {card.variant ? ` · ${card.variant}` : ''}
           </div>
           <div className="a-meta">
-            <span className="a-key">接入方式</span> {card.lane} · {provider} ·{' '}
+            <span className="a-key">{t('cardBadge.laneLabel')}</span> {card.lane} · {provider} ·{' '}
             <span className={card.billing === 'payg' ? 'pay' : ''}>
               {BILLING[card.billing || ''] || card.billing || ''}
             </span>
@@ -145,19 +156,19 @@ export function CardBadge({
           {card.status !== 'available' && !card.derived ? (
             <div className="a-note derived">
               {CARD_STATUS[card.status] || card.status}
-              {card.statusSince ? ` · ${formatMonthDay(card.statusSince)} 起` : ''}
+              {card.statusSince ? t('cardBadge.sinceSuffix', { date: formatMonthDay(card.statusSince) }) : ''}
               {card.statusReason ? ` · ${card.statusReason}` : ''}
             </div>
           ) : null}
           {card.laneDiagnostics && card.laneDiagnostics.length > 0 ? (
             <div className="a-note">
               {/* N3: the collector can report the same diagnostic more than once (e.g. a repeated poll). */}
-              {Array.from(new Set(card.laneDiagnostics.map((d) => d.message))).join('；')}
+              {Array.from(new Set(card.laneDiagnostics.map((d) => d.message))).join(t('common.statementSeparator'))}
             </div>
           ) : null}
           {card.notes ? <div className="a-note">{card.notes}</div> : null}
           {failure ? (
-            <div className="a-note fail-flag">最近一次执行失败 · {failure.questId}</div>
+            <div className="a-note fail-flag">{t('cardBadge.recentFailure', { questId: failure.questId })}</div>
           ) : null}
         </div>
       </div>

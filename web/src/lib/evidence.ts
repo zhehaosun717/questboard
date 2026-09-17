@@ -6,22 +6,23 @@
 import type { AcceptanceEvidenceRef, Quest, ReportSource, Snapshot } from '../api/types';
 import { isAwaitingSignOff, reviewsOf } from './questState';
 import { acceptanceBy } from './labels';
+import { t } from './i18n';
 
 export type ReviewVerdict = 'pass' | 'findings' | 'fail' | 'unknown';
 
 export const VERDICT_LABEL: Record<ReviewVerdict, string> = {
-  pass: '通过',
-  findings: '通过但有问题',
-  fail: '不通过',
-  unknown: '没写结论',
+  get pass() { return t('evidence.verdict.pass'); },
+  get findings() { return t('evidence.verdict.findings'); },
+  get fail() { return t('evidence.verdict.fail'); },
+  get unknown() { return t('evidence.verdict.unknown'); },
 };
 
 // Where a review's own captured report came from (src/core/reportEvidence.js ReportSource), shown next to
 // its verdict wherever that verdict appears. Shared so the wording cannot drift between surfaces.
 export const REPORT_SOURCE_LABEL: Record<ReportSource, string> = {
-  delivery: '交付文件',
-  'exit-file': '退出文件',
-  summary: '运行记录（.out）',
+  get delivery() { return t('evidence.source.delivery'); },
+  get 'exit-file'() { return t('evidence.source.exitFile'); },
+  get summary() { return t('evidence.source.summary'); },
 };
 
 // The label every surface must show beside a raw, unverified `lastDetail` tail (M5/N1 — item 2 & 6): never
@@ -29,7 +30,9 @@ export const REPORT_SOURCE_LABEL: Record<ReportSource, string> = {
 // otherwise read as if it were evidence for whatever verdict sits next to it — most sharply wrong right
 // beside a verified 结论未识别, which this label now always accompanies. Shared so QuestReceipt's own tail
 // block and the review row's cannot drift apart.
-export const RAW_TAIL_LABEL = '最近记录（末尾片段）';
+export function RAW_TAIL_LABEL(): string {
+  return t('evidence.rawTailLabel');
+}
 
 // The review brief asks the reviewer to end with `VERDICT: PASS | PASS WITH FINDINGS | FAIL`. Only a line
 // holding a single verdict counts — an echoed template line lists all three and must not read as PASS —
@@ -80,8 +83,8 @@ export function reviewVerdictOf(review: Quest): ReviewVerdictInfo {
  * nothing, which is untrue for a report the board could not finish reading or could not read a verdict out of.
  */
 export function verdictLabel(info: ReviewVerdictInfo): string {
-  if (!info.verified) return `${VERDICT_LABEL[info.verdict]}（未经核验）`;
-  if (info.verdict === 'unknown') return '结论未识别';
+  if (!info.verified) return `${VERDICT_LABEL[info.verdict]}${t('evidence.verdict.unverifiedSuffix')}`;
+  if (info.verdict === 'unknown') return t('evidence.verdict.unknownVerified');
   return VERDICT_LABEL[info.verdict];
 }
 

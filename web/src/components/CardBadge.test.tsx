@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Card } from '../api/types';
 import type { RecentFailure } from '../api/failureTypes';
+import { DEFAULT_LOCALE, setLocale } from '../lib/i18n';
 import { CardBadge } from './CardBadge';
 
 // Renders the real CardBadge.tsx. The failure line is additive historical context: it must appear next to
@@ -135,5 +136,29 @@ describe('CardBadge recent execution failure (real JSX)', () => {
     );
     const occurrences = html.split('同一条证据').length - 1;
     expect(occurrences).toBe(1);
+  });
+});
+
+describe('CardBadge language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('renders every converted label in English, with no residual CJK outside user content', () => {
+    setLocale('en');
+    const html = render(
+      card({
+        status: 'limited',
+        derived: { from: 'lanes', reason: 'quota limited', at: '2026-09-16T08:00:00.000Z', resetsAt: null },
+      }),
+      failure,
+    );
+    expect(html).toContain('Most recent failed run');
+    expect(html).toContain('reset time unknown');
+    expect(html).toContain('Model');
+    expect(html).toContain('Lane');
+    // Strip user content (card name/model/lane/provider/notes are untranslated) before scanning for CJK.
+    const stripped = html.replace(/quota limited/g, '');
+    expect(stripped).not.toMatch(/[一-鿿]/);
   });
 });

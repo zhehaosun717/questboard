@@ -2,34 +2,35 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import type { EvidenceItem, Quest, QuestEvidence } from '../../api/types';
 import { formatClock } from '../../lib/board';
+import { t, useT } from '../../lib/i18n';
 import { DrawerSection } from './DrawerSection';
 import '../../styles/report-evidence.css';
 
 const KIND_LABEL: Record<EvidenceItem['kind'], string> = {
-  report: '模型自报',
-  'project-verification': '项目验证记录',
-  hook: '验证钩子',
+  get report() { return t('evidenceSection.kind.report'); },
+  get 'project-verification'() { return t('evidenceSection.kind.projectVerification'); },
+  get hook() { return t('evidenceSection.kind.hook'); },
 };
 
 const STATE_LABEL: Record<EvidenceItem['state'], string> = {
-  passed: '通过',
-  findings: '通过但有问题',
-  failed: '失败',
-  unknown: '未知',
-  missing: '缺失',
-  not_configured: '未配置',
-  queued: '排队中',
-  running: '运行中',
-  timedout: '超时',
+  get passed() { return t('evidenceSection.state.passed'); },
+  get findings() { return t('evidenceSection.state.findings'); },
+  get failed() { return t('evidenceSection.state.failed'); },
+  get unknown() { return t('evidenceSection.state.unknown'); },
+  get missing() { return t('evidenceSection.state.missing'); },
+  get not_configured() { return t('evidenceSection.state.notConfigured'); },
+  get queued() { return t('evidenceSection.state.queued'); },
+  get running() { return t('evidenceSection.state.running'); },
+  get timedout() { return t('evidenceSection.state.timedout'); },
 };
 
 // The raw item.source value (delivery/exit-file/summary/progress-strip, or a hook's command), mapped to a
 // Chinese name; an unrecognized value (never expected, but never hidden) falls back to itself.
 const SOURCE_LABEL: Record<string, string> = {
-  delivery: '交差文件',
-  'exit-file': '退出文件',
-  summary: '运行记录（.out）',
-  'progress-strip': '项目验证目录（progress.txt）',
+  get delivery() { return t('evidenceSection.source.delivery'); },
+  get 'exit-file'() { return t('evidenceSection.source.exitFile'); },
+  get summary() { return t('evidenceSection.source.summary'); },
+  get 'progress-strip'() { return t('evidenceSection.source.progressStrip'); },
 };
 
 interface EvidenceSectionProps {
@@ -45,6 +46,7 @@ type SectionState =
 // Exported for EvidenceSection.test.tsx: a pure row renderer, testable with real JSX/SSR without needing the
 // on-demand fetch (which never resolves under this project's no-jsdom test setup) to settle first.
 export function EvidenceRow({ item }: { item: EvidenceItem }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const reference = [item.source, item.ref, item.digest].filter((part): part is string => Boolean(part));
   const copy = () => {
@@ -65,32 +67,32 @@ export function EvidenceRow({ item }: { item: EvidenceItem }) {
         {/* F6: missing/not_configured mean there is no record at all, not a wrong-version one — the chip
             (and its reason line below) already say why, so 不是这次派遣的 would only be noise here. */}
         {!item.bound && item.state !== 'missing' && item.state !== 'not_configured' ? (
-          <span className="attempt-evidence-chip attempt-evidence-chip-unbound">不是这次派遣的</span>
+          <span className="attempt-evidence-chip attempt-evidence-chip-unbound">{t('evidenceSection.notThisAttempt')}</span>
         ) : null}
       </div>
       {reference.length ? (
         <p className="attempt-evidence-ref">
           {item.source ? (
             <>
-              {item.kind === 'hook' ? '命令' : '来源'} {SOURCE_LABEL[item.source] ?? item.source}{' '}
+              {item.kind === 'hook' ? t('evidenceSection.commandLabel') : t('evidenceSection.sourceLabel')} {SOURCE_LABEL[item.source] ?? item.source}{' '}
             </>
           ) : null}
           {item.ref ? (
             <>
-              · 路径 <code>{item.ref}</code>{' '}
+              {t('evidenceSection.pathLabel')} <code>{item.ref}</code>{' '}
             </>
           ) : null}
           {item.digest ? (
             <>
-              · 摘要 <code>{item.digest.slice(0, 12)}</code>{' '}
+              {t('evidenceSection.digestLabel')} <code>{item.digest.slice(0, 12)}</code>{' '}
             </>
           ) : null}
           <button type="button" className="btn attempt-evidence-copy" onClick={copy}>
-            {copied ? '已复制' : '复制'}
+            {copied ? t('evidenceSection.copied') : t('evidenceSection.copy')}
           </button>
         </p>
       ) : null}
-      {item.capturedAt ? <p className="attempt-evidence-time">记录时间：{formatClock(item.capturedAt)}</p> : null}
+      {item.capturedAt ? <p className="attempt-evidence-time">{t('evidenceSection.recordedAt', { time: formatClock(item.capturedAt) })}</p> : null}
       {item.reason ? <p className="attempt-evidence-reason">{item.reason}</p> : null}
     </div>
   );
@@ -103,6 +105,7 @@ export function EvidenceRow({ item }: { item: EvidenceItem }) {
 // not just an empty body under a visible heading. A late response after the quest or project changed is
 // discarded rather than painted over the current one.
 export function EvidenceSection({ quest, projectId }: EvidenceSectionProps) {
+  const t = useT();
   const [state, setState] = useState<SectionState>({ status: 'loading' });
 
   useEffect(() => {
@@ -126,17 +129,17 @@ export function EvidenceSection({ quest, projectId }: EvidenceSectionProps) {
   if (state.status === 'ready' && !state.evidence) return null;
 
   return (
-    <DrawerSection en="ATTEMPT EVIDENCE" zh="这次派遣的证据">
-      {state.status === 'loading' ? <p className="receipt-none">证据读取中…</p> : null}
-      {state.status === 'error' ? <p className="receipt-none">证据读取失败：{state.message}</p> : null}
+    <DrawerSection en="ATTEMPT EVIDENCE" zh={t('evidenceSection.title')}>
+      {state.status === 'loading' ? <p className="receipt-none">{t('evidenceSection.loading')}</p> : null}
+      {state.status === 'error' ? <p className="receipt-none">{t('evidenceSection.loadFailed', { error: state.message })}</p> : null}
       {state.status === 'ready' && state.evidence ? (
         <div className="attempt-evidence">
           <p className="attempt-evidence-attempt">
             {/* F6: the worker name (when the server sends it), not the bare attemptId UUID; an older server
                 without attemptName still shows the id so the line is never blank for a real attempt. */}
             {state.evidence.attemptName ?? state.evidence.attemptId
-              ? `这次派遣：${state.evidence.attemptName ?? state.evidence.attemptId}`
-              : '还没有派遣'}
+              ? t('evidenceSection.thisAttempt', { name: state.evidence.attemptName ?? state.evidence.attemptId ?? '' })
+              : t('evidenceSection.noDispatch')}
             {state.evidence.attemptAt ? ` · ${formatClock(state.evidence.attemptAt)}` : ''}
           </p>
           {state.evidence.items.map((item) => (

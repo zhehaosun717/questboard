@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../../api/client';
+import { t, useT } from '../../lib/i18n';
 import '../../styles/report-evidence.css';
 
 interface ReportPanelProps {
@@ -29,12 +30,12 @@ export function bareReason(message: string): string {
 }
 
 export function errorLine(state: { code: ErrorCode; message: string }): string {
-  if (state.code === 'gone') return `${UNAVAILABLE_PREFIX}${bareReason(state.message)}`;
-  if (state.code === 'changed') return state.message || '报告在记录之后变过，不再当作同一份显示';
+  if (state.code === 'gone') return `${t('reportPanel.unavailablePrefix')}${bareReason(state.message)}`;
+  if (state.code === 'changed') return state.message || t('reportPanel.changed');
   // A genuine transport failure (no response at all) reads as a network problem; any HTTP status the server
   // did answer with (other than the 404/409 handled above) is its own failure, not the browser's.
-  if (state.code === 'server') return `服务器读取报告出错：${state.message}`;
-  return `没读到报告（网络请求失败）：${state.message}`;
+  if (state.code === 'server') return t('reportPanel.serverError', { message: state.message });
+  return t('reportPanel.networkError', { message: state.message });
 }
 
 // The state a report fetch settles into, given a stubbed-or-real `api.report`. Pulled out of the effect
@@ -80,6 +81,7 @@ export function restoreOpenerFocus(opener: FocusTarget | null): void {
 // of the snapshot fan-out. Plain text, monospace, read-only: the server sends text/plain with nosniff so
 // this can never be treated as HTML, and this panel renders it as text too, never dangerouslySetInnerHTML.
 export function ReportPanel({ id, questId, projectId, onClose }: ReportPanelProps) {
+  const t = useT();
   const [state, setState] = useState<PanelState>({ status: 'loading' });
 
   // M2: this panel's own 收起 button lives inside it, so the instant the panel (or that button) is removed
@@ -106,18 +108,18 @@ export function ReportPanel({ id, questId, projectId, onClose }: ReportPanelProp
   }, [projectId, questId]);
 
   return (
-    <div id={id} className="report-panel" role="region" aria-label="完整报告">
+    <div id={id} className="report-panel" role="region" aria-label={t('reportPanel.ariaLabel')}>
       <div className="report-panel-head">
-        <strong>完整报告</strong>
+        <strong>{t('reportPanel.title')}</strong>
         <button type="button" className="btn" onClick={onClose}>
-          收起
+          {t('reportPanel.collapse')}
         </button>
       </div>
-      {state.status === 'loading' ? <p className="report-panel-note">读取中…</p> : null}
+      {state.status === 'loading' ? <p className="report-panel-note">{t('reportPanel.loading')}</p> : null}
       {state.status === 'error' ? <p className="report-panel-error">{errorLine(state)}</p> : null}
       {state.status === 'ready' ? (
         <>
-          {state.truncated ? <p className="report-panel-truncated">报告没有读完整，只显示了前面一部分</p> : null}
+          {state.truncated ? <p className="report-panel-truncated">{t('common.reportTruncated')}</p> : null}
           <pre className="report-panel-body" tabIndex={0}>{state.text}</pre>
         </>
       ) : null}

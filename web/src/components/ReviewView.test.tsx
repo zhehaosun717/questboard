@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ReviewPage } from '../api/types';
 import { REVIEW_NO_MANIFEST_ERROR } from '../lib/reviewList';
+import { DEFAULT_LOCALE, setLocale } from '../lib/i18n';
 import { ReviewView } from './ReviewView';
 
 // Renders the real ReviewView.tsx (not a stand-in), so a wrong condition on which category/label/message
@@ -148,5 +149,43 @@ describe('ReviewView (real render)', () => {
     const html = render({ reviewPages: pages });
     expect(html).not.toContain('redo-overlay');
     expect(html).not.toContain('将要提交的内容');
+  });
+});
+
+describe('ReviewView language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  // lib/reviewList.ts is a separate file, out of this slice's scope, and stays Chinese-only (its own
+  // generated text: summaries, progress labels, empty messages). Empty/no-selection props avoid calling
+  // into it at all, isolating the check to the literals this slice actually converted.
+  it('renders the empty sidebar/reader chrome in English, with no residual CJK', () => {
+    setLocale('en');
+    const html = render({ reviewPages: [], selectedUrl: null });
+    expect(html).toContain('No review pages yet');
+    expect(html).toContain('Review list');
+    expect(html).toContain('Review order');
+    expect(html).toContain('Search title or page id');
+    expect(html).toContain('All');
+    expect(html).toContain('Has stats');
+    expect(html).toContain('Stats unavailable');
+    expect(html).toContain('Only unanswered');
+    expect(html).toContain('Current review');
+    expect(html).toContain('No review page selected yet');
+    expect(html).toContain('Pick a review page from the left first.');
+    expect(html).not.toMatch(/[一-鿿]/);
+  });
+
+  it('renders the row redo action and manual-page note in English', () => {
+    setLocale('en');
+    const pages = [
+      generated({ path: 'a.html', id: 'art/page-9', title: 'A', answered: 0, total: 1 }),
+      legacy('b.html'),
+    ];
+    const html = render({ reviewPages: pages });
+    expect(html).toContain('Start a redo quest');
+    expect(html).toContain('aria-label="Start a redo quest for art/page-9"');
+    expect(html).toContain('This is a hand-written page with no page id; a redo cannot be started from here');
   });
 });

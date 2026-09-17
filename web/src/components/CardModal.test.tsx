@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Card } from '../api/types';
 import type { RecentFailure } from '../api/failureTypes';
+import { DEFAULT_LOCALE, setLocale } from '../lib/i18n';
 import { CardModal, decideSave } from './CardModal';
 
 // Renders the real CardModal.tsx. The failure block is read-only context; the status/reason form must stay
@@ -187,5 +188,40 @@ describe('B1: a second 确认额度已恢复 must always write, never a silent n
       { status: 'available', reason: '' },
     );
     expect(write).toBe(true);
+  });
+});
+
+describe('CardModal language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('renders every converted label in English, with no residual CJK outside user content', () => {
+    setLocale('en');
+    const html = render(
+      failure,
+      () => {},
+      card({
+        status: 'limited',
+        baseStatus: 'available',
+        derived: { from: 'lanes', reason: 'quota limited', at: '2026-09-16T08:00:00.000Z', resetsAt: null },
+      }),
+    );
+    expect(html).toContain('ID CARD');
+    expect(html).toContain('Model');
+    expect(html).toContain('Lane');
+    expect(html).toContain('Most recent failed run');
+    expect(html).toContain('Quest');
+    expect(html).toContain('Time');
+    expect(html).toContain('View quest');
+    expect(html).toContain('Auto-detected: quota limited');
+    expect(html).toContain('Reset time unknown');
+    expect(html).toContain('Confirm quota restored');
+    expect(html).toContain('Never mind');
+    expect(html).toContain('Save');
+    // CONFIRM_RESTORED_REASON is deliberately excluded from translation (see the source comment): it is
+    // written to the server, so it never appears here anyway since no confirm click happened.
+    const stripped = html.replace(/quota limited/g, '');
+    expect(stripped).not.toMatch(/[一-鿿]/);
   });
 });

@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 import type { Quest, QuestReportDetail, Snapshot, Verification } from '../../api/types';
 import { RAW_TAIL_LABEL, REPORT_SOURCE_LABEL } from '../../lib/evidence';
 import { formatAgo, formatClock } from '../../lib/board';
+import { t, useT } from '../../lib/i18n';
 import { ReportPanel } from './ReportPanel';
 import '../../styles/report-evidence.css';
 
@@ -37,6 +38,7 @@ export function copyAttempt(clipboard: Pick<Clipboard, 'writeText'> | undefined,
 }
 
 function ReportReference({ report }: { report: NonNullable<Quest['report']> }) {
+  const t = useT();
   const [copyState, setCopyState] = useState<CopyState>('idle');
   const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(resetTimer.current), []);
@@ -57,11 +59,11 @@ function ReportReference({ report }: { report: NonNullable<Quest['report']> }) {
   };
   return (
     <p className="report-ref">
-      来源 {REPORT_SOURCE_LABEL[report.source]} · 路径 <code>{report.ref}</code> · 摘要 <code>{report.digest.slice(0, 12)}</code>
+      {t('evidenceSection.sourceLabel')} {REPORT_SOURCE_LABEL[report.source]} {t('evidenceSection.pathLabel')} <code>{report.ref}</code> {t('evidenceSection.digestLabel')} <code>{report.digest.slice(0, 12)}</code>
       <button type="button" className="btn report-ref-copy" onClick={copy}>
-        {copyState === 'copied' ? '已复制' : '复制'}
+        {copyState === 'copied' ? t('questReceipt.copied') : t('questReceipt.copy')}
       </button>
-      {copyState === 'failed' ? <span className="report-panel-error">复制失败，请手动复制</span> : null}
+      {copyState === 'failed' ? <span className="report-panel-error">{t('questReceipt.copyFailed')}</span> : null}
     </p>
   );
 }
@@ -79,6 +81,7 @@ type SummaryState =
 // or project has since changed is discarded (see the effect's `cancelled` guard) rather than painted over
 // whatever is now shown.
 function ReportSection({ quest, projectId }: { quest: Quest; projectId: string }) {
+  const t = useT();
   const report = quest.report;
   const [state, setState] = useState<SummaryState>({ status: 'loading' });
   const [panelOpen, setPanelOpen] = useState(false);
@@ -108,21 +111,21 @@ function ReportSection({ quest, projectId }: { quest: Quest; projectId: string }
   const summary = state.status === 'ready' ? state.detail?.summary : undefined;
 
   return (
-    <ReceiptBlock title="最终报告">
-      {state.status === 'loading' ? <p className="receipt-none">摘要读取中…</p> : null}
-      {state.status === 'error' ? <p className="receipt-none">摘要读取失败：{state.message}</p> : null}
+    <ReceiptBlock title={t('questReceipt.finalReportTitle')}>
+      {state.status === 'loading' ? <p className="receipt-none">{t('questReceipt.summaryLoading')}</p> : null}
+      {state.status === 'error' ? <p className="receipt-none">{t('questReceipt.summaryLoadFailed', { error: state.message })}</p> : null}
       {state.status === 'ready' ? (
         summary ? (
           <div className="receipt-lines">
             {summary.heading ? <p className="report-summary-heading">{summary.heading}</p> : null}
-            {summary.paragraph ? <p>{summary.paragraph}</p> : <p className="receipt-none">没有可读的摘要段落</p>}
+            {summary.paragraph ? <p>{summary.paragraph}</p> : <p className="receipt-none">{t('questReceipt.noParagraph')}</p>}
           </div>
         ) : (
-          <p className="receipt-none">没有可读的摘要</p>
+          <p className="receipt-none">{t('questReceipt.noSummary')}</p>
         )
       ) : null}
       <ReportReference report={report} />
-      {report.truncated ? <p className="report-truncated-note">报告没有读完整，只显示了前面一部分</p> : null}
+      {report.truncated ? <p className="report-truncated-note">{t('common.reportTruncated')}</p> : null}
       <div className="row report-actions">
         <button
           type="button"
@@ -131,7 +134,7 @@ function ReportSection({ quest, projectId }: { quest: Quest; projectId: string }
           aria-controls={`report-panel-${quest.id}`}
           onClick={() => setPanelOpen((open) => !open)}
         >
-          {panelOpen ? '收起完整报告' : '查看完整报告'}
+          {panelOpen ? t('questReceipt.collapseReport') : t('questReceipt.viewReport')}
         </button>
       </div>
       {panelOpen ? (
@@ -142,24 +145,25 @@ function ReportSection({ quest, projectId }: { quest: Quest; projectId: string }
 }
 
 function ProjectTests({ verification }: { verification: Verification | null }) {
+  const t = useT();
   if (!verification || (verification.steps.length === 0 && !verification.editXml && !verification.playXml)) {
-    return <p className="receipt-none">没有记录</p>;
+    return <p className="receipt-none">{t('questReceipt.noRecord')}</p>;
   }
   return (
     <div className="receipt-lines">
       {verification.steps.map((step) => (
         <p key={`${step.kind}-${step.name}`}>
-          {step.name}：{step.value}
+          {t('questReceipt.stepLine', { name: step.name, value: step.value })}
         </p>
       ))}
       {verification.editXml ? (
-        <p>编辑测试：{verification.editXml.passed}/{verification.editXml.total} 通过，失败 {verification.editXml.failed}</p>
+        <p>{t('questReceipt.editTests', { passed: verification.editXml.passed, total: verification.editXml.total, failed: verification.editXml.failed })}</p>
       ) : null}
       {verification.playXml ? (
-        <p>运行测试：{verification.playXml.passed}/{verification.playXml.total} 通过，失败 {verification.playXml.failed}</p>
+        <p>{t('questReceipt.runTests', { passed: verification.playXml.passed, total: verification.playXml.total, failed: verification.playXml.failed })}</p>
       ) : null}
       <p className={verification.done ? 'receipt-done' : 'receipt-pending'}>
-        总状态：{verification.done ? '已完成' : '还没完成'}
+        {t('questReceipt.overallStatus', { status: verification.done ? t('status.done') : t('questReceipt.notDone') })}
       </p>
     </div>
   );
@@ -167,6 +171,10 @@ function ProjectTests({ verification }: { verification: Verification | null }) {
 
 // What came back, told as what it is: the worker's own summary is not a check, the listed files are the ones
 // the brief allowed (not a diff), and the test run belongs to the whole project. Decisions live in 下一步.
+// Calls `t()` directly rather than `useT()`: QuestReceipt.test.tsx calls this component as a plain function
+// (see reportSectionKey) to inspect the element tree without a DOM, which only works if this top-level call
+// makes no hook calls of its own — `useSyncExternalStore` needs a real React render pass. The child sections
+// below are always reached through an actual render (renderToStaticMarkup or the app), so they use `useT()`.
 export function QuestReceipt({ quest, snap }: QuestReceiptProps) {
   const assignee = quest.assignee;
   const live = assignee ? snap.live[assignee.name] : undefined;
@@ -179,26 +187,25 @@ export function QuestReceipt({ quest, snap }: QuestReceiptProps) {
   const hasReport = Boolean(quest.report);
 
   return (
-    <div className="receipt" aria-label="交回的东西">
-      <ReceiptBlock title="冒险者交回的东西">
+    <div className="receipt" aria-label={t('questReceipt.ariaLabel')}>
+      <ReceiptBlock title={t('questReceipt.deliveredTitle')}>
         {hasDelivery ? (
           <div className="receipt-lines">
             {quest.lastDetail && !hasReport ? (
               <p>
-                {CLAIMED.has(quest.status) ? '它自己的总结' : '最近记录'}：{quest.lastDetail}
+                {CLAIMED.has(quest.status) ? t('questReceipt.ownSummary') : t('questReceipt.recentRecord')}{t('questReceipt.detailSeparator')}{quest.lastDetail}
               </p>
             ) : null}
-            {quest.files.length > 0 ? <p>委托书允许改的文件：{quest.files.join('、')}</p> : null}
+            {quest.files.length > 0 ? <p>{t('questReceipt.allowedFiles', { files: quest.files.join(t('common.listSeparator')) })}</p> : null}
             {latestDispatch ? (
               <p>
-                最近一次派出：{latestDispatch.model} · 接入方式 {latestDispatch.lane} · 编号 {latestDispatch.name} ·{' '}
-                {formatClock(latestDispatch.at)}
+                {t('questReceipt.lastDispatch', { model: latestDispatch.model, lane: latestDispatch.lane, name: latestDispatch.name, time: formatClock(latestDispatch.at) })}
               </p>
             ) : null}
-            {live ? <p>现场：{live.state} · {formatAgo(live.elapsed)} · {live.edits} 处改动</p> : null}
+            {live ? <p>{t('questReceipt.live', { state: live.state, ago: formatAgo(live.elapsed), edits: live.edits })}</p> : null}
           </div>
         ) : (
-          <p className="receipt-none">还没有交回任何东西</p>
+          <p className="receipt-none">{t('questReceipt.noDelivery')}</p>
         )}
       </ReceiptBlock>
 
@@ -212,12 +219,12 @@ export function QuestReceipt({ quest, snap }: QuestReceiptProps) {
       />
 
       {hasReport && quest.lastDetail ? (
-        <ReceiptBlock title={RAW_TAIL_LABEL}>
+        <ReceiptBlock title={RAW_TAIL_LABEL()}>
           <p className="receipt-none">{quest.lastDetail}</p>
         </ReceiptBlock>
       ) : null}
 
-      <ReceiptBlock title="项目整体测试（整个项目最近一次，不是这个委托专属的）">
+      <ReceiptBlock title={t('questReceipt.projectTestsTitle')}>
         <ProjectTests verification={snap.verification} />
       </ReceiptBlock>
     </div>

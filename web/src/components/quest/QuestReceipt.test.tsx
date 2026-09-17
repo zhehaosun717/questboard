@@ -1,7 +1,8 @@
 import type { ReactElement, ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
-import { makeQuest, makeSnapshot } from '../../lib/testFixtures';
+import { afterEach, describe, expect, it } from 'vitest';
+import { makeAssignee, makeQuest, makeSnapshot } from '../../lib/testFixtures';
+import { DEFAULT_LOCALE, setLocale } from '../../lib/i18n';
 import { copyAttempt, QuestReceipt } from './QuestReceipt';
 
 const REPORT_A = {
@@ -194,5 +195,48 @@ describe('copyAttempt (item 6/M5)', () => {
   it('surfaces a real clipboard rejection (e.g. permission denied) instead of swallowing it', async () => {
     const clipboard = { writeText: () => Promise.reject(new Error('permission denied')) };
     await expect(copyAttempt(clipboard, 'text')).rejects.toThrow('permission denied');
+  });
+});
+
+describe('QuestReceipt language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('renders every converted label in English, with no residual CJK outside ids/paths', () => {
+    setLocale('en');
+    const assignee = makeAssignee('adv-1', { name: 'worker-1', lane: 'oc' });
+    const quest = makeQuest({
+      id: 'A-EN-1',
+      status: 'delivered',
+      lastDetail: 'done',
+      files: ['a.md', 'b.md'],
+      assignee,
+      dispatches: [assignee],
+    });
+    const snap = makeSnapshot({ quests: [quest], live: { 'worker-1': { state: 'running', elapsed: 120, edits: 3, lastText: '', tokens: null } } });
+    const html = renderToStaticMarkup(<QuestReceipt quest={quest} snap={snap} />);
+    expect(html).toContain('What was returned');
+    expect(html).toContain('Its own summary');
+    expect(html).toContain('Files the brief allows changing');
+    expect(html).toContain('Last dispatched');
+    expect(html).toContain('Live: running');
+    expect(html).toContain('edits');
+    expect(html).toContain('Project-wide tests');
+    expect(html).toContain('No record');
+    // lib/board.ts's formatAgo() is out of this slice's scope and still renders a Chinese unit (秒/分/时).
+    expect(
+      html.replace(/A-EN-1|worker-1|a\.md|b\.md|adv-1-model|\d+秒/g, ''),
+    ).not.toMatch(/[一-鿿]/);
+    expect(html).not.toMatch(/[\u3000-\u303F\uFF00-\uFFEF]/);
+  });
+
+  it('shows the no-delivery and final-report states in English too', () => {
+    setLocale('en');
+    const quest = makeQuest({ id: 'A-EN-2' });
+    const snap = makeSnapshot({ quests: [quest] });
+    const html = renderToStaticMarkup(<QuestReceipt quest={quest} snap={snap} />);
+    expect(html).toContain('Nothing returned yet');
+    expect(html).not.toMatch(/[一-鿿]/);
   });
 });

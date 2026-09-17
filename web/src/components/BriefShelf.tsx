@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { BriefDiscovery, UnpostedBrief } from '../api/types';
 import { formatClock } from '../lib/board';
+import { useT } from '../lib/i18n';
 
 interface BriefShelfProps {
   unpostedBriefs?: UnpostedBrief[];
@@ -13,6 +14,7 @@ interface BriefShelfProps {
 const BRIEFS_SHOWN = 8;
 
 export function BriefShelf({ unpostedBriefs = [], briefDiscovery, onRescan }: BriefShelfProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [showOld, setShowOld] = useState(false);
   const [showDispatched, setShowDispatched] = useState(false);
@@ -47,45 +49,47 @@ export function BriefShelf({ unpostedBriefs = [], briefDiscovery, onRescan }: Br
   const unlistedOther = briefDiscovery
     ? Math.max(0, otherExcludedCount - otherExcludedShown.length)
     : 0;
-  const windowLabel = briefDiscovery ? `最近 ${briefDiscovery.recentDays} 天` : '最近几天';
+  const windowLabel = briefDiscovery
+    ? t('briefShelf.windowDays', { days: briefDiscovery.recentDays })
+    : t('briefShelf.windowDefault');
 
   return (
     <section className="reviews" aria-labelledby="briefsTitle">
       <header className="sec-head">
-        <span className="eyebrow">DRAFTS</span>
-        <h2 id="briefsTitle">还没上板的 brief</h2>
+        <span className="eyebrow">{t('briefShelf.eyebrow')}</span>
+        <h2 id="briefsTitle">{t('briefShelf.title')}</h2>
       </header>
       <p className="hint">
-        {windowLabel}写好、还没发布、也没派遣过的简报。coordinator 发布后才能派遣。
-        {briefDiscovery && `上次扫描：${formatClock(briefDiscovery.scannedAt)}，看了 ${briefDiscovery.folders.join('、')}。`}
+        {windowLabel}{t('briefShelf.hint')}
+        {briefDiscovery && t('briefShelf.lastScan', { time: formatClock(briefDiscovery.scannedAt), folders: briefDiscovery.folders.join(t('common.listSeparator')) })}
         {onRescan && (
           <button className="plate" type="button" onClick={onRescan} style={{ marginLeft: '8px' }}>
-            立即重新扫描
+            {t('briefShelf.rescan')}
           </button>
         )}
       </p>
       {briefDiscovery && briefDiscovery.errors.length > 0 && (
         <p className="hint" style={{ color: 'var(--amber, #d9b45a)' }}>
-          ⚠ {briefDiscovery.errors.map((e) => `${e.folder}（${e.reason}）`).join('；')}
+          ⚠ {briefDiscovery.errors.map((e) => t('briefShelf.errorItem', { folder: e.folder, reason: e.reason })).join(t('common.statementSeparator'))}
         </p>
       )}
       {(oldCount > 0 || dispatchedCount > 0) && (
         <p className="hint">
           {oldCount > 0 && (
             <label style={{ marginRight: '12px' }}>
-              <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} /> 也显示超出时间窗口的 {oldCount} 份
+              <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} /> {t('briefShelf.showOld', { count: oldCount })}
             </label>
           )}
           {dispatchedCount > 0 && (
             <label>
-              <input type="checkbox" checked={showDispatched} onChange={(e) => setShowDispatched(e.target.checked)} /> 也显示已在别处派遣过的 {dispatchedCount} 份
+              <input type="checkbox" checked={showDispatched} onChange={(e) => setShowDispatched(e.target.checked)} /> {t('briefShelf.showDispatched', { count: dispatchedCount })}
             </label>
           )}
         </p>
       )}
       <div id="briefs" className="bf-list">
         {combined.length === 0 ? (
-          <div className="empty">没有待发布的 brief</div>
+          <div className="empty">{t('briefShelf.empty')}</div>
         ) : (
           (expanded ? combined : combined.slice(0, BRIEFS_SHOWN)).map(
             (b) => (
@@ -105,22 +109,22 @@ export function BriefShelf({ unpostedBriefs = [], briefDiscovery, onRescan }: Br
           onClick={() => setExpanded(!expanded)}
           style={{ marginTop: '10px' }}
         >
-          {expanded ? '收起' : `展开全部 ${combined.length} 份`}
+          {expanded ? t('briefShelf.collapse') : t('briefShelf.expandAll', { count: combined.length })}
         </button>
       )}
       {otherExcludedCount > 0 && (
         <div style={{ marginTop: '10px' }}>
           <button className="plate" type="button" onClick={() => setShowDiagnostics(!showDiagnostics)}>
-            {showDiagnostics ? '收起' : `为什么还有 ${otherExcludedCount} 个文件没出现`}
+            {showDiagnostics ? t('briefShelf.collapse') : t('briefShelf.whyMissing', { count: otherExcludedCount })}
           </button>
           {showDiagnostics && (
             <ul className="hint">
               {otherExcludedShown.map((x, i) => (
                 <li key={`${x.brief}-${i}`}>
-                  <code>{x.brief}</code>：{x.reason}
+                  <code>{x.brief}</code>{t('briefShelf.diagSeparator')}{x.reason}
                 </li>
               ))}
-              {unlistedOther > 0 && <li>还有 {unlistedOther} 项未列出（本次扫描共排除 {briefDiscovery?.excludedTotal} 项）</li>}
+              {unlistedOther > 0 && <li>{t('briefShelf.unlistedOther', { count: unlistedOther, total: briefDiscovery?.excludedTotal ?? 0 })}</li>}
             </ul>
           )}
         </div>

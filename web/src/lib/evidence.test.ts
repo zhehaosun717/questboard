@@ -1,13 +1,46 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   acceptedOnBoard,
   boardAcceptanceDetail,
   evidenceFor,
   parseVerdict,
+  RAW_TAIL_LABEL,
   recordedAcceptor,
+  REPORT_SOURCE_LABEL,
   reviewVerdictOf,
+  VERDICT_LABEL,
 } from './evidence';
+import { DEFAULT_LOCALE, setLocale } from './i18n';
 import { makeAssignee, makeCard, makeQuest, makeSnapshot } from './testFixtures';
+
+describe('label tables language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('VERDICT_LABEL, REPORT_SOURCE_LABEL and RAW_TAIL_LABEL render in Chinese by default, byte-identical to the originals', () => {
+    expect(VERDICT_LABEL.pass).toBe('通过');
+    expect(VERDICT_LABEL.findings).toBe('通过但有问题');
+    expect(VERDICT_LABEL.fail).toBe('不通过');
+    expect(VERDICT_LABEL.unknown).toBe('没写结论');
+    expect(REPORT_SOURCE_LABEL.delivery).toBe('交付文件');
+    expect(REPORT_SOURCE_LABEL['exit-file']).toBe('退出文件');
+    expect(REPORT_SOURCE_LABEL.summary).toBe('运行记录（.out）');
+    expect(RAW_TAIL_LABEL()).toBe('最近记录（末尾片段）');
+  });
+
+  it('translate in English mode', () => {
+    setLocale('en');
+    expect(VERDICT_LABEL.pass).toBe('Pass');
+    expect(VERDICT_LABEL.findings).toBe('Passed with findings');
+    expect(VERDICT_LABEL.fail).toBe('Failed');
+    expect(VERDICT_LABEL.unknown).toBe('No verdict written');
+    expect(REPORT_SOURCE_LABEL.delivery).toBe('Delivery file');
+    expect(REPORT_SOURCE_LABEL['exit-file']).toBe('Exit file');
+    expect(REPORT_SOURCE_LABEL.summary).toBe('Run log (.out)');
+    expect(RAW_TAIL_LABEL()).toBe('Most recent record (tail fragment)');
+  });
+});
 
 describe('acceptedOnBoard', () => {
   it('returns true for legacy and new acceptance details, and false for neither', () => {

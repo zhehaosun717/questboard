@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { makeQuest } from '../../lib/testFixtures';
+import { DEFAULT_LOCALE, setLocale } from '../../lib/i18n';
 import { EvidenceRow, EvidenceSection } from './EvidenceSection';
 
 // Same constraint as QuestReceipt.test.tsx: no DOM test environment is installed here, so the on-demand
@@ -132,5 +133,42 @@ describe('EvidenceSection row rendering (pure, real JSX)', () => {
     );
     expect(hook).toContain('命令 npm test');
     expect(hook).not.toContain('来源');
+  });
+});
+
+describe('EvidenceSection/EvidenceRow language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('EvidenceSection shows the loading note in English', () => {
+    setLocale('en');
+    const quest = makeQuest({ id: 'EV-W-2' });
+    const html = renderToStaticMarkup(<EvidenceSection quest={quest} projectId="proj-1" />);
+    expect(html).toContain('Reading evidence');
+    expect(html).not.toMatch(/[一-鿿]/);
+  });
+
+  it('EvidenceRow renders every converted label in English, with no residual CJK outside a hook source command', () => {
+    setLocale('en');
+    const html = renderToStaticMarkup(
+      <EvidenceRow
+        item={{
+          kind: 'project-verification', label: 'x', state: 'passed', source: 'progress-strip',
+          ref: '.work/full/progress.txt', digest: 'deadbeef', capturedAt: '2026-09-16T00:00:00.000Z',
+          attemptId: 'a1', bound: false, reason: 'stale evidence',
+        }}
+      />,
+    );
+    expect(html).toContain('Project verification record');
+    expect(html).toContain('Passed');
+    expect(html).toContain('Not from this dispatch');
+    expect(html).toContain('source');
+    expect(html).toContain('Project verification dir (progress.txt)');
+    expect(html).toContain('path');
+    expect(html).toContain('digest');
+    expect(html).toContain('Copy');
+    expect(html).toContain('Recorded');
+    expect(html).not.toMatch(/[一-鿿]/);
   });
 });

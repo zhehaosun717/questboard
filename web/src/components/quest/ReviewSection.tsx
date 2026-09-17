@@ -5,6 +5,7 @@ import { boardAcceptanceDetail, RAW_TAIL_LABEL, REPORT_SOURCE_LABEL, reviewVerdi
 import { acceptanceBy, STATUS } from '../../lib/labels';
 import { isArchived, reviewsOf } from '../../lib/questState';
 import { formatClock } from '../../lib/board';
+import { useT } from '../../lib/i18n';
 import { AcceptancePanel } from './AcceptancePanel';
 import { DrawerSection } from './DrawerSection';
 import '../../styles/report-evidence.css';
@@ -17,23 +18,24 @@ import '../../styles/report-evidence.css';
 // report (legacy data, or one not yet terminal). Either way this is a display only — it never enables or
 // triggers the accept/reject controls below.
 function ReviewVerdictLine({ review }: { review: Quest }) {
+  const t = useT();
   const info = reviewVerdictOf(review);
   const report = review.report;
   if (info.verified && report) {
     return (
       <span className={`review-verdict review-verdict-${info.verdict}`}>
-        复核结论（模型自报）：{verdictLabel(info)}
-        {info.verdict === 'unknown' && info.reason ? `（${info.reason}）` : ''}
+        {t('reviewSection.verdictPrefix')}{verdictLabel(info)}
+        {info.verdict === 'unknown' && info.reason ? t('reviewSection.verdictReason', { reason: info.reason }) : ''}
         <span className="review-report-verdict-meta">
-          {REPORT_SOURCE_LABEL[report.source]} · {formatClock(report.capturedAt)} 记录
+          {t('reviewSection.recordedAt', { source: REPORT_SOURCE_LABEL[report.source], time: formatClock(report.capturedAt) })}
         </span>
       </span>
     );
   }
   return (
     <span className={`review-verdict review-verdict-${info.verdict} review-verdict-fallback`}>
-      复核{VERDICT_LABEL[info.verdict]}
-      <span className="review-report-verdict-meta">没有最终报告，这是从最后几行输出里猜的</span>
+      {t('reviewSection.fallbackVerdict', { verdict: VERDICT_LABEL[info.verdict] })}
+      <span className="review-report-verdict-meta">{t('reviewSection.fallbackNote')}</span>
     </span>
   );
 }
@@ -59,6 +61,7 @@ const REPORTED = new Set<Quest['status']>(['delivered', 'reviewing']);
 // column labels: expectation is not evidence. This is labelling, not access control — a local board has no
 // login to fake.
 export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest, onAssignCard, refresh, pushToast }: ReviewSectionProps) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   // Feedback 15: the evidence AcceptancePanel's checkboxes currently name — read into the acceptance record
   // sent on accept, never on 退回 (a rejection carries no acceptance).
@@ -73,7 +76,7 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
     try {
       await action();
     } catch (err) {
-      pushToast(`${failure}：${errorText(err)}`);
+      pushToast(t('common.actionFailed', { action: failure, error: errorText(err) }));
     } finally {
       setBusy(false);
     }
@@ -89,7 +92,7 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
   };
 
   const accept = () => {
-    if (!window.confirm(`${quest.id} 验收，标成已完成？`)) return;
+    if (!window.confirm(t('reviewSection.confirmAccept', { id: quest.id }))) return;
     void run(async () => {
       const note = draft.trim();
       if (note) await api.rule(quest.id, `验收：${note}`);
@@ -100,36 +103,36 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
       onDraftChange('');
       pushToast(
         technical
-          ? `${quest.id} 已验收：点的是你，记录写 owner；这类活的核验责任仍在 coordinator。`
-          : `${quest.id} 已验收（owner）`,
+          ? t('reviewSection.acceptedTechnical', { id: quest.id })
+          : t('reviewSection.acceptedOwner', { id: quest.id }),
       );
       refresh();
-    }, '验收没成功');
+    }, t('reviewSection.acceptFailed'));
   };
 
   const sendBack = () => {
     const reason = draft.trim();
     if (!reason) {
-      pushToast('退回要写明哪里不对，下一个接手的冒险者要看');
+      pushToast(t('reviewSection.sendBackReasonRequired'));
       return;
     }
-    if (!window.confirm(`把 ${quest.id} 退回委托板重做？`)) return;
+    if (!window.confirm(t('reviewSection.confirmSendBack', { id: quest.id }))) return;
     void run(async () => {
       await api.rule(quest.id, `退回重做：${reason}`);
       await api.setQuestStatus(quest.id, 'posted', `退回重做：${reason}`);
       await closeReviews();
       onDraftChange('');
-      pushToast(`${quest.id} 已退回，回到委托板`);
+      pushToast(t('reviewSection.sentBack', { id: quest.id }));
       refresh();
-    }, '退回没成功');
+    }, t('reviewSection.sendBackFailed'));
   };
 
   return (
-    <DrawerSection en={technical ? 'TECHNICAL REVIEW' : 'SIGN-OFF'} zh={technical ? 'coordinator 核验' : '验收'}>
+    <DrawerSection en={technical ? 'TECHNICAL REVIEW' : 'SIGN-OFF'} zh={technical ? t('reviewSection.technicalTitle') : t('reviewSection.signOffTitle')}>
       <p className="hint owner-task-hint">
         {technical
-          ? '这是技术活的交回档案：核验交回的东西、跑没跑过，归 coordinator，不用你在处理堆里等。下面的验收与退回本是 coordinator 的动作，由在管看板的人代按——按下去记录写的是 owner（点按钮的你），不是 coordinator。想先看一遍，把名册里的冒险者拖到这张委托上，或在下面挑一个——那只是请模型复核，不等于验收；能复核的亮绿，写过这份活的亮红。'
-          : '先看下面的「证据」和「交回的东西」：没问题就验收；要改就写明哪里不对再退回。想先让模型复核，把名册里的冒险者拖到这张委托上——能复核的亮绿，写过这份活的亮红。'}
+          ? t('reviewSection.technicalHint')
+          : t('reviewSection.signOffHint')}
       </p>
       {reviews.length > 0 ? (
         <div className="review-links">
@@ -147,15 +150,15 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
                       QuestReceipt's own tail block uses, so this can never drift into "labelled sometimes". */}
                   {reported && review.lastDetail ? (
                     <>
-                      <div className="review-link-none">{RAW_TAIL_LABEL}</div>
+                      <div className="review-link-none">{RAW_TAIL_LABEL()}</div>
                       <pre className="review-link-detail">{review.lastDetail}</pre>
                     </>
                   ) : (
-                    <div className="review-link-none">{reported ? '没有记录复核报告' : '还没有复核结论'}</div>
+                    <div className="review-link-none">{reported ? t('reviewSection.noReport') : t('reviewSection.noVerdict')}</div>
                   )}
                 </div>
                 <button className="btn" type="button" onClick={() => onSelectQuest(review.id)}>
-                  打开
+                  {t('reviewSection.open')}
                 </button>
               </div>
             );
@@ -165,16 +168,16 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
       {openReview ? null : (
         <details className="assign-details">
           <summary>
-            {reviewers.length > 0 ? `也可以在这里挑冒险者复核（${reviewers.length} 个冒险者能复核）` : '现在没有能复核它的冒险者'}
+            {reviewers.length > 0 ? t('reviewSection.pickReviewer', { count: reviewers.length }) : t('reviewSection.noReviewer')}
           </summary>
           {reviewers.map((card) => (
             <div key={card.id} className="pick ok">
               <div>
                 <strong>{card.name}</strong>
-                <span className="a-model">模型 {card.model} · 接入方式 {card.lane}</span>
+                <span className="a-model">{t('reviewSection.modelLabel', { model: card.model, lane: card.lane })}</span>
               </div>
               <button className="btn" type="button" onClick={() => onAssignCard(quest.id, card.id)}>
-                派去复核
+                {t('reviewSection.sendToReview')}
               </button>
             </div>
           ))}
@@ -183,16 +186,16 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
       <AcceptancePanel quest={quest} onChange={setEvidenceRefs} />
       <textarea
         rows={3}
-        placeholder="验收备注（可不写）；退回时必须写原因"
+        placeholder={t('reviewSection.draftPlaceholder')}
         value={draft}
         onChange={(e) => onDraftChange(e.target.value)}
       />
       <div className="row end">
         <button className="btn danger" type="button" disabled={busy} onClick={sendBack}>
-          退回重做
+          {t('reviewSection.sendBack')}
         </button>
         <button className="btn primary" type="button" disabled={busy} onClick={accept}>
-          验收
+          {t('reviewSection.accept')}
         </button>
       </div>
     </DrawerSection>

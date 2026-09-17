@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { ReviewPage, UnpostedBrief } from '../../api/types';
+import { DEFAULT_LOCALE, setLocale } from '../../lib/i18n';
 import { RedoArtDialog, buildRedoRequest, isRedoDraftReady } from './RedoArtDialog';
 
 const manifestPage = (overrides: Partial<ReviewPage> = {}): ReviewPage => ({
@@ -108,4 +109,44 @@ describe('RedoArtDialog', () => {
   it('没有页面编号时不渲染任何内容', () => {
     expect(render({ page: manifestPage({ page: null }) })).toBe('');
   });
+});
+
+describe('RedoArtDialog language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('renders every converted label in English, with no residual CJK outside user content', () => {
+    setLocale('en');
+    const page = manifestPage({ title: 'Character A redo' });
+    const brief = shelfBrief({ title: 'Redo brief' });
+    const html = render({ page, briefs: [brief] });
+    expect(html).toContain('Review directory');
+    expect(html).toContain('Start a redo quest');
+    expect(html).toContain('Page id');
+    expect(html).toContain('Page title');
+    expect(html).toContain('Page URL');
+    expect(html).toContain('Annotation stats');
+    expect(html).toContain('4 total, 1 annotated');
+    expect(html).toContain('Pick the redo brief');
+    expect(html).toContain('Or enter a brief path');
+    expect(html).toContain('Quest id');
+    expect(html).toContain('What will be submitted');
+    expect(html).toContain('Not filled in');
+    expect(html).toContain('Not selected');
+    expect(html).toContain('Art');
+    expect(html).toContain('Corresponding review page');
+    expect(html).toContain('Cancel');
+    expect(html).toContain('Confirm the redo');
+    expect(html.replace(/Character A redo|Redo brief|art\/page-1|docs\/briefs\/art-redo\.md|\/review\/art\/charA\/final\.html/g, '')).not.toMatch(/[一-鿿]/);
+  });
+
+  it('renders the no-briefs notes in English', () => {
+    setLocale('en');
+    const html = render({ briefs: [] });
+    expect(html).toContain('No unposted briefs right now; enter the brief path directly.');
+    const html2 = render();
+    expect(html2).toContain('This board does not provide an unposted-brief list (possibly an old version); enter the brief path directly.');
+  });
+
 });

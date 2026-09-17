@@ -2,32 +2,34 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import type { Quest, UpstreamEvidenceKind, UpstreamEvidenceState, UpstreamParent, UpstreamReview } from '../../api/types';
 import { formatClock } from '../../lib/board';
+import { t, useT } from '../../lib/i18n';
 import { DrawerSection } from './DrawerSection';
 import '../../styles/report-evidence.css';
 
 const KIND_LABEL: Record<UpstreamEvidenceKind, string> = {
-  report: '模型自报',
-  'project-verification': '项目验证记录',
-  hook: '验证钩子',
+  get report() { return t('upstreamEvidence.kind.report'); },
+  get 'project-verification'() { return t('upstreamEvidence.kind.projectVerification'); },
+  get hook() { return t('upstreamEvidence.kind.hook'); },
 };
 
 const STATE_LABEL: Record<UpstreamEvidenceState, string> = {
-  passed: '通过',
-  failed: '失败',
-  stale: '不是这次派遣的',
-  missing: '缺失',
-  not_configured: '未配置',
-  unknown: '未知',
+  get passed() { return t('upstreamEvidence.state.passed'); },
+  get failed() { return t('upstreamEvidence.state.failed'); },
+  get stale() { return t('upstreamEvidence.state.stale'); },
+  get missing() { return t('upstreamEvidence.state.missing'); },
+  get not_configured() { return t('upstreamEvidence.state.notConfigured'); },
+  get unknown() { return t('upstreamEvidence.state.unknown'); },
 };
 
 // Exported for UpstreamEvidence.test.tsx: a pure row renderer, testable with real JSX/SSR without needing
 // the on-demand fetch (which never resolves under this project's no-jsdom test setup) to settle first.
 export function UpstreamParentRow({ parent }: { parent: UpstreamParent }) {
+  const t = useT();
   return (
     <div className={`upstream-evidence-parent${parent.failing.length ? ' upstream-evidence-parent-failing' : ''}`}>
       <div className="upstream-evidence-parent-head">
         <strong>{parent.id}</strong>
-        {parent.gap ? <span className="upstream-evidence-chip upstream-evidence-chip-gap">未经项目验证</span> : null}
+        {parent.gap ? <span className="upstream-evidence-chip upstream-evidence-chip-gap">{t('upstreamEvidence.gap')}</span> : null}
       </div>
       <div className="upstream-evidence-kinds">
         {(Object.keys(KIND_LABEL) as UpstreamEvidenceKind[]).map((kind) => (
@@ -67,6 +69,7 @@ const errorText = (err: unknown) => (err instanceof Error ? err.message : String
 // never part of the snapshot fan-out; an older server that sends no `upstreamReview` field renders exactly
 // as before this section existed.
 export function UpstreamEvidence({ quest, projectId, parentsKey, refresh, pushToast }: UpstreamEvidenceProps) {
+  const t = useT();
   const [state, setState] = useState<SectionState>({ status: 'loading' });
   const [overrideReason, setOverrideReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -103,26 +106,26 @@ export function UpstreamEvidence({ quest, projectId, parentsKey, refresh, pushTo
   const recordOverride = async () => {
     const reason = overrideReason.trim();
     if (!reason) {
-      pushToast('记录例外要写明原因');
+      pushToast(t('upstreamEvidence.reasonRequired'));
       return;
     }
     setBusy(true);
     try {
       await api.reviewOverride(quest.id, reason);
       setOverrideReason('');
-      pushToast(`${quest.id} 已记录复核例外：上游检查不再挡它，拖卡过来即可派遣`);
+      pushToast(t('upstreamEvidence.overrideSuccess', { questId: quest.id }));
       refresh();
     } catch (err) {
-      pushToast(`记录例外没成功：${errorText(err)}`);
+      pushToast(t('upstreamEvidence.overrideFailed', { error: errorText(err) }));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <DrawerSection en="UPSTREAM EVIDENCE" zh="上游证据">
-      {state.status === 'loading' ? <p className="receipt-none">上游证据读取中…</p> : null}
-      {state.status === 'error' ? <p className="receipt-none">上游证据读取失败：{state.message}</p> : null}
+    <DrawerSection en="UPSTREAM EVIDENCE" zh={t('upstreamEvidence.title')}>
+      {state.status === 'loading' ? <p className="receipt-none">{t('upstreamEvidence.loading')}</p> : null}
+      {state.status === 'error' ? <p className="receipt-none">{t('upstreamEvidence.loadFailed', { error: state.message })}</p> : null}
       {state.status === 'ready' && state.review ? (
         <div className="upstream-evidence">
           {state.review.parents.map((parent) => (
@@ -130,28 +133,33 @@ export function UpstreamEvidence({ quest, projectId, parentsKey, refresh, pushTo
           ))}
           {state.review.blocked ? (
             <p className="upstream-evidence-refusal">
-              这条复核委托要求上游的 {state.review.required.map((k) => KIND_LABEL[k]).join('、')} 都通过，还没满足的：
-              {state.review.failingParents.join('、')}。记录一次例外之前，派不出去。
+              {t('upstreamEvidence.refusalPrefix', { kinds: state.review.required.map((k) => KIND_LABEL[k]).join(t('common.listSeparator')) })}
+              {state.review.failingParents.join(t('common.listSeparator'))}
+              {t('upstreamEvidence.refusalSuffix')}
             </p>
           ) : null}
           {state.review.override ? (
             <p className={state.review.override.valid ? 'upstream-evidence-override' : 'upstream-evidence-override upstream-evidence-override-invalid'}>
               {state.review.override.valid
-                ? `已记录例外（${state.review.override.by === 'owner' ? '你' : state.review.override.by} · ${formatClock(state.review.override.at)}）：${state.review.override.reason}`
-                : `记录过的例外已失效（上游有新的派遣，需要重新确认）：${state.review.override.reason}`}
+                ? t('upstreamEvidence.overrideValid', {
+                    by: state.review.override.by === 'owner' ? t('upstreamEvidence.overrideByOwner') : state.review.override.by,
+                    time: formatClock(state.review.override.at),
+                    reason: state.review.override.reason,
+                  })
+                : t('upstreamEvidence.overrideInvalid', { reason: state.review.override.reason })}
             </p>
           ) : null}
           {state.review.blocked ? (
             <div className="upstream-evidence-override-form">
               <textarea
                 rows={2}
-                placeholder="记录例外的原因（必填）"
+                placeholder={t('upstreamEvidence.overridePlaceholder')}
                 value={overrideReason}
                 onChange={(e) => setOverrideReason(e.target.value)}
               />
               <div className="row end">
                 <button className="btn" type="button" disabled={busy} onClick={() => void recordOverride()}>
-                  记录例外
+                  {t('upstreamEvidence.recordOverride')}
                 </button>
               </div>
             </div>

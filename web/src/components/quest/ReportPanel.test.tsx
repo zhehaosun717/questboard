@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
+import { DEFAULT_LOCALE, setLocale } from '../../lib/i18n';
 import { bareReason, errorLine, loadReport, ReportPanel, restoreOpenerFocus } from './ReportPanel';
 
 // SSR only: no DOM is installed here, so the fetch effect never fires (same approach as
@@ -134,5 +135,30 @@ describe('restoreOpenerFocus (item 4/M2)', () => {
 
   it('does nothing, and never throws, when nothing was captured', () => {
     expect(() => restoreOpenerFocus(null)).not.toThrow();
+  });
+});
+
+describe('ReportPanel language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('renders the initial shell in English', () => {
+    setLocale('en');
+    const html = renderToStaticMarkup(<ReportPanel questId="A-1" projectId="proj-1" onClose={() => undefined} />);
+    expect(html).toContain('Full report');
+    expect(html).toContain('Reading…');
+    expect(html).toContain('Collapse');
+    expect(html).not.toMatch(/[一-鿿]/);
+  });
+
+  it('errorLine composes every error branch in English', () => {
+    setLocale('en');
+    expect(errorLine({ code: 'gone', message: '报告不可用：文件被删了' })).toBe('Report unavailable: 文件被删了');
+    expect(errorLine({ code: 'changed', message: '' })).toBe(
+      'The report changed after it was recorded; it is no longer treated as the same one.',
+    );
+    expect(errorLine({ code: 'server', message: 'HTTP 500' })).toContain('The server failed to read the report');
+    expect(errorLine({ code: 'network', message: 'Failed to fetch' })).toContain('network request failed');
   });
 });

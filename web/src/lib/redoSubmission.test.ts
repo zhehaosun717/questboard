@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Quest } from '../api/types';
 import {
   describeExistingPackageRefusal,
@@ -8,6 +8,7 @@ import {
   GENERIC_FIELD_ERROR_ZH,
   REDO_FIELD_LABELS,
 } from './redoSubmission';
+import { DEFAULT_LOCALE, setLocale } from './i18n';
 import { makeQuest } from './testFixtures';
 
 describe('describeRedoFieldErrors', () => {
@@ -159,5 +160,44 @@ describe('REDO_FIELD_LABELS', () => {
     expect(REDO_FIELD_LABELS.kind).toBe('类型');
     expect(REDO_FIELD_LABELS.conflicts).toBe('不能同时做');
     expect(REDO_FIELD_LABELS.allowedLanes).toBe('限定通道');
+  });
+});
+
+describe('language switch (item 38 follow-up): every displayed string in English, matchers untouched', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('translates field labels and every describeField branch', () => {
+    setLocale('en');
+    expect(REDO_FIELD_LABELS.package).toBe('Quest id');
+    expect(REDO_FIELD_LABELS.brief).toBe('Brief path');
+    expect(
+      describeRedoFieldErrors({ package: 'package must match /^(?:[A-Z]+(?:-[A-Z]+)*-\\d+[A-Z]?)$/' }).package,
+    ).toBe('The quest id does not match this project’s id pattern; use the id at the start of the brief filename (e.g. ART-REDO-1).');
+    expect(describeRedoFieldErrors({ brief: 'brief is required' }).brief).toBe('Enter a brief path.');
+    expect(
+      describeRedoFieldErrors({ brief: 'brief must be <dir>/<file>.md with <dir> one of docs/briefs' }).brief,
+    ).toBe('The brief must be in one of these directories with a .md filename: docs/briefs');
+    expect(describeRedoFieldErrors({ kind: 'kind must be one of code|art' }).kind).toBe('Kind can only be art.');
+    expect(describeRedoFieldErrors({ package: 42 }).package).toBe('Something here is invalid; check it and try again.');
+    // The match condition itself stays a Chinese literal (it matches the server's own text) even in English mode.
+    const message = 'ART-OLD-7 有 worker 占着（dispatched），先释放再改';
+    expect(describeRedoFieldErrors({ package: message }).package).toBe(
+      'This quest still has a worker holding it; confirm it has stopped and released before resubmitting.',
+    );
+  });
+
+  it('translates describeRedoProblem and describeExistingPackageRefusal', () => {
+    setLocale('en');
+    expect(describeRedoProblem({ status: 404 })).toBe(
+      'The board service has no such endpoint (possibly an old version); cannot start a redo.',
+    );
+    expect(describeRedoProblem({ message: 'HTTP 503' })).toBe('The board service returned an error: HTTP 503.');
+    expect(describeRedoProblem({ message: 'validation failed' })).toBe('Something entered is invalid; check it and try again.');
+    expect(describeRedoProblem({ message: 'not a known refusal' })).toBe('The server refused this submission; check it and try again.');
+    const text = describeExistingPackageRefusal(makeQuest({ id: 'ART-OLD-7', status: 'done' }));
+    expect(text).toContain('This id is already on the board (status: Done)');
+    expect(text).not.toContain('done');
   });
 });

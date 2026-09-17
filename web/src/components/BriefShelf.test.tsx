@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { BriefDiscovery, UnpostedBrief } from '../api/types';
+import { DEFAULT_LOCALE, setLocale } from '../lib/i18n';
 import { BriefShelf } from './BriefShelf';
 
 // Renders the real BriefShelf.tsx (not a stand-in). Requirement 2 (revision 3): the old/dispatched counts
@@ -83,5 +84,47 @@ describe('BriefShelf (real render)', () => {
     });
     expect(html).toContain('也显示超出时间窗口的 1 份');
     expect(html).not.toContain('为什么还有');
+  });
+});
+
+describe('BriefShelf language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('renders every converted label in English, with no residual CJK outside user/server content', () => {
+    setLocale('en');
+    const html = render({
+      unpostedBriefs: [brief('RUN-1')],
+      briefDiscovery: discovery({
+        excluded: [
+          { brief: 'docs/briefs/notes-1.md', reason: 'bad id', kind: 'badId' as const },
+        ],
+        excludedTotal: 2,
+        byKind: { badId: 1, old: 1, dispatched: 1 },
+      }),
+      onRescan: () => {},
+    });
+    expect(html).toContain('Briefs not on the board yet');
+    expect(html).toContain('Last 7 days');
+    expect(html).toContain('Rescan now');
+    expect(html).toContain('Also show 1 outside the time window');
+    expect(html).toContain('Also show 1 already dispatched elsewhere');
+    // RUN-1's own docs/briefs path is user/server content and is expected in the stripped check below.
+    expect(html.replace(/RUN-1|docs\/briefs\/[\w-]+\.md/g, '')).not.toMatch(/[一-鿿]/);
+  });
+
+  it('the empty and diagnostics states also render fully in English', () => {
+    setLocale('en');
+    const html = render({
+      unpostedBriefs: [],
+      briefDiscovery: discovery({
+        excluded: [{ brief: 'docs/briefs/notes-1.md', reason: 'bad id', kind: 'badId' as const }],
+        excludedTotal: 5,
+        byKind: { badId: 5 },
+      }),
+    });
+    expect(html).toContain('No briefs waiting to be posted');
+    expect(html).toContain('Why are 5 files still missing?');
   });
 });

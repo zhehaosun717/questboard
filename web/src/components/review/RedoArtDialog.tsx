@@ -17,6 +17,7 @@ import {
   type RedoFieldErrors,
   type RedoFieldName,
 } from '../../lib/redoSubmission';
+import { useT } from '../../lib/i18n';
 import type { ArtRedoRequest, Quest, ReviewPage, UnpostedBrief } from '../../api/types';
 import '../../styles/review-redo.css';
 
@@ -63,6 +64,7 @@ export function RedoArtDialog({
   onClose,
   onPosted,
 }: RedoArtDialogProps) {
+  const t = useT();
   const [selectedBrief, setSelectedBrief] = useState<UnpostedBrief | null>(null);
   const [customBrief, setCustomBrief] = useState('');
   const [packageId, setPackageId] = useState('');
@@ -150,7 +152,7 @@ export function RedoArtDialog({
         setSubmitting(false);
         // The disabled confirm button drops focus to <body>; bring it back so Escape keeps working.
         panelRef.current?.focus();
-        setProblem('服务器返回的数据不完整（缺少委托编号）。');
+        setProblem(t('redoDialog.missingQuestId'));
         return;
       }
       onPosted(questId);
@@ -170,9 +172,9 @@ export function RedoArtDialog({
           setProblem(describeRedoProblem({ message: error.message, status: error.status }));
         }
       } else if (error instanceof TypeError) {
-        setProblem('无法连接看板服务，请确认服务仍在运行后再试。');
+        setProblem(t('redoDialog.connectFailed'));
       } else {
-        setProblem('提交失败，请稍后再试。');
+        setProblem(t('redoDialog.submitFailed'));
       }
     }
   };
@@ -204,44 +206,44 @@ export function RedoArtDialog({
         onSubmit={handleFormSubmit}
       >
         <div className="redo-head">
-          <span className="redo-kicker">评审目录</span>
+          <span className="redo-kicker">{t('redoDialog.kicker')}</span>
           <h3 className="redo-title" id="redo-title">
-            发起重做委托
+            {t('redoDialog.title')}
           </h3>
         </div>
 
         <div className="redo-target">
           <div className="redo-row">
-            <span className="redo-label">页面编号</span>
+            <span className="redo-label">{t('redoDialog.pageId')}</span>
             <span className="redo-value">{pageId}</span>
           </div>
           <div className="redo-row">
-            <span className="redo-label">页面标题</span>
+            <span className="redo-label">{t('redoDialog.pageTitle')}</span>
             <span className="redo-value">{page.title}</span>
           </div>
           <div className="redo-row">
-            <span className="redo-label">页面地址</span>
+            <span className="redo-label">{t('redoDialog.pageUrl')}</span>
             <span className="redo-value redo-path">{page.url}</span>
           </div>
           <div className="redo-row">
-            <span className="redo-label">批注统计</span>
+            <span className="redo-label">{t('redoDialog.annotationStats')}</span>
             <span className="redo-value">
-              共 {page.total} 处，已批注 {page.answered} 处
+              {t('redoDialog.annotationCount', { total: page.total, answered: page.answered })}
             </span>
           </div>
           {sourcePath ? (
             <div className="redo-row">
-              <span className="redo-label">页面文件</span>
-              <span className="redo-value redo-path">评审目录/{sourcePath}</span>
+              <span className="redo-label">{t('redoDialog.pageFile')}</span>
+              <span className="redo-value redo-path">{t('redoDialog.pageFileValue', { path: sourcePath })}</span>
             </div>
           ) : null}
           {fieldErrors.reviewPage ? <p className="redo-field-error">{fieldErrors.reviewPage}</p> : null}
         </div>
 
         <div className="redo-section">
-          <h4 className="redo-subtitle">选择重做简报</h4>
+          <h4 className="redo-subtitle">{t('redoDialog.pickBrief')}</h4>
           {briefs && briefs.length > 0 ? (
-            <div className="redo-brief-list" role="radiogroup" aria-label="未发布的简报">
+            <div className="redo-brief-list" role="radiogroup" aria-label={t('redoDialog.noBriefsListed')}>
               {briefs.map((brief) => {
                 const picked =
                   selectedBrief !== null &&
@@ -272,17 +274,17 @@ export function RedoArtDialog({
           ) : (
             <p className="redo-note">
               {briefs
-                ? '当前没有未发布的简报，请直接输入简报路径。'
-                : '当前看板没有提供未发布简报列表（可能是旧版本），请直接输入简报路径。'}
+                ? t('redoDialog.noBriefsWithList')
+                : t('redoDialog.noBriefsNoList')}
             </p>
           )}
           <label className="redo-field">
-            <span className="redo-label">或输入简报路径</span>
+            <span className="redo-label">{t('redoDialog.customBriefLabel')}</span>
             <input
               className="redo-input redo-path"
               type="text"
               value={customBrief}
-              placeholder="例如 <简报目录>/ART-REDO-1.md"
+              placeholder={t('redoDialog.customBriefPlaceholder')}
               onChange={(event) => changeCustomBrief(event.target.value)}
             />
           </label>
@@ -290,12 +292,12 @@ export function RedoArtDialog({
         </div>
 
         <label className="redo-field">
-          <span className="redo-label">委托编号</span>
+          <span className="redo-label">{t('redoDialog.packageLabel')}</span>
           <input
             className="redo-input"
             type="text"
             value={packageId}
-            placeholder="例如 ART-REDO-1"
+            placeholder={t('redoDialog.packagePlaceholder')}
             onChange={(event) => changePackage(event.target.value)}
           />
         </label>
@@ -303,26 +305,26 @@ export function RedoArtDialog({
         {existingRefusal ? <p className="redo-field-error">{existingRefusal}</p> : null}
 
         <div className="redo-preview">
-          <h4 className="redo-subtitle">将要提交的内容</h4>
+          <h4 className="redo-subtitle">{t('redoDialog.previewTitle')}</h4>
           <div className="redo-row">
-            <span className="redo-label">委托编号</span>
-            <span className="redo-value">{packageId.trim() || '未填写'}</span>
+            <span className="redo-label">{t('redoDialog.packageLabel')}</span>
+            <span className="redo-value">{packageId.trim() || t('redoDialog.notFilled')}</span>
           </div>
           <div className="redo-row">
-            <span className="redo-label">简报路径</span>
-            <span className="redo-value redo-path">{effectiveBrief || '未选择'}</span>
+            <span className="redo-label">{t('redo.field.brief')}</span>
+            <span className="redo-value redo-path">{effectiveBrief || t('redoDialog.notSelected')}</span>
           </div>
           <div className="redo-row">
-            <span className="redo-label">类型</span>
-            <span className="redo-value">美术</span>
+            <span className="redo-label">{t('redo.field.kind')}</span>
+            <span className="redo-value">{t('redoDialog.kindValue')}</span>
           </div>
           <div className="redo-row">
-            <span className="redo-label">对应的评审页</span>
+            <span className="redo-label">{t('redoDialog.correspondingPage')}</span>
             <span className="redo-value">{pageId}</span>
           </div>
           {otherFieldErrors.length > 0 ? (
             <p className="redo-field-error">
-              {otherFieldErrors.map(([key, value]) => `${REDO_FIELD_LABELS[key]}：${value}`).join('；')}
+              {otherFieldErrors.map(([key, value]) => t('redoDialog.otherErrorItem', { label: REDO_FIELD_LABELS[key], value })).join(t('common.statementSeparator'))}
             </p>
           ) : null}
         </div>
@@ -335,10 +337,10 @@ export function RedoArtDialog({
 
         <div className="redo-actions">
           <button className="redo-cancel" type="button" onClick={onClose} disabled={submitting}>
-            取消
+            {t('redoDialog.cancel')}
           </button>
           <button className="redo-confirm" type="button" onClick={submit} disabled={!ready}>
-            {submitting ? '正在提交…' : '确认发起重做'}
+            {submitting ? t('redoDialog.submitting') : t('redoDialog.confirm')}
           </button>
         </div>
       </form>

@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ReactFlowProvider } from '@xyflow/react';
 import { makeCard } from '../lib/testFixtures';
+import { DEFAULT_LOCALE, setLocale } from '../lib/i18n';
 import { CardNode, type CardNodeData } from './CardNode';
 import { EMPTY_CARD_ACTIVITY } from '../lib/cardActivity';
 
@@ -51,5 +52,24 @@ describe('CardNode derived status (real JSX)', () => {
     const html = render({ card, activity: EMPTY_CARD_ACTIVITY });
     expect(html).toContain(`aria-label="Card A · ${card.model}"`);
     expect(html).not.toContain('rf-card-detail-derived');
+  });
+});
+
+describe('CardNode language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  // The detail panel only mounts once opened by a click (see the file header note above): this project has
+  // no DOM test environment installed, so the panel's converted strings (正在做/做过/还没有委托记录/detail
+  // aria-label) cannot be exercised via SSR here. What IS reachable is the closed token, which carries no
+  // Chinese literal to convert in the first place (its identity string is built from plain `·` separators).
+  it('the closed token carries no Chinese literal in English mode (the identity itself has none to translate)', () => {
+    setLocale('en');
+    const card = makeCard('card-a', { name: 'Card A', status: 'available', model: 'model-a' });
+    const html = render({ card, activity: EMPTY_CARD_ACTIVITY });
+    expect(html).toContain(`aria-label="Card A · ${card.model}"`);
+    expect(html).not.toMatch(/[一-鿿]/);
+    expect(html).not.toMatch(/[\u3000-\u303F\uFF00-\uFFEF]/);
   });
 });

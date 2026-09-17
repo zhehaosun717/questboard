@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { makeQuest } from '../../lib/testFixtures';
+import { DEFAULT_LOCALE, setLocale } from '../../lib/i18n';
 import { UpstreamEvidence, UpstreamParentRow } from './UpstreamEvidence';
 
 const noop = () => undefined;
@@ -78,5 +79,43 @@ describe('UpstreamParentRow (pure, real JSX)', () => {
       />,
     );
     expect(html).not.toContain('未经项目验证');
+  });
+});
+
+describe('UpstreamEvidence/UpstreamParentRow language switch (item 38 follow-up)', () => {
+  afterEach(() => {
+    setLocale(DEFAULT_LOCALE);
+  });
+
+  it('UpstreamEvidence shows the loading note in English for a review quest', () => {
+    setLocale('en');
+    const quest = makeQuest({ id: 'REVIEW-UE-2', kind: 'review', parents: ['UE-1'] });
+    const html = renderToStaticMarkup(<UpstreamEvidence quest={quest} projectId="proj-1" refresh={noop} pushToast={noop} />);
+    expect(html).toContain('Reading upstream evidence');
+    expect(html).not.toMatch(/[一-鿿]/);
+  });
+
+  it('UpstreamParentRow renders every converted label in English, with no residual CJK', () => {
+    setLocale('en');
+    const html = renderToStaticMarkup(
+      <UpstreamParentRow
+        parent={{
+          id: 'PKG-4',
+          attemptId: 'a4',
+          states: { report: 'passed', 'project-verification': 'missing', hook: 'not_configured' },
+          failing: [],
+          gap: true,
+          text: 'upstream note',
+        }}
+      />,
+    );
+    expect(html).toContain('Model self-report');
+    expect(html).toContain('Project verification record');
+    expect(html).toContain('Verification hook');
+    expect(html).toContain('Passed');
+    expect(html).toContain('Missing');
+    expect(html).toContain('Not configured');
+    expect(html).toContain('Not project-verified');
+    expect(html.replace(/upstream note/g, '')).not.toMatch(/[一-鿿]/);
   });
 });
