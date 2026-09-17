@@ -28,7 +28,7 @@ export async function request(base, route, method = 'GET', body, { source } = {}
   try {
     response = await fetch(base + route, { method, headers: { 'content-type': 'application/json', ...(source ? { 'x-questboard-source': source } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
-    throw new Error(`questboard server is not running at ${base}. Start it with: questboard serve`);
+    throw new Error(`看板服务没在 ${base} 运行。先运行：questboard serve`);
   }
   const value = await response.json().catch(() => ({}));
   if (!response.ok) {

@@ -45,7 +45,8 @@ describe('questboard assign — review upstream text', () => {
   it('refuses locally with the upstream_unverified text, never calling assign at all', async () => {
     const done = await atBoard(['assign', 'REVIEW-RUN-1', '--adventurer', 'agy-gemini']);
     assert.equal(done.status, 1, done.stdout + done.stderr);
-    assert.match(done.stderr, /拒绝 upstream_unverified/);
+    assert.match(done.stderr, /拒绝派遣/);
+    assert.match(done.stderr, /upstream_unverified/);
     assert.match(done.stderr, /项目测试缺失/);
     const quest = (await fx.api('/api/quests/REVIEW-RUN-1')).body.quest;
     assert.equal(quest.assignee, null, 'the refused local check never reached the server\'s assign route');
@@ -55,7 +56,7 @@ describe('questboard assign — review upstream text', () => {
     assert.equal((await fx.api('/api/quests/REVIEW-RUN-1/review-override', 'POST', { reason: '手工确认过' })).status, 200);
     const done = await atBoard(['assign', 'REVIEW-RUN-1', '--adventurer', 'agy-gemini']);
     assert.equal(done.status, 0, done.stderr);
-    assert.match(done.stdout, /警告 upstream_unverified/);
+    assert.match(done.stdout, /警告：.*（upstream_unverified）/);
     assert.match(done.stdout, /已记录例外/);
     const quest = (await fx.api('/api/quests/REVIEW-RUN-1')).body.quest;
     assert.equal(quest.assignee.adventurerId, 'agy-gemini');
@@ -68,6 +69,6 @@ describe('questboard assign — review upstream text', () => {
   it('F4: notes in Chinese that the local pre-check could not read the quest, when the detail fetch fails', async () => {
     const done = await cli(['assign', 'REVIEW-RUN-1', '--adventurer', 'agy-gemini', '--project', fx.project.root, '--url', 'http://127.0.0.1:1']);
     assert.equal(done.status, 1, done.stdout + done.stderr);
-    assert.match(done.stdout, /没能读取任务详情/);
+    assert.match(done.stdout, /没能读取委托详情/);
   });
 });

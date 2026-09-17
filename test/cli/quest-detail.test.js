@@ -73,7 +73,7 @@ describe('questboard get', () => {
     assert.match(missing.stderr, /quest not found/);
     const dead = await cli(['get', 'QD-1', '--project', fx.project.root, '--url', 'http://127.0.0.1:1']);
     assert.equal(dead.status, 1);
-    assert.match(dead.stderr, /not running at http:\/\/127\.0\.0\.1:1/);
+    assert.match(dead.stderr, /看板服务没在 http:\/\/127\.0\.0\.1:1 运行/);
   });
 });
 
@@ -108,7 +108,7 @@ describe('questboard release', () => {
     const dead = await cli(['release', 'REL-1', '--detail', '--by', 'x', '--project', fx.project.root, '--url', 'http://127.0.0.1:1']);
     assert.equal(dead.status, 1);
     assert.match(dead.stderr, /--detail/);
-    assert.doesNotMatch(dead.stderr, /not running at/, 'the rejection happened before opening a socket');
+    assert.doesNotMatch(dead.stderr, /看板服务没在/, 'the rejection happened before opening a socket');
     assert.equal(fx.events().length, before, 'a rejected release emits no event');
   });
 
@@ -138,7 +138,7 @@ describe('questboard cancel and resolve', () => {
   it('uses the CLI source and keeps the slot until explicit resolve acknowledgement', async () => {
     const requested = await atBoard(['cancel', 'CLI-CANCEL-1', '--reason', 'owner stopped this attempt']);
     assert.equal(requested.status, 0, requested.stderr);
-    assert.match(requested.stdout, /cancellation=manual_required/);
+    assert.match(requested.stdout, /取消结果：无法自动停止，需要手动处理/);
     const resolved = await atBoard(['resolve', 'CLI-CANCEL-1', '--reason', 'CLI confirmed the worker is gone', '--ack']);
     assert.equal(resolved.status, 0, resolved.stderr);
     const quest = (await fx.api('/api/quests/CLI-CANCEL-1')).body.quest;
@@ -184,7 +184,7 @@ describe('questboard get — report evidence', () => {
     const got = await atBoard(['get', 'RPT-1']);
     assert.equal(got.status, 0, got.stderr);
     assert.match(got.stdout, /报告: \.work\/oc\/rpt1\.md/);
-    assert.match(got.stdout, /结论: PASS/);
+    assert.match(got.stdout, /结论: 通过（原文：VERDICT: PASS）/);
     assert.match(got.stdout, /摘要: .*第一段/);
   });
 
@@ -231,11 +231,48 @@ describe('questboard get — report evidence', () => {
 
     const got = await atBoard(['get', 'RPT-3', '--report']);
     assert.equal(got.status, 0, got.stderr);
-    assert.match(got.stderr, /报告超过 2 MB，只显示了前 \d+ 字节，不是完整报告/);
+    assert.match(got.stderr, /报告没有读完整，只显示了前 \d+ 字节，不是完整报告/);
     assert.equal(got.stdout.length, REPORT_READ_CAP + 1, 'the printed body stays bounded even when the file does not');
 
     const detail = await atBoard(['get', 'RPT-3']);
     assert.equal(detail.status, 0, detail.stderr);
     assert.match(detail.stdout, /结论: 不确定（报告超过 2 MB/);
   });
+
+  it('prints 结论: 通过但有问题 for PASS WITH FINDINGS', async () => {
+    fx.project.write('docs/briefs/RPT-4-findings.md', 'brief');
+    assert.equal((await fx.api('/api/quests', 'POST', { package: 'RPT-4', brief: 'docs/briefs/RPT-4-findings.md' })).status, 201);
+    assert.equal((await fx.api('/api/quests/RPT-4/assign', 'POST', { adventurer: 'oc-mimo' })).status, 200);
+    await tick();
+    const store = fx.server.store;
+    const name = store.get('RPT-4').assignee.name;
+    const text = '# 报告\n\n小问题。\n\nVERDICT: PASS WITH FINDINGS\n';
+    fs.mkdirSync(path.join(fx.project.root, '.work', 'oc'), { recursive: true });
+    fx.project.write(`.work/oc/${name}.md`, text);
+    const report = captureAttemptReport({ config: fx.project.config, quest: store.get('RPT-4') });
+    store.setStatus('RPT-4', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attemptId: store.get('RPT-4').assignee.attemptId }, report });
+
+    const got = await atBoard(['get', 'RPT-4']);
+    assert.equal(got.status, 0, got.stderr);
+    assert.match(got.stdout, /结论: 通过但有问题/);
+  });
+
+  it('prints 结论: 不通过 for a FAIL report', async () => {
+    fx.project.write('docs/briefs/RPT-5-fail.md', 'brief');
+    assert.equal((await fx.api('/api/quests', 'POST', { package: 'RPT-5', brief: 'docs/briefs/RPT-5-fail.md' })).status, 201);
+    assert.equal((await fx.api('/api/quests/RPT-5/assign', 'POST', { adventurer: 'oc-mimo' })).status, 200);
+    await tick();
+    const store = fx.server.store;
+    const name = store.get('RPT-5').assignee.name;
+    const text = '# 报告\n\n未完成。\n\nVERDICT: FAIL\n';
+    fs.mkdirSync(path.join(fx.project.root, '.work', 'oc'), { recursive: true });
+    fx.project.write(`.work/oc/${name}.md`, text);
+    const report = captureAttemptReport({ config: fx.project.config, quest: store.get('RPT-5') });
+    store.setStatus('RPT-5', 'delivered', { detail: `交付已写入 .work/oc/${name}.md`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attemptId: store.get('RPT-5').assignee.attemptId }, report });
+
+    const got = await atBoard(['get', 'RPT-5']);
+    assert.equal(got.status, 0, got.stderr);
+    assert.match(got.stdout, /结论: 不通过/);
+  });
 });
+

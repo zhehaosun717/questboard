@@ -72,6 +72,8 @@ function context(args) {
 // One quest in readable lines. Labels follow the board's everyday wording; --json is the agent-facing form.
 // Exported so the CLI tests can pin the exact detail rendering (the report lines especially).
 export function questDetailText(quest) {
+  const REPORT_SOURCE_ZH = { delivery: '交差文件', 'exit-file': '退出文件', summary: '运行记录 .out' };
+  const VERDICT_ZH = { PASS: '通过', FAIL: '不通过', findings: '通过但有问题' };
   const lines = [questLine(quest)];
   lines.push(`  第 ${quest.revision || 0} 版 · priority ${quest.priority} · brief ${quest.brief || '无'}`);
   if (quest.lastDetail) lines.push(`  最近: ${quest.lastDetail}`);
@@ -79,9 +81,10 @@ export function questDetailText(quest) {
   // exposes them. Null on legacy rows and stale attempts; a capture that found nothing still says why.
   const report = quest.report || null;
   if (report && report.source !== 'none') {
-    lines.push(`  报告: ${report.ref}（${report.source}，sha256 ${String(report.digest || '').slice(0, 12)}…${report.truncated ? '，已截断' : ''}）`);
+    const source = REPORT_SOURCE_ZH[report.source] ?? report.source;
+    lines.push(`  报告: ${report.ref}（${source}，sha256 ${String(report.digest || '').slice(0, 12)}…${report.truncated ? '，已截断' : ''}）`);
     const verdict = report.verdict || {};
-    if (verdict.verdict === 'PASS' || verdict.verdict === 'FAIL') lines.push(`  结论: ${verdict.verdict}${verdict.line ? ` — ${verdict.line}` : ''}`);
+    if (VERDICT_ZH[verdict.verdict]) lines.push(`  结论: ${VERDICT_ZH[verdict.verdict]}${verdict.line ? `（原文：${verdict.line}）` : ''}`);
     else if (verdict.reason) lines.push(`  结论: 不确定（${verdict.reason}）`);
     else lines.push('  结论: 不确定（报告里没有找到明确的 VERDICT 行）');
     const summary = report.summary || {};
@@ -260,14 +263,14 @@ export const commands = {
       // here is harmless — assign below still gets the server's own refusal — but staying silent about it
       // would look like the local pre-check ran and found nothing to warn about. Say so instead.
       const detail = await request(base, `/api/quests/${encodeURIComponent(args[0])}`).catch(() => null);
-      if (!detail) out('没能读取任务详情，跳过本地的审核前置检查，是否放行由服务器决定。');
+      if (!detail) out('没能读取委托详情，跳过本地的复核前置检查，放不放行由服务器决定。');
       if (detail && detail.quest && detail.quest.kind === 'review') {
         const snap = await request(base, '/api/quests');
         const verdict = (snap.eligibility?.[args[0]] || {})[adventurer];
         if (verdict) {
-          for (const w of verdict.warnings || []) out(`警告 ${w.code}：${w.message}`);
+          for (const w of verdict.warnings || []) out(`警告：${w.message}（${w.code}）`);
           if (!verdict.ok) {
-            throw new Error(`refused\n${verdict.reasons.map((r) => `- 拒绝 ${r.code}：${r.message}`).join('\n')}`);
+            throw new Error(`拒绝派遣：\n${verdict.reasons.map((r) => `- ${r.message}（${r.code}）`).join('\n')}`);
           }
         }
       }
@@ -288,7 +291,7 @@ export const commands = {
   async get(args) {
     const { base } = context(args);
     const id = positional(args, ['--project', '--url']);
-    if (!id) throw new Error('usage: questboard get <id> [--json] [--report] [--evidence]　读取一个任务的详情：第几版、当前 worker、派单历史、最近动态、可改文件；--report 打印这次派遣的完整报告原文；--evidence 打印本次尝试的结构化证据（工作者报告、项目验证记录、验证钩子）');
+    if (!id) throw new Error('usage: questboard get <id> [--json] [--report] [--evidence]　读取一个委托的详情：第几版、当前 worker、派遣历史、最近动态、可改文件；--report 打印这次派遣的完整报告原文；--evidence 打印这次派遣的证据（模型自报、项目验证记录、验证钩子）');
     // --report asks the board for the bounded plain-text report itself, not the JSON detail: the reference
     // is re-verified there (digest + containment) and a report that changed after capture is refused.
     if (args.includes('--report')) {
@@ -296,7 +299,7 @@ export const commands = {
       try {
         response = await fetch(`${base}/api/quests/${encodeURIComponent(id)}/report`);
       } catch {
-        throw new Error(`questboard server is not running at ${base}. Start it with: questboard serve`);
+        throw new Error(`看板服务没在 ${base} 运行。先运行：questboard serve`);
       }
       if (!response.ok) {
         const value = await response.json().catch(() => ({}));
@@ -308,7 +311,7 @@ export const commands = {
       if (response.headers.get('x-report-truncated') === '1') {
         const contentLength = response.headers.get('content-length');
         const shown = contentLength ? `前 ${contentLength} 字节` : '前一部分字节';
-        process.stderr.write(`报告超过 2 MB，只显示了${shown}，不是完整报告\n`);
+        process.stderr.write(`报告没有读完整，只显示了${shown}，不是完整报告\n`);
       }
       out(text);
       return;
@@ -317,7 +320,7 @@ export const commands = {
     // --evidence prints only the structured evidence object (S2, src/core/evidence.js); an older server that
     // sends no `evidence` field says so instead of printing `undefined`.
     if (args.includes('--evidence')) {
-      if (!quest.evidence) throw new Error(`${id} 没有证据数据：服务器版本不支持 evidence 字段`);
+      if (!quest.evidence) throw new Error(`${id} 没有证据数据：看板服务版本太旧，不提供这项数据`);
       // Feedback 15: the acceptance record (if any) rides alongside the evidence it was matched against —
       // additive, null on a quest never accepted or on an older server that predates the field.
       out(JSON.stringify({ ...quest.evidence, acceptance: quest.acceptance ?? null }, null, 2));
@@ -342,11 +345,12 @@ export const commands = {
   },
 
   async cancel(args) {
+    const CANCEL_RESULT = { manual_required: '无法自动停止，需要手动处理', stopped_by_wrapper: '包装脚本已停下它直接启动的进程', unknown: '不确定是否已停止' };
     const { base } = context(args);
     const id = positional(args, ['--project', '--url', '--reason']);
     const reason = String(option(args, '--reason') || '').trim();
-    if (!id) throw new Error('用法：questboard cancel <id> --reason "取消原因"');
-    if (!reason || reason.startsWith('--')) throw new Error('cancel 必须填写非空的 --reason');
+    if (!id) throw new Error('usage: questboard cancel <id> --reason "取消原因"');
+    if (!reason || reason.startsWith('--')) throw new Error('cancel 必须用 --reason 写明取消原因');
     let result;
     try {
       result = await request(base, `/api/quests/${encodeURIComponent(id)}/cancel`, 'POST', { reason }, { source: 'cli' });
@@ -355,15 +359,15 @@ export const commands = {
       throw error;
     }
     const note = result.quest.cancelRequest?.detail || (result.note ? String(result.note) : '已记录取消请求，等待结果');
-    out(`${questLine(result.quest)}  cancellation=${result.result}  ${note}`);
+    out(`${questLine(result.quest)}  取消结果：${CANCEL_RESULT[result.result] ?? result.result}  ${note}`);
   },
 
   async resolve(args) {
     const { base } = context(args);
     const id = positional(args, ['--project', '--url', '--reason']);
     const reason = String(option(args, '--reason') || '').trim();
-    if (!id || !args.includes('--ack')) throw new Error('用法：questboard resolve <id> --reason "人工证据" --ack');
-    if (!reason || reason.startsWith('--')) throw new Error('resolve 必须填写非空的 --reason');
+    if (!id || !args.includes('--ack')) throw new Error('usage: questboard resolve <id> --reason "你怎么确认 worker 已经停了" --ack');
+    if (!reason || reason.startsWith('--')) throw new Error('resolve 必须用 --reason 写清你怎么确认 worker 已停止');
     const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/resolve`, 'POST', { reason, ack: true }, { source: 'cli' });
     out(questLine(quest));
   },
