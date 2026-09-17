@@ -42,16 +42,25 @@ stay in the bundle resources (`desktop/src-tauri/tauri.bundle.json`) or setup fr
 
 ## Contracts
 
-- Events file: one JSON line per change, `{at, event, package, lane, model, variant, name, by, detail}`.
-  Events: posted, review_posted, assigned, dispatched, delivered, failed, bounced, stalled, released,
-  cancelled, owner_ruling, delivery_write_failed, status_<status>, metadata_update. Coordinators depend on
-  these names. `metadata_update` additionally carries `changedFields` (names only) and `changes`
-  (`{field: {from, to}}`, non-secret values only — every metadata field is plain text or id lists).
+- Events file: one JSON line per change, `{seq, at, event, package, lane, model, variant, name, attemptId,
+  by, detail}`. Events: posted, review_posted, assigned, dispatched, delivered, failed, bounced, stalled,
+  released, cancelled, owner_ruling, delivery_write_failed, status_note, manual_resolution, cancel_requested,
+  cancel_acknowledged, review_override, metadata_update, status_<status> (any other quest status, e.g.
+  status_reviewing, status_needs_owner). Coordinators depend on these names.
+  - `metadata_update` additionally carries `changedFields` (names only) and `changes` (`{field: {from,
+    to}}`, non-secret values only — every metadata field is plain text or id lists).
+  - A terminal event (delivered/failed/bounced) additionally carries `report` when the attempt captured one
+    (`{source, ref, digest, capturedAt, ...}`).
+  - An art `dispatched` event additionally carries `annotationCount` and `annotationPage`.
+  - `status_note` records a text update (a retried poll, a moved-back status) without firing a second
+    terminal or status event for the same fact.
 - Silence does not free a quest: `stalled` keeps the assignee, its slot and its file reservations until
   `release` confirms the worker is gone. Only exit files (failed/bounced/delivered) end a worker by themselves.
 - Registry file: written by the project's own dispatch scripts, one `event: "dispatch"` line per worker.
 - Lock file present → no dispatch.
-- Lane templates fill `{name} {brief} {model} {variant} {agent} {package}`; a missing value is an error.
+- Lane templates fill `{name} {brief} {model} {variant} {agent} {package} {role}`; a missing value is an
+  error. `{role}` carries an optional per-attempt role card (see `lanes.<id>.roleInPrompt`) and is refused in
+  `session.saveTo` and `env` templates, since neither is a safe place for it.
 - Writes must be same-origin JSON on a local host name.
 
 ## Traps already hit
@@ -78,8 +87,8 @@ stay in the bundle resources (`desktop/src-tauri/tauri.bundle.json`) or setup fr
 ## Plan
 
 1. ~~Core, server and CLI in this repo~~ (done: 67 tests).
-2. ~~MCP server over the core~~ (done: `questboard mcp`, 14 tools).
-3. Tauri desktop app (Vite + React + React Flow + dagre) in the same salvage-guild style. In progress:
+2. ~~MCP server over the core~~ (done: `questboard mcp`, 17 tools).
+3. Tauri desktop app (Vite + React + React Flow + dagre) in the same style as the rest of the board. In progress:
    `desktop/` shell done (9 Rust tests: health matches project name and folder, spawned server owned before
    the ready wait so closing never orphans it); `web/` board, drawer and relationship graph ported from
    `public/quests.app.js` (18 vitest tests, pointer-based graph drop target). `tauri dev` verified end to

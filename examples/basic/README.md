@@ -8,7 +8,7 @@ Most people should not copy this by hand — `questboard init <dir>` writes the 
 the agent CLIs actually installed on the machine. This folder is the reference for what it produces.
 
 - `questboard.config.json`: The project configuration file. It defines the project name, port, data directories, brief discovery paths, policy rules, and three lanes (`codex`, `claude`, `claude-review`).
-- `scripts/run-worker.mjs`: A generic, cross-platform Node.js worker wrapper. It records dispatches to the registry, initializes output files, streams stdout/stderr, feeds the brief on stdin, and records exit codes. Before any of that it takes an exclusive lock on the worker name and retires that name's previous terminal artifacts into an archive folder, so a repeated name is never mistaken for the run in progress.
+- `scripts/run-worker.mjs`: A generic, cross-platform Node.js worker wrapper. It records dispatches to the registry, initializes output files, streams stdout/stderr, feeds the brief (and an optional `--role` card) on stdin, and records exit codes. Before any of that it takes an exclusive lock on the worker name and retires that name's previous terminal artifacts into an archive folder, so a repeated name is never mistaken for the run in progress. It also answers a cooperative cancellation request over IPC — see "Role cards and cooperative cancellation" below.
 **Lanes for other CLIs.** The lanes here are for agent CLIs that read their instructions from stdin, which is
 what the wrapper pipes (`codex exec -m <model>` with no prompt argument, `claude --print --model <model>`).
 A CLI that takes the prompt as an argument (OpenCode's `opencode run "<message>"`, Google's agy `--print=`)
@@ -54,7 +54,7 @@ When a worker is dispatched, `scripts/run-worker.mjs`:
    {"at": "2026-09-13T12:00:00.000Z", "event": "dispatch", "package": "RUN-1", "lane": "codex", "model": "...", "variant": "...", "name": "run1", "brief": "..."}
    ```
 3. **Output stream**: Creates `.questboard-data/workers/<lane>/<name>.out` empty immediately so the board's `workerEvidence` sees active progress, then streams both standard output and standard error into it.
-4. **Exit code**: Waits for the worker process to complete and writes its integer exit code to `.questboard-data/workers/<lane>/<name>.exit`, last, once every other artifact for this run is in place.
+4. **Exit code**: Waits for the worker process to complete and writes its integer exit code to `.questboard-data/workers/<lane>/<name>.exit`, last, once every other artifact for this run is in place. If this run's cancellation was requested and acknowledged (see "Role cards and cooperative cancellation" below), a second line is appended: `{"requestId": "...", "scope": "direct-child"}`, so the board can tell a cooperative stop apart from an ordinary exit.
 5. **Report (optional)**: If the lane passes `--report <path>` and that file looks like it was actually produced or refreshed by *this* run's worker (its size or modified time changed from what it was right before the worker started), it is staged to a temp file and, once this run confirms it still owns the lock (the same check that guards `.exit`, see item 0), moved onto `.questboard-data/workers/<lane>/<name>.md` before `.exit` is written. A `--report` file that already existed, unchanged, before this run started -- typically because a lane reuses the same report path across runs and this run's worker never wrote to it -- is treated the same as no report at all, so a previous run's report is never republished as if it were this run's own. The source file itself is only ever read, never modified or deleted -- **except when `--report` is set to this run's own live `<name>.md` path.** That is unusual (most lanes write their report somewhere else and let the wrapper copy it), but if it happens, that path is this worker name's own previous terminal artifact, so item 1 above retires it into `.archive` before this run starts, same as `<name>.out`/`<name>.exit`. If this run's own child does not go on to recreate that exact path, there is nothing fresh to publish and no report appears live after this run either; the previous content is not lost, only moved to `.archive/<name>.md.<stamp>`, recoverable there. Point `--report` at a path other than the live `<name>.md` if you want the wrapper to leave that file alone entirely.
 
 The wrapper itself normally exits with code `0` once the worker has launched and its terminal artifacts are written (even if the worker itself exited non-zero). It can also exit non-zero in several situations, each distinguishable from the others by what has already been written when it happens:
@@ -76,6 +76,26 @@ When an agent command resolves to a `.cmd`/`.bat` shim (the normal case for npm-
 - **A control character, CR/LF included** -- cmd.exe treats these as command separators while parsing the `/c` string, silently truncating the argument instead of passing it through.
 
 This limitation is specific to the `.cmd`/`.bat` shim path; a real executable (`node.exe`, `codex.exe`, ...) receives its arguments directly from Node with no shell involved, so exact quotes, newlines and control characters all pass through unchanged there. If a lane's arguments need any of the above, prefer a lane whose command is a real executable (or a small wrapper script of your own, invoked directly) over one that resolves to a `.cmd`/`.bat` shim.
+
+## Role cards and cooperative cancellation
+
+The wrapper accepts an optional `--role <path>` flag (a file relative to the project root). When set, its
+contents are read and prepended to the brief on the worker's stdin, separated by a blank line — the role
+card, then the brief. A lane opts into this by adding a `--role {role}` argument pair to its `run` array
+(see "Lane and policy options" in the main README) — `roleInPrompt: true` documents the intent but is not
+itself required, since `{role}` appearing in `run` is what triggers it; `{role}` is refused in
+`session.saveTo` and `env`, since neither is a safe place for it.
+
+The board's dispatcher also passes `QUESTBOARD_ATTEMPT_ID` and `QUESTBOARD_CONTROL_TOKEN` in the worker's
+environment on a lane whose `control.type` is `generic-wrapper`. The wrapper uses them to authenticate a
+single IPC message from its parent, `{type: 'questboard-cancel', attemptId, token, requestId}`: only a
+message whose `attemptId`/`token` match, and whose `requestId` looks like an id, is accepted, and only once
+per run. On acceptance it acknowledges with `{type: 'questboard-cancel-ack', attemptId, requestId, scope:
+'direct-child'}` and kills the direct child process handle it created (nothing further upstream or
+downstream of that child). Both environment variables are stripped from the child's own environment before
+it starts, and an acknowledged cancellation is recorded as the second line of `<name>.exit` (see
+step 4 above), so a lane without `control.type: generic-wrapper` configured simply never receives these
+variables and cannot be cancelled this way — `questboard_cancel_worker` reports `manual_required` for it.
 
 ## Swapping in a real agent command
 

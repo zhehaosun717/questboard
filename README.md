@@ -89,7 +89,7 @@ yet and the app offers to set it up for you, then opens the board — no command
 
 | Where | What | Shared by |
 |:---|:---|:---|
-| `~/.questboard/roster.json` (or `QUESTBOARD_HOME`) | Cards: id, name, provider, lane, model, family, variant, agent, billing, parallel limit, strengths, generic notes | every project on the machine |
+| `~/.questboard/roster.json` (or `QUESTBOARD_HOME`) | Cards: id, name, provider, lane, model, family, variant, variants, agent, billing, parallel limit, strengths, generic notes | every project on the machine |
 | `~/.questboard/status.jsonl` | Status records: `{at, adventurerId, status, reason, setBy}`. A card without records is available | every project |
 | `<project>/questboard.config.json` | Brief folders and id pattern, lane commands, output folders, events/registry/lock paths, banned models | one project |
 
@@ -108,16 +108,40 @@ command template plus where its workers can be observed:
 }
 ```
 
-Placeholders: `{name}` (unique worker name), `{brief}`, `{model}`, `{variant}`, `{agent}`, `{package}`. A
-placeholder without a value is an error, never an empty string. `.sh` commands run under Git Bash, `node`
-under the current Node. File lanes write `<outputDir>/<name>.out` while running, `<name>.exit` when done,
-and optionally `<name>.md` as the report. Server lanes (OpenCode) set `api`, a `session` step and a
-`deliveryDir`; their final message is written to `<deliveryDir>/<name>.md` before `delivered` is announced.
-`serialize` runs one dispatch at a time; `spacingMs` spaces starts; `defaultModel` labels old registry rows.
+Placeholders: `{name}` (unique worker name), `{brief}`, `{model}`, `{variant}`, `{agent}`, `{package}`,
+`{role}` (an optional per-attempt role card, see the table below). A placeholder without a value is an
+error, never an empty string. `.sh` commands run under Git Bash, `node` under the current Node. File lanes
+write `<outputDir>/<name>.out` while running, `<name>.exit` when done, and optionally `<name>.md` as the
+report. Server lanes (OpenCode) set `api`, a `session` step and a `deliveryDir`; their final message is
+written to `<deliveryDir>/<name>.md` before `delivered` is announced. `serialize` runs one dispatch at a
+time; `spacingMs` spaces starts; `defaultModel` labels old registry rows.
 
 The project's own scripts register each dispatch in the registry file (one JSON line with `event:
 "dispatch"`, `package`, `lane`, `model`, `name`, and `session` for server lanes). That registry is how the
 board sees workers — including ones started by hand.
+
+### Lane and policy options
+
+Every field below is optional; a config that never mentions one keeps the behaviour from before it existed.
+
+| Field | What it does |
+|:---|:---|
+| `lanes.<id>.roleInPrompt` (bool) | This lane accepts a `{role}` role card in its prompt (see `--role` in `examples/basic/README.md`) |
+| `lanes.<id>.limits.maxMessages`, `.maxMinutes` | `maxMessages` caps a session-lane attempt's message count; `maxMinutes` caps wall-clock runtime on any lane. Going over a limit marks the attempt `stalled` with a reason — a `generic-wrapper` lane is cancelled automatically, other lanes need manual handling |
+| `lanes.<id>.control.type` (only `"generic-wrapper"`) | This lane's script speaks the wrapper's cancel IPC (`QUESTBOARD_ATTEMPT_ID`/`QUESTBOARD_CONTROL_TOKEN`), so `questboard_cancel_worker` can ask it to stop |
+| `lanes.<id>.optionalArgs[{when,args,omitWhen,insertAt}]` | Inserts extra argv only when `when` (`variant` or `agent`) is actually supplied, unless its value is in `omitWhen`; `insertAt` picks the position, defaulting to the end of `run` |
+| `policy.stallAfterMinutes` (default 20) | How long a lane goes quiet before the board calls it `stalled` |
+| `policy.laneConcurrency.<lane>` | A per-lane cap on attempts running at once, on top of each card's own `maxParallel` |
+| `policy.defaultLane`, `policy.defaultCard` | Neither pre-selects anything on the board. `defaultCard` is read only by the CLI's `questboard assign` when no card is named; `defaultLane` is only validated, shown in preferences, and edited on the settings page |
+| `policy.bouncePatterns[{code,pattern,label}]` | Regexes matched against an exit line that turn a failure into a labelled `bounced` status |
+| `policy.reviewRequires[report\|project-verification\|hook]` | Which upstream evidence kinds a review must show before it may be dispatched (warns only when empty, the default) |
+| `usage.manualProviders[]` | Turns on usage cards for providers with no confirmed public usage API (Alibaba token/coding plan, NVIDIA, OpenAI spend) — each shows a "check the console" note instead of a fetched number (see the 用量 settings tab). `claude-subscription` is still accepted here, but the Claude card is always shown regardless — it can show live status-line numbers, so listing it does nothing |
+| `usage.experimentalProviders[]` (currently only `codex-app-server`) | Opt-in list: an experimental usage source is only read when named here, otherwise it stays off |
+| `usage.alibaba.{edition,region}` | Edition/region for the Alibaba usage source |
+| `reviewPages.dir` (and optional `filePattern`) | Folder of standalone review HTML pages the board serves and lets an art review annotate |
+
+The `{role}` placeholder itself, and `lanes.<id>.session.saveTo`/`lanes.<id>.env` refusing it, are covered in
+[CLAUDE.md](CLAUDE.md)'s Contracts section.
 
 ## CLI
 
@@ -158,10 +182,13 @@ CLI so the board can see the worker (registry row, `.out` / `.exit` / `.md` file
 ## MCP
 
 `questboard mcp` is an MCP server over stdio, so any agent can use the board as tools instead of shell
-commands: `questboard_list_quests`, `questboard_get_quest` (with who may take it and why not),
+commands. 17 tools: `questboard_list_quests`, `questboard_get_quest` (with who may take it and why not),
 `questboard_post_quest`, `questboard_set_quest_status`, `questboard_record_ruling`, `questboard_assign`,
 `questboard_adopt`, `questboard_release_worker` (free a stalled quest once you confirmed its process is
-gone), `questboard_update_metadata` (revision-guarded correction of title/brief/parents/conflicts/
+gone), `questboard_cancel_worker` (ask the current attempt to stop cooperatively; durable until matching
+evidence arrives, or `manual_required` on a lane that cannot cancel itself), `questboard_resolve_worker`
+(free a held worker after an explicit acknowledgement and a reason, recorded as `manual_resolution`),
+`questboard_update_metadata` (revision-guarded correction of title/brief/parents/conflicts/
 allowedLanes/needsOwner on a quest that does not hold a worker's slot; any other field is refused, and a
 posted review's own parent/kind, plus every ancestor it reaches and that ancestor's kind, are permanently
 fixed), `questboard_list_cards`,
@@ -194,9 +221,18 @@ tail the events file with `questboard watch`; `questboard_events` with `since` i
 
 ## Events
 
-`<events file>` gets one line per change: `{at, event, package, lane, model, variant, name, by, detail}`.
-Events: `posted`, `review_posted`, `assigned`, `dispatched`, `delivered`, `failed`, `bounced`, `stalled`,
-`released`, `cancelled`, `owner_ruling`, `delivery_write_failed`, `status_<status>`.
+`<events file>` gets one line per change: `{seq, at, event, package, lane, model, variant, name, attemptId,
+by, detail}`. Events: `posted`, `review_posted`, `assigned`, `dispatched`, `delivered`, `failed`, `bounced`,
+`stalled`, `released`, `cancelled`, `owner_ruling`, `delivery_write_failed`, `status_note`,
+`manual_resolution`, `cancel_requested`, `cancel_acknowledged`, `review_override`, `metadata_update`,
+`status_<status>` (any other quest status).
+
+`status_note` carries a text update without moving the quest to a new terminal or status event; `manual_resolution`,
+`cancel_requested` and `cancel_acknowledged` are the cancel/manual-release path (see `questboard_cancel_worker`
+and `questboard_resolve_worker` below); `review_override` records an owner override of a review lock;
+`metadata_update` additionally carries `changedFields` (names only) and `changes` (`{field: {from, to}}`,
+non-secret values only). A terminal event additionally carries `report` when the attempt captured one, and
+an art `dispatched` event additionally carries `annotationCount`/`annotationPage`.
 
 A `stalled` quest keeps its worker: silence is not a confirmed exit, so its parallel slot and file
 reservations stay held and nobody can be dispatched onto it. When output resumes it goes back to

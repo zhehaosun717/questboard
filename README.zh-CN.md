@@ -92,7 +92,7 @@ cursor-agent）报给你，让你用 `--lane` 自己加。
 
 | 存在哪 | 存什么 | 谁共用 |
 |:---|:---|:---|
-| `~/.questboard/roster.json`（或 `QUESTBOARD_HOME`） | 卡：id、名字、供应商、通道、模型、家族、变体、人格、计费方式、并发上限、专长、通用备注 | 这台机器上的所有项目 |
+| `~/.questboard/roster.json`（或 `QUESTBOARD_HOME`） | 卡：id、名字、供应商、通道、模型、家族、变体、可选变体列表（variants）、人格、计费方式、并发上限、专长、通用备注 | 这台机器上的所有项目 |
 | `~/.questboard/status.jsonl` | 状态记录：`{at, adventurerId, status, reason, setBy}`。没有记录的卡就是可用 | 所有项目 |
 | `<项目>/questboard.config.json` | 简报目录和编号规则、通道命令、输出目录、事件/登记/锁文件路径、禁用模型 | 单个项目 |
 
@@ -112,8 +112,9 @@ cursor-agent）报给你，让你用 `--lane` 自己加。
 }
 ```
 
-占位符：`{name}`（唯一的 worker 名）、`{brief}`、`{model}`、`{variant}`、`{agent}`、`{package}`。
-**占位符没有值就是错误，不会变成空字符串。** `.sh` 命令用 Git Bash 跑，`node` 用当前的 Node 跑。
+占位符：`{name}`（唯一的 worker 名）、`{brief}`、`{model}`、`{variant}`、`{agent}`、`{package}`、`{role}`
+（可选的单次派遣角色卡，见下表）。**占位符没有值就是错误，不会变成空字符串。** `.sh` 命令用 Git Bash 跑，
+`node` 用当前的 Node 跑。
 
 文件型通道在运行时写 `<outputDir>/<name>.out`，结束时写 `<name>.exit`，可选地写 `<name>.md` 作为报告。
 服务器型通道（OpenCode 那种）要配 `api`、一个 `session` 步骤和 `deliveryDir`；它的最后一条消息会先写进
@@ -122,6 +123,29 @@ cursor-agent）报给你，让你用 `--lane` 自己加。
 
 `examples/basic/scripts/run-worker.mjs` 是一个零依赖的通用包装脚本：它先往登记表写一行，再把简报喂给你的
 agent 命令，最后写下退出码。`init` 会把它拷到你的项目里。
+
+### 通道与策略配置项
+
+下面每个字段都是可选的：配置里不写它，行为就和它出现之前一样。
+
+| 字段 | 作用 |
+|:---|:---|
+| `lanes.<id>.roleInPrompt`（布尔值） | 这条通道接受 `{role}` 角色卡拼进提示词（见 `examples/basic/README.md` 的 `--role`） |
+| `lanes.<id>.limits.maxMessages`、`.maxMinutes` | `maxMessages` 只限制会话型通道派遣的消息数；`maxMinutes` 在任何通道都限制运行时长。超过任一上限会把派遣标记为 `stalled` 并附带原因——`generic-wrapper` 通道会自动取消，其他通道需要人工处理 |
+| `lanes.<id>.control.type`（只能是 `"generic-wrapper"`） | 这条通道的脚本支持包装脚本的取消 IPC（`QUESTBOARD_ATTEMPT_ID`/`QUESTBOARD_CONTROL_TOKEN`），`questboard_cancel_worker` 才能让它停下来 |
+| `lanes.<id>.optionalArgs[{when,args,omitWhen,insertAt}]` | 只有 `when`（`variant` 或 `agent`）真的有值、且不在 `omitWhen` 里时，才插入额外参数；`insertAt` 指定插入位置，默认插到 `run` 末尾 |
+| `policy.stallAfterMinutes`（默认 20） | 通道多久没动静就被判定为 `stalled` |
+| `policy.laneConcurrency.<通道>` | 每条通道自己的并发上限，在每张卡自己的 `maxParallel` 之上再加一层限制 |
+| `policy.defaultLane`、`policy.defaultCard` | 两者都不会在看板上预选任何东西。`defaultCard` 只在 CLI 的 `questboard assign` 没指定卡时才读取；`defaultLane` 只会被校验、显示在偏好设置里、在设置页可编辑 |
+| `policy.bouncePatterns[{code,pattern,label}]` | 用正则匹配退出行文字，把失败改判成一个带标签的 `bounced` 状态 |
+| `policy.reviewRequires[report\|project-verification\|hook]` | 审核委托派发前，上游必须已经有哪几类证据（默认为空，只警告不拒绝） |
+| `usage.manualProviders[]` | 为暂无公开用量接口的来源打开用量卡片（阿里云 token/编程套餐、NVIDIA、OpenAI 消耗）——每张卡显示「去控制台查看」提示，而不是抓取到的数字（见「用量」设置页）。`claude-subscription` 仍会被接受，但 Claude 卡片始终显示、可展示状态栏实时数字，写不写它都没有区别 |
+| `usage.experimentalProviders[]`（目前只有 `codex-app-server`） | 一份 opt-in 名单：某个实验性用量来源只有写在这里才会被读取，否则默认关闭 |
+| `usage.alibaba.{edition,region}` | 阿里云用量来源的版本/区域 |
+| `reviewPages.dir`（可选 `filePattern`） | 一批独立的评审 HTML 页面所在目录，看板会提供它们并支持美术评审批注 |
+
+`{role}` 占位符本身，以及 `lanes.<id>.session.saveTo`/`lanes.<id>.env` 拒绝使用它的规则，写在
+[CLAUDE.md](CLAUDE.md) 的 Contracts 一节。
 
 ## CLI
 
@@ -152,11 +176,16 @@ questboard doctor
 
 ## MCP
 
-`questboard mcp` 是一个走 stdio 的 MCP 服务器，任何 agent 都能把看板当工具用，不必敲命令行。14 个工具：
+`questboard mcp` 是一个走 stdio 的 MCP 服务器，任何 agent 都能把看板当工具用，不必敲命令行。17 个工具：
 `questboard_list_quests`、`questboard_get_quest`（含谁能接、为什么不能）、`questboard_post_quest`、
 `questboard_set_quest_status`、`questboard_record_ruling`、`questboard_assign`、`questboard_adopt`、
-`questboard_release_worker`、`questboard_list_cards`、`questboard_set_card_status`、`questboard_events`、
-`questboard_board_post`、`questboard_board_reply`、`questboard_board_inbox`。
+`questboard_release_worker`、`questboard_cancel_worker`（请求当前这次派遣配合取消，会一直保持，直到匹配的
+证据出现；不支持取消的通道返回 `manual_required`）、`questboard_resolve_worker`（明确确认并给出理由后，才
+释放一个被占住的 worker，记一条 `manual_resolution`）、`questboard_update_metadata`（在 worker 没占着这个委托
+的槽位时，改它的标题/简报/父任务/冲突/允许通道/待裁决问题，带版本号校验；其它字段一律拒绝，一个已发布的
+审核委托自己的父任务/kind，以及它沿链能到达的每个祖先和那个祖先的 kind，一旦定下就永久不能再改）、
+`questboard_list_cards`、`questboard_set_card_status`、`questboard_events`、`questboard_board_post`、
+`questboard_board_reply`、`questboard_board_inbox`。
 
 写操作都经过正在跑的看板服务器，所以先 `questboard serve`。
 
@@ -176,9 +205,18 @@ args = ["/路径/questboard/src/cli/questboard.js", "mcp", "--project", "/路径
 
 ## 事件
 
-事件文件每次变化写一行：`{seq, at, event, package, lane, model, variant, name, by, detail}`。
+事件文件每次变化写一行：`{seq, at, event, package, lane, model, variant, name, attemptId, by, detail}`。
 事件名：`posted`、`review_posted`、`assigned`、`dispatched`、`delivered`、`failed`、`bounced`、`stalled`、
-`released`、`cancelled`、`owner_ruling`、`delivery_write_failed`、`status_<状态>`。
+`released`、`cancelled`、`owner_ruling`、`delivery_write_failed`、`status_note`、`manual_resolution`、
+`cancel_requested`、`cancel_acknowledged`、`review_override`、`metadata_update`、`status_<状态>`（其它任何
+委托状态）。
+
+`status_note` 只记一条文字更新，不会为同一个事实再触发一次终态或状态事件；`manual_resolution`、
+`cancel_requested`、`cancel_acknowledged` 是取消/人工释放这条路径上的事件（见下面的
+`questboard_cancel_worker`、`questboard_resolve_worker`）；`review_override` 记一次 owner 对审核锁的覆盖；
+`metadata_update` 额外带 `changedFields`（只有字段名）和 `changes`（`{字段: {from, to}}`，只含非密文本）。
+终态事件在这次派遣捕获了报告时额外带 `report`；美术委托的 `dispatched` 事件额外带
+`annotationCount`/`annotationPage`。
 
 **「卡住」不等于「结束」。** 一个 `stalled` 的委托仍然占着它的 worker：没动静不代表进程死了，所以它的并发
 名额和文件占用都还保留，谁都派不上去。输出恢复就自动回到 `dispatched`；出现退出文件就正常收尾。等有人确认
