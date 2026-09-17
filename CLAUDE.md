@@ -45,7 +45,7 @@ stay in the bundle resources (`desktop/src-tauri/tauri.bundle.json`) or setup fr
 - Events file: one JSON line per change, `{seq, at, event, package, lane, model, variant, name, attemptId,
   by, detail}`. Events: posted, review_posted, assigned, dispatched, delivered, failed, bounced, stalled,
   released, cancelled, owner_ruling, delivery_write_failed, status_note, manual_resolution, cancel_requested,
-  cancel_acknowledged, review_override, metadata_update, status_<status> (any other quest status, e.g.
+  cancel_acknowledged, cancel_result, review_override, metadata_update, status_<status> (any other quest status, e.g.
   status_reviewing, status_needs_owner). Coordinators depend on these names.
   - `metadata_update` additionally carries `changedFields` (names only) and `changes` (`{field: {from,
     to}}`, non-secret values only — every metadata field is plain text or id lists).

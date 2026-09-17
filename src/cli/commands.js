@@ -345,18 +345,25 @@ export const commands = {
     const { base } = context(args);
     const id = positional(args, ['--project', '--url', '--reason']);
     const reason = String(option(args, '--reason') || '').trim();
-    if (!id) throw new Error('usage: questboard cancel <id> --reason "why cancel"');
-    if (!reason || reason.startsWith('--')) throw new Error('cancel requires a non-empty --reason');
-    const result = await request(base, `/api/quests/${encodeURIComponent(id)}/cancel`, 'POST', { reason }, { source: 'cli' });
-    out(`${questLine(result.quest)}  cancellation=${result.result}`);
+    if (!id) throw new Error('用法：questboard cancel <id> --reason "取消原因"');
+    if (!reason || reason.startsWith('--')) throw new Error('cancel 必须填写非空的 --reason');
+    let result;
+    try {
+      result = await request(base, `/api/quests/${encodeURIComponent(id)}/cancel`, 'POST', { reason }, { source: 'cli' });
+    } catch (error) {
+      if (error?.message === 'quest not found') throw new Error('找不到任务');
+      throw error;
+    }
+    const note = result.quest.cancelRequest?.detail || (result.note ? String(result.note) : '已记录取消请求，等待结果');
+    out(`${questLine(result.quest)}  cancellation=${result.result}  ${note}`);
   },
 
   async resolve(args) {
     const { base } = context(args);
     const id = positional(args, ['--project', '--url', '--reason']);
     const reason = String(option(args, '--reason') || '').trim();
-    if (!id || !args.includes('--ack')) throw new Error('usage: questboard resolve <id> --reason "manual evidence" --ack');
-    if (!reason || reason.startsWith('--')) throw new Error('resolve requires a non-empty --reason');
+    if (!id || !args.includes('--ack')) throw new Error('用法：questboard resolve <id> --reason "人工证据" --ack');
+    if (!reason || reason.startsWith('--')) throw new Error('resolve 必须填写非空的 --reason');
     const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/resolve`, 'POST', { reason, ack: true }, { source: 'cli' });
     out(questLine(quest));
   },

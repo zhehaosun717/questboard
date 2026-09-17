@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { attemptEvidence } from '../core/cancellation.js';
+import { sessionEnded } from '../lanes/opencode.js';
 
 function exitEvidence(config, laneId, name, requestId) {
   const lane = config.lanes[laneId];
@@ -21,7 +22,7 @@ export function createGenericWrapperAdapter({ config, timeoutMs = 5000 } = {}) {
     const child = handle?.child;
     const token = handle?.token;
     if (!child || typeof child.send !== 'function' || !token) {
-      resolve({ result: 'manual_required', detail: '该 worker 没有可验证的 generic wrapper 控制通道，需要人工确认' });
+      resolve({ result: 'manual_required', detail: '该工作进程没有可验证的通用包装器控制通道，需要人工确认' });
       return;
     }
     let acknowledged = false;
@@ -42,20 +43,20 @@ export function createGenericWrapperAdapter({ config, timeoutMs = 5000 } = {}) {
       // The wrapper sends the ack immediately before killing its direct child. The exit event and the
       // exit-file write are the second, independent fact; ack alone never frees the reservation.
       if (exitEvidence(config, attempt.lane, attempt.name, request.requestId)) finish({
-        result: 'stopped_by_wrapper', detail: 'generic wrapper acknowledged and recorded a direct-child stop',
+        result: 'stopped_by_wrapper', detail: '通用包装器已确认并记录直接子进程已停止',
         evidence: { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: request.requestId, scope: 'direct-child' },
       });
     };
     const onExit = () => {
       const evidence = exitEvidence(config, attempt.lane, attempt.name, request.requestId);
       if (acknowledged && evidence) finish({
-        result: 'stopped_by_wrapper', detail: 'generic wrapper acknowledged and recorded a direct-child stop',
+        result: 'stopped_by_wrapper', detail: '通用包装器已确认并记录直接子进程已停止',
         evidence: { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: evidence.requestId, scope: evidence.scope },
       });
-      else finish({ result: 'unknown', detail: 'worker exited without a matching cancellation acknowledgement and exit record' });
+      else finish({ result: 'unknown', detail: '工作进程已退出，但没有匹配的取消确认和退出记录' });
     };
-    const onError = () => finish({ result: 'unknown', detail: 'worker control channel ended before a matching acknowledgement' });
-    const timer = setTimeout(() => finish({ result: 'unknown', detail: 'cancellation control timed out; the worker reservation remains held for manual resolution' }), timeoutMs);
+    const onError = () => finish({ result: 'unknown', detail: '工作进程控制通道结束，尚未收到匹配的取消确认' });
+    const timer = setTimeout(() => finish({ result: 'unknown', detail: '取消控制超时；工作进程占用仍保留，需要人工处理' }), timeoutMs);
     timer.unref?.();
     child.on('message', onMessage);
     child.once('exit', onExit);
@@ -63,10 +64,87 @@ export function createGenericWrapperAdapter({ config, timeoutMs = 5000 } = {}) {
     child.once('error', onError);
     try {
       child.send({ type: 'questboard-cancel', attemptId: attempt.attemptId, requestId: request.requestId, token }, (error) => {
-        if (error) finish({ result: 'unknown', detail: 'cancellation control could not be delivered; the worker reservation remains held' });
+        if (error) finish({ result: 'unknown', detail: '取消控制未能发送；工作进程占用仍保留' });
       });
     } catch {
-      finish({ result: 'unknown', detail: 'cancellation control could not be delivered; the worker reservation remains held' });
+      finish({ result: 'unknown', detail: '取消控制未能发送；工作进程占用仍保留' });
     }
   });
 }
+
+const API_TIMEOUT_MS = 5000;
+const TIMEOUT = Symbol('timeout');
+
+function isOk(response) {
+  return Boolean(response && (response.ok === true || (response.status >= 200 && response.status < 300)));
+}
+
+async function responseBody(response) {
+  if (!response || typeof response.json !== 'function') return undefined;
+  try { return await response.json(); } catch { return undefined; }
+}
+
+async function boundedCall(fn, deadline) {
+  const remaining = Math.max(0, deadline - Date.now());
+  if (!remaining) return TIMEOUT;
+  let timer;
+  const work = Promise.resolve().then(fn).then((value) => ({ value }), (error) => ({ error }));
+  const wait = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(TIMEOUT), remaining);
+    timer.unref?.();
+  });
+  try {
+    const outcome = await Promise.race([work, wait]);
+    if (outcome === TIMEOUT) return TIMEOUT;
+    if (outcome && outcome.error) throw outcome.error;
+    return outcome?.value;
+  } finally { clearTimeout(timer); }
+}
+
+function sessionIdOf(assignee) {
+  return assignee?.session?.id || assignee?.sessionId || null;
+}
+
+function apiUrl(base, sessionId, suffix) {
+  return `${String(base).replace(/\/+$/, '')}/session/${encodeURIComponent(sessionId)}${suffix}`;
+}
+
+// Opt-in remote control for an OpenCode session. This adapter never receives a process handle and
+// never discovers one: its only effects are the lane API POST and the one follow-up session read.
+export function createOpenCodeSessionAdapter({ fetchImpl = fetch, timeoutMs = API_TIMEOUT_MS } = {}) {
+  return async ({ attempt, assignee = attempt, laneConfig }) => {
+    const baseUrl = laneConfig?.api;
+    const sessionId = sessionIdOf(assignee);
+    if (!baseUrl || !sessionId) return { result: 'manual_required', detail: '没有记录的 session id 或 lane API 地址，无法请求远程停止，需要人工确认' };
+    const deadline = Date.now() + Math.max(1, Number.isFinite(timeoutMs) ? timeoutMs : API_TIMEOUT_MS);
+    const abortPath = apiUrl(baseUrl, sessionId, '/abort');
+    try {
+      const response = await boundedCall(() => fetchImpl(abortPath, { method: 'POST', signal: AbortSignal.timeout?.(Math.max(1, deadline - Date.now())) }), deadline);
+      if (response === TIMEOUT) return { result: 'unknown', detail: '远程停止请求超时，未能确认 session 已结束' };
+      if (!isOk(response)) return { result: 'unknown', detail: `远程停止请求未被接受（HTTP ${response?.status || '未知'}），未能确认 session 已结束` };
+      const abortAcknowledged = (await responseBody(response)) !== false;
+      const followUpPath = apiUrl(baseUrl, sessionId, '/message');
+      const followUp = await boundedCall(async () => {
+        const read = await fetchImpl(followUpPath, { method: 'GET', signal: AbortSignal.timeout?.(Math.max(1, deadline - Date.now())) });
+        return { response: read, body: isOk(read) && typeof read.json === 'function' ? await read.json() : null };
+      }, deadline);
+      if (followUp === TIMEOUT || !followUp || !isOk(followUp.response) || !sessionEnded(followUp.body)) {
+        return { result: 'unknown', detail: abortAcknowledged ? '远程停止请求已被接受，但后续读取没有显示 session 已结束' : '远程停止请求返回 false，未确认取消；后续读取没有显示 session 已结束' };
+      }
+      if (!abortAcknowledged) {
+        return { result: 'unknown', detail: '远程停止请求返回 false，未确认取消；后续读取不能作为停止证明' };
+      }
+      return {
+        result: 'stopped_by_api', detail: '远程停止请求已被接受，后续读取确认 session 已结束',
+        evidence: { kind: 'opencode-session', attempt: attemptEvidence(assignee), ack: true, followupEnded: true, sessionId, abortPath },
+      };
+    } catch (error) {
+      const reason = error?.name === 'AbortError' ? '请求超时' : '通信失败';
+      return { result: 'unknown', detail: `远程停止请求或后续读取失败（${reason}），未能确认 session 已结束` };
+    }
+  };
+}
+
+// Kept as a descriptive alias for callers that used the earlier API-oriented name while the
+// configured lane type remains the explicit `opencode-session` opt-in.
+export const createOpenCodeApiAdapter = createOpenCodeSessionAdapter;

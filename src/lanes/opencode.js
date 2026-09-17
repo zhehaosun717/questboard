@@ -123,3 +123,11 @@ export function sessionLimitReason(messages, elapsed, limits = {}) {
   if (limits.maxMinutes !== undefined && elapsed > limits.maxMinutes * 60 * 1000) return `超过时长上限 ${limits.maxMinutes} 分钟`;
   return null;
 }
+
+// The abort adapter performs one bounded follow-up read through this same lane API. A terminal
+// message state is enough to show that the session ended; running, stalled and unknown remain
+// deliberately inconclusive. Only the documented message-array shape is proof: an object or error
+// envelope must not be mistaken for a session result.
+export function sessionEnded(value) {
+  return Array.isArray(value) && ['delivered', 'failed', 'bounced'].includes(sessionState(value).state);
+}

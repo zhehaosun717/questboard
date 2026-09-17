@@ -100,7 +100,7 @@ export function QuestDrawer({
   };
 
   const canResolve = Boolean(assignee && quest.cancelRequest
-    && ['manual_required', 'stopped_by_wrapper', 'unknown'].includes(quest.cancelRequest.result));
+    && ['manual_required', 'stopped_by_wrapper', 'stopped_by_api', 'unknown'].includes(quest.cancelRequest.result));
   const handleResolve = async () => {
     const reason = window.prompt('请写明你如何确认这个冒险者已经停止；这会记录为人工释放理由')?.trim();
     if (!reason) return;
@@ -153,7 +153,7 @@ export function QuestDrawer({
         <DrawerSection en="CANCELLATION" zh="取消请求">
           <div className="rec">
             {quest.cancelRequest
-              ? `${quest.cancelRequest.result} · ${quest.cancelRequest.bySource} · ${quest.cancelRequest.reason}`
+              ? `${quest.cancelRequest.result} · ${quest.cancelRequest.bySource} · ${quest.cancelRequest.reason}${quest.cancelRequest.detail ? ` · ${quest.cancelRequest.detail}` : ''}`
               : quest.lastDetail}
           </div>
           {quest.cancelRequest?.result === 'manual_required' || (!quest.cancelRequest && limitStall) ? (

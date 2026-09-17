@@ -20,9 +20,14 @@ export interface CancelRequest {
   at: string;
   bySource: 'ui' | 'cli' | 'mcp' | 'limit';
   reason: string;
-  result: 'pending' | 'never_started' | 'stopped_by_wrapper' | 'manual_required' | 'unknown';
+  result: 'pending' | 'never_started' | 'stopped_by_wrapper' | 'stopped_by_api' | 'manual_required' | 'unknown';
   resolvedAt?: string;
   detail?: string;
+  deadlineAt?: string;
+  instanceId?: string;
+  adapter?: string;
+  resultAt?: string;
+  resultInstanceId?: string;
 }
 
 export interface ManualResolution {

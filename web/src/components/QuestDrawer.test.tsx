@@ -87,6 +87,21 @@ describe('QuestDrawer 修改委托 hook-in', () => {
     expect(html).toContain('最近心跳：7 秒前');
   });
 
+  it('shows the API cancellation note and manual resolve control for stopped_by_api', () => {
+    const quest = makeQuest({
+      id: 'A-api',
+      status: 'dispatched',
+      assignee: makeAssignee('card-1'),
+      cancelRequest: {
+        requestId: 'req-api', attemptId: 'attempt-api', at: '2026-09-13T00:00:00.000Z', bySource: 'ui',
+        reason: 'stop', result: 'stopped_by_api', detail: '后续读取确认 session 已结束',
+      },
+    });
+    const html = render(quest, makeSnapshot({ quests: [quest] }));
+    expect(html).toContain('后续读取确认 session 已结束');
+    expect(html).toContain('确认已停止并人工释放');
+  });
+
   it('shows the bound reason and manual-required note for a stalled attempt without an adapter', () => {
     const quest = makeQuest({
       id: 'A-3', status: 'stalled', assignee: makeAssignee('card-1'),

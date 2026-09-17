@@ -219,24 +219,24 @@ export function createTools({ config, base, author, home, request }) {
     {
       name: 'questboard_cancel_worker',
       title: 'Request worker cancellation',
-      description: 'Request one cooperative cancellation for the current attempt. The request is durable and keeps the slot until matching scoped evidence arrives; unsupported lanes return manual_required instead of pretending the worker stopped.',
+      description: '为当前派遣请求一次协作取消。请求会持久保存，在收到匹配证据前保留占用；不支持取消控制的通道返回 manual_required，不会假装 worker 已停止。',
       inputSchema: { type: 'object', properties: { id: { type: 'string' }, reason: { type: 'string' } }, required: ['id', 'reason'] },
       annotations: write,
       handler: async (args) => {
         required(args, ['id', 'reason']);
         const body = await api(`/api/quests/${encodeURIComponent(args.id)}/cancel`, 'POST', { reason: args.reason });
-        return { ...questSummary(body.quest), result: body.result };
+        return { ...questSummary(body.quest), result: body.result, ...(body.note ? { note: body.note } : {}) };
       },
     },
     {
       name: 'questboard_resolve_worker',
       title: 'Resolve a worker manually',
-      description: 'Free a held worker only after an explicit acknowledgement and a non-empty reason. This records a durable manualResolution with the MCP source and current attempt.',
+      description: '只有明确确认并填写非空原因后，才能人工释放仍占用的 worker；操作会按 MCP 来源和当前 attempt 持久记录 manualResolution。',
       inputSchema: { type: 'object', properties: { id: { type: 'string' }, reason: { type: 'string' }, ack: { type: 'boolean' } }, required: ['id', 'reason', 'ack'] },
       annotations: write,
       handler: async (args) => {
         required(args, ['id', 'reason', 'ack']);
-        if (args.ack !== true) throw new Error('ack must be true for manual resolution');
+        if (args.ack !== true) throw new Error('人工处理必须确认 ack=true');
         return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/resolve`, 'POST', { reason: args.reason, ack: true })).quest);
       },
     },

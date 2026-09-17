@@ -224,7 +224,7 @@ tail the events file with `questboard watch`; `questboard_events` with `since` i
 `<events file>` gets one line per change: `{seq, at, event, package, lane, model, variant, name, attemptId,
 by, detail}`. Events: `posted`, `review_posted`, `assigned`, `dispatched`, `delivered`, `failed`, `bounced`,
 `stalled`, `released`, `cancelled`, `owner_ruling`, `delivery_write_failed`, `status_note`,
-`manual_resolution`, `cancel_requested`, `cancel_acknowledged`, `review_override`, `metadata_update`,
+`manual_resolution`, `cancel_requested`, `cancel_acknowledged`, `cancel_result`, `review_override`, `metadata_update`,
 `status_<status>` (any other quest status).
 
 `status_note` carries a text update without moving the quest to a new terminal or status event; `manual_resolution`,

@@ -99,7 +99,7 @@ export function deriveTransitions(quests, laneRows, now = Date.now()) {
         // This exit record is scoped wrapper evidence, not ordinary terminal evidence. The store records it
         // while keeping the attempt dispatched/stalled; treating it as failed/delivered here would release
         // file reservations while a descendant of the wrapper can still be editing.
-        id: quest.id, status: quest.status, detail: 'generic wrapper acknowledged the direct-child stop',
+        id: quest.id, status: quest.status, detail: '通用包装器已确认直接子进程停止',
         cancellationResult: 'stopped_by_wrapper',
         evidence: {
           kind: 'collector', attempt: attemptEvidence(quest.assignee),

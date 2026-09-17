@@ -208,7 +208,7 @@ args = ["/路径/questboard/src/cli/questboard.js", "mcp", "--project", "/路径
 事件文件每次变化写一行：`{seq, at, event, package, lane, model, variant, name, attemptId, by, detail}`。
 事件名：`posted`、`review_posted`、`assigned`、`dispatched`、`delivered`、`failed`、`bounced`、`stalled`、
 `released`、`cancelled`、`owner_ruling`、`delivery_write_failed`、`status_note`、`manual_resolution`、
-`cancel_requested`、`cancel_acknowledged`、`review_override`、`metadata_update`、`status_<状态>`（其它任何
+`cancel_requested`、`cancel_acknowledged`、`cancel_result`、`review_override`、`metadata_update`、`status_<状态>`（其它任何
 委托状态）。
 
 `status_note` 只记一条文字更新，不会为同一个事实再触发一次终态或状态事件；`manual_resolution`、

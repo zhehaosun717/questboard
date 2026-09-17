@@ -71,6 +71,9 @@ function evidenceMatchesAttempt(assignee, evidence) {
 }
 
 function sameCancellationEvidenceScope(left, right) {
+  if ((left?.kind || right?.kind) === 'opencode-session') {
+    return left?.kind === right?.kind && left?.sessionId === right?.sessionId && left?.followupEnded === right?.followupEnded;
+  }
   return (left?.exitRequestId ?? null) === (right?.exitRequestId ?? null)
     && (left?.scope ?? null) === (right?.scope ?? null);
 }
@@ -175,6 +178,8 @@ export class QuestStore extends EventEmitter {
     this.quests = new Map();
     for (const record of readJsonLines(this.questsPath)) if (record && record.id) this.quests.set(record.id, record);
     this.eventSeq = lastEventSeq(this.eventsFile);
+    this.instanceId = randomUUID();
+    this.expirePendingCancellations({ instanceId: this.instanceId });
   }
 
   list() {
@@ -233,6 +238,13 @@ export class QuestStore extends EventEmitter {
       // callers do not pass them, preserving every unaffected event's serialized shape.
       ...(fields.annotationCount !== undefined ? { annotationCount: fields.annotationCount } : {}),
       ...(fields.annotationPage !== undefined ? { annotationPage: fields.annotationPage } : {}),
+      // Cancellation audit fields are additive and only appear on the two cancellation event types.
+      ...(fields.quest !== undefined ? { quest: fields.quest } : {}),
+      ...(fields.requestId !== undefined ? { requestId: fields.requestId } : {}),
+      ...(fields.source !== undefined ? { source: fields.source } : {}),
+      ...(fields.result !== undefined ? { result: fields.result } : {}),
+      ...(fields.adapter !== undefined ? { adapter: fields.adapter } : {}),
+      ...(fields.instanceId !== undefined ? { instanceId: fields.instanceId } : {}),
     };
     appendJsonLine(this.eventsFile, record);
     if (notify) this.notify(record);
@@ -432,7 +444,7 @@ export class QuestStore extends EventEmitter {
       && evidenceMatchesAttempt(quest.assignee, evidence);
     if (trustedEvidence) return quest;
     if (!ack || !cancellationReason(detail)) {
-      throw cancellationError('manual_ack_required', `${quest.id} still owns a worker; freeing it requires an explicit acknowledgement and a non-empty reason`);
+      throw cancellationError('manual_ack_required', `${quest.id} 仍占用 worker；释放前必须明确确认并填写非空原因`);
     }
     const audit = manualResolution(operationSource, quest.assignee, detail);
     const audited = this.save({ ...quest, manualResolution: audit, updatedAt: now() });
@@ -442,15 +454,15 @@ export class QuestStore extends EventEmitter {
     return audited;
   }
 
-  requestCancellation(id, { source, reason, instanceId = null, deadlineAt = null } = {}) {
+  requestCancellation(id, { source, reason, instanceId = null, deadlineAt = null, adapter = null } = {}) {
     const quest = this.quests.get(id);
     if (!quest) return null;
     const bySource = cancellationSource(source);
     const why = cancellationReason(reason);
-    if (!bySource) throw cancellationError('invalid_source', 'cancellation source must be ui, cli, mcp or limit');
-    if (!why) throw cancellationError('reason_required', 'cancellation reason is required');
+    if (!bySource) throw cancellationError('invalid_source', '取消来源只能是 ui、cli、mcp 或 limit');
+    if (!why) throw cancellationError('reason_required', '取消原因不能为空');
     if (!quest.assignee || !['dispatched', 'stalled'].includes(quest.status)) {
-      throw cancellationError('not_cancellable', `${id} has no unresolved running worker to cancel`);
+      throw cancellationError('not_cancellable', `${id} 没有仍在运行、可以请求取消的 worker`);
     }
     const existing = quest.cancelRequest;
     // Legacy rows may omit attemptId entirely while the current normalized request carries null. Treat
@@ -459,20 +471,60 @@ export class QuestStore extends EventEmitter {
     const request = {
       requestId: randomUUID(), attemptId: quest.assignee.attemptId || null, at: now(), bySource, reason: why,
       result: 'pending', ...(instanceId ? { instanceId } : {}), ...(deadlineAt ? { deadlineAt } : {}),
+      adapter: adapter || 'unknown',
     };
     const next = this.save({ ...quest, cancelRequest: request, assignee: { ...quest.assignee, cancelRequest: request }, updatedAt: now() });
-    try { this.emitEvent(next, 'cancel_requested', { by: bySource, detail: why }); } catch (error) {
+    try { this.emitEvent(next, 'cancel_requested', {
+      by: bySource, detail: why, quest: id, requestId: request.requestId, source: bySource,
+      result: 'pending', adapter: request.adapter, instanceId: request.instanceId || null,
+    }); } catch (error) {
       try { process.stderr.write(`questboard: cancellation event append failed: ${error.message}\n`); } catch {}
     }
     return next;
   }
 
-  recordCancellationResult(id, { requestId, result, detail = '', evidence = null } = {}) {
+  expirePendingCancellations({ nowMs = Date.now(), instanceId = this.instanceId, adapter = null } = {}) {
+    for (const quest of this.quests.values()) {
+      const request = quest.cancelRequest;
+      const deadline = Date.parse(request?.deadlineAt || '');
+      if (request?.result !== 'pending' || !Number.isFinite(deadline) || deadline > nowMs) continue;
+      const expiredDetail = `取消请求已超过截止时间 ${request.deadlineAt}，未收到可验证结果，状态记为 unknown`;
+      if (holdsSlot(quest)) {
+        this.recordCancellationResult(quest.id, {
+          requestId: request.requestId, result: 'unknown', detail: expiredDetail,
+          instanceId, adapter: adapter || request.adapter || 'unknown',
+        });
+        continue;
+      }
+      // A collector may clear the old attempt while its cancellation call is still in flight. There is
+      // then no current assignee for recordCancellationResult to match, but the stale request itself is
+      // still durable state that must be closed on the next poll.
+      const detail = '取消已结束，取消请求作废';
+      const resultAt = now();
+      const resultInstanceId = instanceId || this.instanceId || request.instanceId || null;
+      const resultAdapter = adapter || request.adapter || 'unknown';
+      const settledRequest = { ...request, result: 'unknown', detail, resultAt, resultInstanceId, adapter: resultAdapter };
+      const settled = this.save({ ...quest, cancelRequest: settledRequest, updatedAt: now() });
+      const eventFields = {
+        by: 'board', detail, quest: quest.id, requestId: request.requestId, source: request.bySource,
+        result: 'unknown', adapter: resultAdapter, instanceId: resultInstanceId,
+      };
+      try { this.emitEvent(settled, 'cancel_result', eventFields); } catch (error) {
+        try { process.stderr.write(`questboard: cancellation result event append failed: ${error.message}\n`); } catch {}
+      }
+      try { this.emitEvent(settled, 'cancel_acknowledged', { by: 'board', detail: 'unknown' }); } catch (error) {
+        try { process.stderr.write(`questboard: cancellation acknowledgement append failed: ${error.message}\n`); } catch {}
+      }
+    }
+    return this.list();
+  }
+
+  recordCancellationResult(id, { requestId, result, detail = '', evidence = null, instanceId = null, adapter = null } = {}) {
     const quest = this.quests.get(id);
     if (!quest) return null;
     const request = quest.cancelRequest;
     if (!request || request.requestId !== requestId) return quest;
-    if (!CANCELLATION_RESULTS.has(result)) throw cancellationError('invalid_cancel_result', `unknown cancellation result ${result}`);
+    if (!CANCELLATION_RESULTS.has(result)) throw cancellationError('invalid_cancel_result', `未知的取消结果：${result}`);
     const safeEvidence = evidence ? Object.fromEntries(Object.entries(evidence).filter(([key, value]) => key !== 'token' && value !== undefined)) : null;
     // Collector polls replay the same exit row. Once the result and its request-scoped evidence are already
     // durable, the replay is a true no-op: no snapshot revision and no duplicate acknowledgement event.
@@ -487,28 +539,48 @@ export class QuestStore extends EventEmitter {
       && proof && evidence.phase === 'queued' && evidence.noEffect === true;
     const scopedWrapperEvidence = result === 'stopped_by_wrapper'
       && proof && evidence.ack === true && evidence.exitRequestId === requestId && evidence.scope === 'direct-child';
+    const scopedApiEvidence = result === 'stopped_by_api'
+      && proof && evidence.kind === 'opencode-session' && evidence.ack === true && evidence.followupEnded === true
+      && Boolean(quest.assignee.session?.id || quest.assignee.sessionId)
+      && evidence.sessionId === (quest.assignee.session?.id || quest.assignee.sessionId);
     const storedResult = canFree ? result
       : scopedWrapperEvidence ? 'stopped_by_wrapper'
-        : (result === 'stopped_by_wrapper' || result === 'never_started' ? 'unknown' : result);
+        : scopedApiEvidence ? 'stopped_by_api'
+        : (result === 'stopped_by_wrapper' || result === 'stopped_by_api' || result === 'never_started' ? 'unknown' : result);
+    const resultAt = now();
+    const resultInstanceId = instanceId || this.instanceId || request.instanceId || null;
+    const resultAdapter = adapter || request.adapter || 'unknown';
+    const audit = { result: storedResult, resultAt, resultInstanceId, adapter: resultAdapter };
+    const eventFields = {
+      by: 'board', detail: detail || `取消结果：${storedResult}`, assignee: quest.assignee,
+      quest: id, requestId, source: request.bySource, result: storedResult, adapter: resultAdapter,
+      instanceId: resultInstanceId,
+    };
     if (canFree) {
       const resolvedAt = now();
       const recorded = this.save({
         ...quest,
-        cancelRequest: { ...request, result: storedResult, ...(detail ? { detail: String(detail).slice(0, 2000) } : {}), ...(safeEvidence ? { evidence: safeEvidence } : {}), resolvedAt },
-        assignee: { ...quest.assignee, cancelRequest: { ...request, result: storedResult, resolvedAt } },
+        cancelRequest: { ...request, ...audit, ...(detail ? { detail: String(detail).slice(0, 2000) } : {}), ...(safeEvidence ? { evidence: safeEvidence } : {}), resolvedAt },
+        assignee: { ...quest.assignee, cancelRequest: { ...request, ...audit, resolvedAt } },
         updatedAt: now(),
       });
       const next = this.setStatus(id, 'cancelled', {
-        detail: detail || `cancellation ${result}`, by: 'board', source: 'dispatcher',
+        detail: detail || `取消结果：${storedResult}`, by: 'board', source: 'dispatcher',
         evidence: { kind: 'dispatcher', attempt: attemptEvidence(quest.assignee) },
       });
+      try { this.emitEvent(next || recorded, 'cancel_result', eventFields); } catch (error) {
+        try { process.stderr.write(`questboard: cancellation result event append failed: ${error.message}\n`); } catch {}
+      }
       try { this.emitEvent(next, 'cancel_acknowledged', { by: 'board', detail: result }); } catch (error) {
         try { process.stderr.write(`questboard: cancellation acknowledgement append failed: ${error.message}\n`); } catch {}
       }
       return next || recorded;
     }
-    const nextRequest = { ...request, result: storedResult, ...(detail ? { detail: String(detail).slice(0, 2000) } : {}), ...(safeEvidence ? { evidence: safeEvidence } : {}) };
+    const nextRequest = { ...request, ...audit, ...(detail ? { detail: String(detail).slice(0, 2000) } : {}), ...(safeEvidence ? { evidence: safeEvidence } : {}) };
     const next = this.save({ ...quest, cancelRequest: nextRequest, assignee: { ...quest.assignee, cancelRequest: nextRequest }, updatedAt: now() });
+    try { this.emitEvent(next, 'cancel_result', eventFields); } catch (error) {
+      try { process.stderr.write(`questboard: cancellation result event append failed: ${error.message}\n`); } catch {}
+    }
     try { this.emitEvent(next, 'cancel_acknowledged', { by: 'board', detail: result }); } catch (error) {
       try { process.stderr.write(`questboard: cancellation acknowledgement append failed: ${error.message}\n`); } catch {}
     }
@@ -520,8 +592,8 @@ export class QuestStore extends EventEmitter {
     if (!quest) return null;
     const bySource = resolutionSource(source);
     const why = cancellationReason(reason);
-    if (!ack || !why) throw cancellationError('manual_ack_required', 'manual resolution requires --ack and a non-empty reason');
-    if (!quest.assignee || !holdsSlot(quest)) throw cancellationError('not_cancellable', `${id} has no held worker to resolve`);
+    if (!ack || !why) throw cancellationError('manual_ack_required', '人工处理必须确认 --ack，并填写非空原因');
+    if (!quest.assignee || !holdsSlot(quest)) throw cancellationError('not_cancellable', `${id} 没有仍被占用、可以人工处理的 worker`);
     const audit = manualResolution(bySource, quest.assignee, why);
     const audited = this.save({ ...quest, manualResolution: audit, updatedAt: now() });
     const next = this.save({ ...audited, status: audited.status === 'stalled' ? 'stalled' : 'cancelled', assignee: null, lastDetail: why, updatedAt: now() });

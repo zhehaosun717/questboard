@@ -185,8 +185,9 @@ function validateLane(id, lane) {
   if (lane.api !== undefined) result.api = requireString(lane.api, `${field}.api`);
   if (lane.control !== undefined) {
     if (!lane.control || typeof lane.control !== 'object' || Array.isArray(lane.control)) fail(`${field}.control must be an object`);
-    if (lane.control.type !== 'generic-wrapper') fail(`${field}.control.type must be generic-wrapper`);
-    result.control = { type: 'generic-wrapper' };
+    if (!['generic-wrapper', 'opencode-session'].includes(lane.control.type)) fail(`${field}.control.type must be generic-wrapper or opencode-session`);
+    if (lane.control.type === 'opencode-session' && lane.api === undefined) fail(`${field}.control.type opencode-session requires api`);
+    result.control = { type: lane.control.type };
   }
   // The command that starts a server lane's server (e.g. `opencode serve --port 6096`), so the board can start
   // it when nothing answers at api. It runs once for the lane, not per quest, so it takes no placeholders.

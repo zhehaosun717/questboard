@@ -133,7 +133,7 @@ describe('QuestStore', () => {
   it('names the internal limit cancellation source in invalid-source failures', () => {
     store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
     store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
-    assert.throws(() => store.requestCancellation('RUN-4', { source: 'other', reason: 'stop' }), /ui, cli, mcp or limit/);
+    assert.throws(() => store.requestCancellation('RUN-4', { source: 'other', reason: 'stop' }), /取消来源只能是 ui、cli、mcp 或 limit/);
   });
 
   it('keeps the assignee in the event when a status clears it, and replays after restart', () => {

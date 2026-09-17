@@ -13,7 +13,7 @@ import { captureAttemptReport } from '../core/reportEvidence.js';
 import { createNonDurableBindings, sanitizeUnpersistedSession } from '../core/nonDurableBindings.js';
 import { prepareAnnotationSnapshot, writeAnnotationSnapshot } from '../core/annotationSnapshot.js';
 import { writeRoleCard } from '../core/roleCard.js';
-import { createGenericWrapperAdapter } from './workerControlAdapters.js';
+import { createGenericWrapperAdapter, createOpenCodeSessionAdapter } from './workerControlAdapters.js';
 
 const EVIDENCE_WAIT_MS = 10000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -38,12 +38,14 @@ function laneUsesRole(lane) {
   ].some((value) => typeof value === 'string' && value.includes('{role}'))));
 }
 
-export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer }) {
+export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer, fetchImpl = fetch, genericWrapperAdapter = null }) {
   const queues = new Map();
   const pendingDeliveries = new Set();
   const controlHandles = new Map();
   const dispatcherInstanceId = randomUUID();
-  const genericWrapper = createGenericWrapperAdapter({ config });
+  const genericWrapper = genericWrapperAdapter || createGenericWrapperAdapter({ config });
+  const openCodeSession = createOpenCodeSessionAdapter({ fetchImpl });
+  const sentCancellationRequests = new Set();
   // One instance per project/dispatcher, never a module-level singleton (requirement 5/R3): two projects'
   // dispatchers sharing a process (the desktop app, a shared MCP server) must never see or clear each
   // other's noted sessions just because both happen to run here.
@@ -587,29 +589,74 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
 
   async function cancel(questId, source, reason) {
     const current = store.get(questId);
-    if (!current) return { status: 404, body: { error: 'quest not found' } };
+    if (!current) return { status: 404, body: { error: '找不到任务' } };
+    const lane = config.lanes[current.assignee?.lane];
+    const adapter = lane?.control?.type === 'generic-wrapper' ? 'generic-wrapper'
+      : lane?.control?.type === 'opencode-session' ? 'opencode-session' : 'unsupported';
     let requested;
-    try { requested = store.requestCancellation(questId, { source, reason, instanceId: dispatcherInstanceId, deadlineAt: new Date(Date.now() + 5000).toISOString() }); }
+    try { requested = store.requestCancellation(questId, {
+      source, reason, instanceId: dispatcherInstanceId, adapter,
+      deadlineAt: new Date(Date.now() + 5000).toISOString(),
+    }); }
     catch (error) { return { status: 409, body: { error: 'refused', reasons: [{ code: error.code || 'cancel_refused', message: error.message }] } }; }
     const request = requested.cancelRequest;
     if (request.result !== 'pending') return { status: 200, body: { quest: requested, result: request.result, request } };
+    if (request.instanceId && request.instanceId !== dispatcherInstanceId) {
+      return { status: 202, body: { quest: requested, result: 'pending', request, note: '由其他看板实例发起，等待其结果' } };
+    }
+    if (sentCancellationRequests.has(request.requestId)) {
+      return { status: 202, body: { quest: requested, result: 'pending', request } };
+    }
     // A queued attempt is settled by executePlan's next write-ahead recheck. No adapter is needed and no
     // control message is sent before the queue has proved that no effect happened.
     if (requested.assignee?.phase === 'queued') return { status: 202, body: { quest: requested, result: 'pending', request } };
-    const lane = config.lanes[requested.assignee?.lane];
+    sentCancellationRequests.add(request.requestId);
+    if (lane?.control?.type === 'opencode-session') {
+      const result = await openCodeSession({ attempt: requested.assignee, assignee: requested.assignee, request, laneConfig: lane });
+      const beforeRecord = store.get(questId);
+      const sameRequest = beforeRecord?.cancelRequest
+        && beforeRecord.cancelRequest.requestId === request.requestId
+        && (beforeRecord.cancelRequest.attemptId ?? null) === (request.attemptId ?? null)
+        && (beforeRecord.assignee?.attemptId ?? null) === (request.attemptId ?? null);
+      if (!sameRequest) {
+        return { status: 202, body: { quest: beforeRecord, result: 'unknown', request: beforeRecord?.cancelRequest || null, detail: '取消已变更，取消结果未记录' } };
+      }
+      if (beforeRecord.cancelRequest.result !== 'pending') {
+        return { status: 200, body: { quest: beforeRecord, result: beforeRecord.cancelRequest.result, request: beforeRecord.cancelRequest } };
+      }
+      const next = store.recordCancellationResult(questId, { requestId: request.requestId, ...result, instanceId: dispatcherInstanceId, adapter: 'opencode-session' });
+      if (!next?.cancelRequest || next.cancelRequest.requestId !== request.requestId || (next.assignee?.attemptId ?? null) !== (request.attemptId ?? null)) {
+        return { status: 202, body: { quest: next, result: 'unknown', request: next?.cancelRequest || null, detail: '取消已变更，取消结果未记录' } };
+      }
+      return { status: 202, body: { quest: next, result: next.cancelRequest.result, request: next.cancelRequest } };
+    }
     if (lane?.control?.type !== 'generic-wrapper') {
       if (source === 'limit') {
-        const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: 'manual_required：无法自动停止，请手动处理' });
+        const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: 'manual_required：无法自动停止，请手动处理', instanceId: dispatcherInstanceId, adapter: 'unsupported' });
         return { status: 200, body: { quest: next, result: 'manual_required', request: next.cancelRequest } };
       }
-      const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: '该 lane 没有可验证的 generic wrapper 控制，需要人工确认' });
+      const next = store.recordCancellationResult(questId, { requestId: request.requestId, result: 'manual_required', detail: '该 lane 没有可验证的取消控制通道，需要人工确认', instanceId: dispatcherInstanceId, adapter: 'unsupported' });
       return { status: 200, body: { quest: next, result: 'manual_required', request: next.cancelRequest } };
     }
     const result = await genericWrapper({ attempt: requested.assignee, request, handle: controlHandles.get(request.attemptId) });
     const cancellation = source === 'limit' && result.result === 'manual_required'
       ? { ...result, detail: 'manual_required：无法自动停止，请手动处理' } : result;
-    const next = store.recordCancellationResult(questId, { requestId: request.requestId, ...cancellation });
-    return { status: 202, body: { quest: next, result: result.result, request: next.cancelRequest } };
+    const beforeRecord = store.get(questId);
+    const sameRequest = beforeRecord?.cancelRequest
+      && beforeRecord.cancelRequest.requestId === request.requestId
+      && (beforeRecord.cancelRequest.attemptId ?? null) === (request.attemptId ?? null)
+      && (beforeRecord.assignee?.attemptId ?? null) === (request.attemptId ?? null);
+    if (!sameRequest) {
+      return { status: 202, body: { quest: beforeRecord, result: 'unknown', request: beforeRecord?.cancelRequest || null, detail: '取消已变更，取消结果未记录' } };
+    }
+    if (beforeRecord.cancelRequest.result !== 'pending') {
+      return { status: 200, body: { quest: beforeRecord, result: beforeRecord.cancelRequest.result, request: beforeRecord.cancelRequest } };
+    }
+    const next = store.recordCancellationResult(questId, { requestId: request.requestId, ...cancellation, instanceId: dispatcherInstanceId, adapter: 'generic-wrapper' });
+    if (!next?.cancelRequest || next.cancelRequest.requestId !== request.requestId || (next.assignee?.attemptId ?? null) !== (request.attemptId ?? null)) {
+      return { status: 202, body: { quest: next, result: 'unknown', request: next?.cancelRequest || null, detail: '取消已变更，取消结果未记录' } };
+    }
+    return { status: 202, body: { quest: next, result: next.cancelRequest.result, request: next.cancelRequest } };
   }
 
   function resolve(questId, source, reason, ack) {
@@ -690,6 +737,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // delivery from ever starting (see attemptKey above); it can only ever block a second write for that same
   // attempt, which is exactly what it is for.
   function applyLanes(lanes) {
+    store.expirePendingCancellations?.({ instanceId: dispatcherInstanceId });
     for (const transition of deriveTransitions(store.list(), lanes.packages)) {
       try {
         const quest = store.get(transition.id);
@@ -700,14 +748,17 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         // Only an ending binds a report reference; stalled/dispatched pass through untouched.
         const current = store.get(transition.id);
         if (transition.cancellationResult && current?.cancelRequest) {
-          store.recordCancellationResult(transition.id, { requestId: current.cancelRequest.requestId, result: transition.cancellationResult, detail: transition.detail, evidence: transition.evidence });
+          store.recordCancellationResult(transition.id, {
+            requestId: current.cancelRequest.requestId, result: transition.cancellationResult, detail: transition.detail,
+            evidence: transition.evidence, instanceId: dispatcherInstanceId, adapter: current.cancelRequest.adapter || 'generic-wrapper',
+          });
         } else {
           const report = current?.assignee && TERMINAL_STATUSES.has(transition.status) ? captureReportFor(current) : null;
           store.setStatus(transition.id, transition.status, {
             detail: transition.detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(current?.assignee) },
             ...(report ? { report } : {}),
           });
-          if (transition.limitReason && !current?.cancelRequest && lane?.control?.type === 'generic-wrapper') {
+          if (transition.limitReason && !current?.cancelRequest && ['generic-wrapper', 'opencode-session'].includes(lane?.control?.type)) {
             void cancel(transition.id, 'limit', transition.limitReason).catch((error) => {
               reportPersistenceFailure('limit cancellation', transition.id, error);
             });
