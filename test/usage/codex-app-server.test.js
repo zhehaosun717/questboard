@@ -247,4 +247,44 @@ describe('Codex app-server usage adapter', () => {
     assert.equal(codexAppServer.access, 'official-cli');
     assert.equal(codexAppServer.credentialType, 'codex-chatgpt-session');
   });
+
+  it('skips non-absolute PATH entries such as . so a relative codex.exe is never picked', () => {
+    const checked = [];
+    const fakeExists = (target) => {
+      checked.push(target);
+      if (target === 'codex.exe' || target === '.\\codex.exe' || target === 'relative\\codex.exe') {
+        return true;
+      }
+      return false;
+    };
+
+    const resolved = resolveCodexExecutable({
+      platform: 'win32',
+      arch: 'x64',
+      env: { PATH: '.;relative;sub\\dir', APPDATA: '', LOCALAPPDATA: '' },
+      existsImpl: fakeExists,
+    });
+
+    assert.equal(resolved, null);
+    assert.equal(checked.length, 0, 'non-absolute PATH entries must be skipped without checking the filesystem');
+  });
+
+  it('picks absolute PATH entries while ignoring . and relative paths in PATH', () => {
+    const checked = [];
+    const safeExe = 'C:\\safe\\npm\\codex.exe';
+    const fakeExists = (target) => {
+      checked.push(target);
+      return target === safeExe;
+    };
+
+    const resolved = resolveCodexExecutable({
+      platform: 'win32',
+      arch: 'x64',
+      env: { PATH: '.;relative;C:\\safe\\npm', APPDATA: '', LOCALAPPDATA: '' },
+      existsImpl: fakeExists,
+    });
+
+    assert.equal(resolved, safeExe);
+    assert.ok(!checked.some((p) => p.startsWith('.\\') || p === 'codex.exe' || p.startsWith('relative\\')));
+  });
 });

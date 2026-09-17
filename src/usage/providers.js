@@ -399,7 +399,6 @@ export const volcano = {
     const windows = periods.map((p) => {
       if (!p || typeof p !== 'object') return null;
       const label = VOLCANO_PERIOD_MAP[p.label] || safeLabel(p.label) || '额度窗口';
-      const usedPercent = toNumber(p.percent);
       let resetsAt = null;
       if (p.reset_at) {
         try {
@@ -408,7 +407,15 @@ export const volcano = {
           resetsAt = null;
         }
       }
-      return { label, usedPercent, resetsAt };
+      const resetsAtMs = resetsAt ? Date.parse(resetsAt) : null;
+      const isPast = Number.isFinite(resetsAtMs) && resetsAtMs <= now;
+      const usedPercent = isPast ? null : toNumber(p.percent);
+      return {
+        label,
+        usedPercent,
+        resetsAt,
+        ...(isPast ? { state: 'reset' } : {}),
+      };
     }).filter(Boolean);
 
     return {

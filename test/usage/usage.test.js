@@ -6,7 +6,7 @@ import path from 'node:path';
 import { tmpDir } from '../helpers.js';
 import { createUsageService } from '../../src/usage/service.js';
 import { KIMI_BASE_URL, codex, cursor, deepseek, kimi, openrouter, siliconflow, volcano } from '../../src/usage/providers.js';
-import { childEnvironment, parseJsonDocuments, runCommand, windowLabel } from '../../src/usage/common.js';
+import { childEnvironment, isoOrNull, parseJsonDocuments, runCommand, windowLabel } from '../../src/usage/common.js';
 import { createUsageRoutes } from '../../src/server/usageRoutes.js';
 import { routeParts } from '../../src/server/http.js';
 
@@ -42,6 +42,25 @@ describe('usage providers', () => {
     assert.deepEqual(entry.windows.map((w) => [w.label, w.usedPercent]), [['5 小时', 2], ['7 天', 34]]);
     assert.equal(entry.windows[0].resetsAt, new Date(2000000000 * 1000).toISOString());
     assert.equal(entry.asOf, '2026-09-13T09:00:00.000Z');
+  });
+
+  it('guards huge resets_at in Codex session log without throwing RangeError or failing card', async () => {
+    assert.equal(isoOrNull(1e20), null);
+    assert.equal(isoOrNull(-1e20), null);
+    assert.equal(isoOrNull(Infinity), null);
+    assert.equal(isoOrNull(NaN), null);
+
+    const homedir = fakeHome({
+      codexLines: [
+        { timestamp: '2026-09-13T09:00:00Z', type: 'event_msg', payload: { type: 'token_count', rate_limits: { primary: { used_percent: 15, window_minutes: 300, resets_at: 1e20 } } } },
+      ],
+    });
+    const usage = createUsageService({ homedir, env: {}, providers: [codex] });
+    const [entry] = (await usage.report()).providers;
+    assert.equal(entry.ok, true);
+    assert.equal(entry.windows[0].usedPercent, 15);
+    assert.equal(entry.windows[0].resetsAt, null);
+    assert.equal(entry.windows[0].label, '5 小时');
   });
 
   it('finds keys in OpenCode auth, prefers the environment, and never returns the key', async () => {
@@ -244,7 +263,7 @@ describe('usage providers', () => {
     const fixturePath = path.join(import.meta.dirname, 'fixtures', 'arkcli-usage-plan-coding.synthetic.json');
     const fixtureText = fs.readFileSync(fixturePath, 'utf8');
 
-    const result = await volcano.fetch({ exec: async () => fixtureText });
+    const result = await volcano.fetch({ exec: async () => fixtureText, now: 946656000000 });
     assert.equal(result.plan, 'personal · 已订阅');
     assert.equal(result.asOf, '1999-12-31T16:00:00.000Z');
 
@@ -261,6 +280,27 @@ describe('usage providers', () => {
     assert.ok(!serialized.includes('SYNTHETIC-ACCOUNT'), 'viewer identifiers must be dropped');
     assert.ok(!serialized.includes('SYNTHETIC-SEAT'), 'seat_id must be dropped');
     assert.ok(!serialized.includes('arkcli 只给订阅状态，不给用量数字'));
+  });
+
+  it('marks Volcano periods whose reset time has passed as state reset with null usedPercent', async () => {
+    const fixturePath = path.join(import.meta.dirname, 'fixtures', 'arkcli-usage-plan-coding.synthetic.json');
+    const fixtureText = fs.readFileSync(fixturePath, 'utf8');
+
+    // With now past the reset timestamps, session and weekly should be reset
+    const result = await volcano.fetch({ exec: async () => fixtureText, now: Date.parse('2026-09-16T12:00:00.000Z') });
+    assert.equal(result.plan, 'personal · 已订阅');
+    assert.equal(result.windows[0].label, '5 小时');
+    assert.equal(result.windows[0].usedPercent, null);
+    assert.equal(result.windows[0].state, 'reset');
+
+    assert.equal(result.windows[1].label, '每周');
+    assert.equal(result.windows[1].usedPercent, null);
+    assert.equal(result.windows[1].state, 'reset');
+
+    // monthly has no reset_at, so usedPercent remains
+    assert.equal(result.windows[2].label, '每月');
+    assert.equal(result.windows[2].usedPercent, 3);
+    assert.equal(result.windows[2].state, undefined);
   });
 
   it('handles Volcano subscribed:false and empty periods as not_subscribed and unknown', async () => {

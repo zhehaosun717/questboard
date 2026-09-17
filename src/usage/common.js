@@ -154,8 +154,23 @@ export function safeLabel(value, pattern = SHORT_LABEL_PATTERN) {
 }
 
 export function isoOrNull(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value * 1000).toISOString();
-  if (typeof value === 'string' && Number.isFinite(Date.parse(value))) return new Date(value).toISOString();
+  try {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const ms = value * 1000;
+      if (Math.abs(ms) > 8.64e15) return null;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    if (typeof value === 'string') {
+      const ms = Date.parse(value);
+      if (Number.isFinite(ms) && Math.abs(ms) <= 8.64e15) {
+        const d = new Date(ms);
+        return Number.isNaN(d.getTime()) ? null : d.toISOString();
+      }
+    }
+  } catch {
+    return null;
+  }
   return null;
 }
 

@@ -80,7 +80,11 @@ function addUnique(values, value) {
 
 function pathEntries(env, pathApi) {
   const raw = typeof env?.PATH === 'string' ? env.PATH : env?.Path;
-  return typeof raw === 'string' ? raw.split(pathApi.delimiter).filter(Boolean) : [];
+  return typeof raw === 'string'
+    ? raw.split(pathApi.delimiter)
+        .map((entry) => entry.trim())
+        .filter((entry) => Boolean(entry) && pathApi.isAbsolute(entry))
+    : [];
 }
 
 function packageRootsFor(entry, pathApi) {
@@ -122,10 +126,10 @@ export function resolveCodexExecutable({
   const entries = pathEntries(env, pathApi);
   for (const root of [
     ...entries,
-    ...(typeof env?.APPDATA === 'string' ? [pathApi.join(env.APPDATA, 'npm')] : []),
-    ...(typeof env?.LOCALAPPDATA === 'string' ? [pathApi.join(env.LOCALAPPDATA, 'npm'), pathApi.join(env.LOCALAPPDATA, 'pnpm')] : []),
+    ...(typeof env?.APPDATA === 'string' && pathApi.isAbsolute(env.APPDATA.trim()) ? [pathApi.join(env.APPDATA.trim(), 'npm')] : []),
+    ...(typeof env?.LOCALAPPDATA === 'string' && pathApi.isAbsolute(env.LOCALAPPDATA.trim()) ? [pathApi.join(env.LOCALAPPDATA.trim(), 'npm'), pathApi.join(env.LOCALAPPDATA.trim(), 'pnpm')] : []),
   ]) {
-    addUnique(entries, root);
+    if (pathApi.isAbsolute(root)) addUnique(entries, root);
   }
 
   const candidates = [];

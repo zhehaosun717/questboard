@@ -12,29 +12,39 @@ export const ALLOWED_ACCESS_TYPES = Object.freeze(new Set([
 
 export const ALLOWED_VENDOR_HOSTS = Object.freeze([
   'openai.com',
+  'platform.openai.com',
   'chatgpt.com',
+  'learn.chatgpt.com',
   'kimi.com',
+  'www.kimi.com',
+  'api.kimi.com',
   'moonshot.cn',
   'cursor.com',
   'cursor.sh',
   'volcengine.com',
+  'docs.volcengine.com',
   'deepseek.com',
+  'api-docs.deepseek.com',
+  'platform.deepseek.com',
   'openrouter.ai',
-  'google.com',
-  'siliconflow.cn',
-  'xiaomi.com',
+  'antigravity.google',
   'aliyun.com',
+  'help.aliyun.com',
   'alibabacloud.com',
+  'www.alibabacloud.com',
   'nvidia.com',
+  'docs.api.nvidia.com',
+  'build.nvidia.com',
   'claude.ai',
   'claude.com',
+  'code.claude.com',
   'anthropic.com',
 ]);
 
 export function isAllowedVendorHost(hostname) {
   if (typeof hostname !== 'string' || !hostname.trim()) return false;
   const lower = hostname.trim().toLowerCase();
-  return ALLOWED_VENDOR_HOSTS.some((h) => lower === h || lower.endsWith(`.${h}`));
+  return ALLOWED_VENDOR_HOSTS.includes(lower);
 }
 
 export function validateDocsUrl(urlString) {
@@ -69,7 +79,7 @@ export function validateCatalogEntry(entry) {
   if (/^sk-|^Bearer\s/i.test(entry.credentialType) || entry.credentialType.length > 50) {
     throw new Error(`credentialType looks like a secret value for ${entry.id}`);
   }
-  if (!validateDocsUrl(entry.docsUrl)) {
+  if (entry.docsUrl !== undefined && !validateDocsUrl(entry.docsUrl)) {
     throw new Error(`Invalid docsUrl '${entry.docsUrl}' for ${entry.id}`);
   }
   if (entry.setupCommand !== undefined && (typeof entry.setupCommand !== 'string' || !entry.setupCommand.trim())) {
@@ -85,7 +95,7 @@ function makeEntry(raw) {
     name: raw.name,
     access: raw.access,
     credentialType: raw.credentialType,
-    docsUrl: raw.docsUrl,
+    ...(raw.docsUrl ? { docsUrl: raw.docsUrl } : {}),
     ...(raw.setupCommand ? { setupCommand: raw.setupCommand } : {}),
   });
 }
@@ -121,7 +131,7 @@ export const cursorCatalog = makeEntry({
   name: 'Cursor',
   access: 'undocumented-api',
   credentialType: 'cursor-oauth-session',
-  docsUrl: 'https://www.cursor.com',
+  docsUrl: 'https://cursor.com/docs/api',
 });
 
 export const volcanoCatalog = makeEntry({
@@ -138,7 +148,7 @@ export const deepseekCatalog = makeEntry({
   name: 'DeepSeek',
   access: 'official-api',
   credentialType: 'deepseek-api-key',
-  docsUrl: 'https://platform.deepseek.com/api-docs',
+  docsUrl: 'https://api-docs.deepseek.com/api/get-user-balance',
 });
 
 export const openrouterCatalog = makeEntry({
@@ -154,7 +164,7 @@ export const antigravityCatalog = makeEntry({
   name: 'Antigravity（agy）',
   access: 'local-app',
   credentialType: 'antigravity-local-csrf',
-  docsUrl: 'https://developers.google.com',
+  docsUrl: 'https://antigravity.google/docs/cli/commands/usage',
 });
 
 export const siliconflowCatalog = makeEntry({
@@ -162,7 +172,6 @@ export const siliconflowCatalog = makeEntry({
   name: '硅基流动',
   access: 'official-api',
   credentialType: 'siliconflow-api-key',
-  docsUrl: 'https://siliconflow.cn',
 });
 
 export const mimoCatalog = makeEntry({
@@ -170,7 +179,6 @@ export const mimoCatalog = makeEntry({
   name: '小米 MiMo',
   access: 'undocumented-api',
   credentialType: 'browser-cookie',
-  docsUrl: 'https://mimo.xiaomi.com',
 });
 
 export const alibabaTokenPlanCatalog = makeEntry({
@@ -210,7 +218,6 @@ export const openaiSpendCatalog = makeEntry({
   name: 'OpenAI API 消耗',
   access: 'manual',
   credentialType: 'openai-admin-key',
-  docsUrl: 'https://platform.openai.com/usage',
 });
 
 export const PROVIDER_CATALOG = Object.freeze({

@@ -50,14 +50,30 @@ describe('provider catalog metadata', () => {
       assert.ok(ALLOWED_ACCESS_TYPES.has(entry.access), `Invalid access ${entry.access} for ${entry.id}`);
       assert.ok(typeof entry.credentialType === 'string' && entry.credentialType.length > 0);
       assert.ok(!entry.credentialType.startsWith('sk-'), `credentialType must be a type name, not secret for ${entry.id}`);
-      assert.ok(entry.docsUrl.startsWith('https://'), `docsUrl must use https: for ${entry.id}`);
+      if (entry.docsUrl !== undefined) {
+        assert.ok(entry.docsUrl.startsWith('https://'), `docsUrl must use https: for ${entry.id}`);
+      }
     }
   });
 
-  it('asserts every docsUrl is https and on an allowlisted vendor host', () => {
+  it('asserts every present docsUrl is https and on an allowlisted vendor host', () => {
     for (const entry of CATALOG_ENTRIES) {
-      assert.equal(validateDocsUrl(entry.docsUrl), true, `docsUrl for ${entry.id} (${entry.docsUrl}) must be valid`);
+      if (entry.docsUrl !== undefined) {
+        assert.equal(validateDocsUrl(entry.docsUrl), true, `docsUrl for ${entry.id} (${entry.docsUrl}) must be valid`);
+      }
     }
+  });
+
+  it('verifies exact docsUrl links and dropped docsUrl for providers without evidence', () => {
+    assert.equal(getCatalogEntry('cursor').docsUrl, 'https://cursor.com/docs/api');
+    assert.equal(getCatalogEntry('agy').docsUrl, 'https://antigravity.google/docs/cli/commands/usage');
+    assert.equal(getCatalogEntry('deepseek').docsUrl, 'https://api-docs.deepseek.com/api/get-user-balance');
+    assert.equal(getCatalogEntry('siliconflow').docsUrl, undefined);
+    assert.equal('docsUrl' in getCatalogEntry('siliconflow'), false);
+    assert.equal(getCatalogEntry('mimo').docsUrl, undefined);
+    assert.equal('docsUrl' in getCatalogEntry('mimo'), false);
+    assert.equal(getCatalogEntry('openai-spend').docsUrl, undefined);
+    assert.equal('docsUrl' in getCatalogEntry('openai-spend'), false);
   });
 
   it('rejects suffix spoofing of allowlisted vendor hosts', () => {
@@ -82,6 +98,9 @@ describe('provider catalog metadata', () => {
     assert.equal(isAllowedVendorHost('evilopenai.com'), false);
     assert.equal(isAllowedVendorHost('notgoogle.com'), false);
     assert.equal(isAllowedVendorHost('fakekimi.com'), false);
+    assert.equal(isAllowedVendorHost('sites.google.com'), false);
+    assert.equal(isAllowedVendorHost('evil-openai.com'), false);
+    assert.equal(isAllowedVendorHost('evil.openai.com'), false);
   });
 
   it('rejects non-https, userinfo, and opaque schemes in docsUrl', () => {
@@ -91,6 +110,8 @@ describe('provider catalog metadata', () => {
     assert.equal(validateDocsUrl('https://user:pass@platform.openai.com/docs'), false);
     assert.equal(validateDocsUrl('https://untrusted-host.example.com/docs'), false);
     assert.equal(validateDocsUrl('https://openai.com.evil/docs'), false);
+    assert.equal(validateDocsUrl('https://sites.google.com/view/evil'), false);
+    assert.equal(validateDocsUrl('https://evil-openai.com/docs'), false);
     assert.equal(validateDocsUrl('not a url'), false);
     assert.equal(validateDocsUrl(''), false);
     assert.equal(validateDocsUrl(null), false);
@@ -105,6 +126,7 @@ describe('provider catalog metadata', () => {
     assert.throws(() => validateCatalogEntry({ id: 'test', name: 'Test', access: 'official-api', credentialType: 'sk-secret-token', docsUrl: 'https://openai.com' }), /looks like a secret/);
     assert.throws(() => validateCatalogEntry({ id: 'test', name: 'Test', access: 'official-api', credentialType: 'api-key', docsUrl: 'http://insecure.openai.com' }), /Invalid docsUrl/);
     assert.throws(() => validateCatalogEntry({ id: 'test', name: 'Test', access: 'official-api', credentialType: 'api-key', docsUrl: 'https://openai.com', setupCommand: '' }), /Invalid setupCommand/);
+    assert.doesNotThrow(() => validateCatalogEntry({ id: 'test', name: 'Test', access: 'official-api', credentialType: 'api-key' }));
   });
 
   it('returns null for unknown provider ids and inherited properties in getCatalogEntry', () => {

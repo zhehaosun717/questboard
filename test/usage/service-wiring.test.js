@@ -217,7 +217,7 @@ describe('usage service wiring', () => {
     assert.deepEqual({ access: known.access, credentialType: known.credentialType, docsUrl: known.docsUrl }, {
       access: 'official-api',
       credentialType: 'deepseek-api-key',
-      docsUrl: 'https://platform.deepseek.com/api-docs',
+      docsUrl: 'https://api-docs.deepseek.com/api/get-user-balance',
     });
     assert.deepEqual({ access: codex.access, credentialType: codex.credentialType, docsUrl: codex.docsUrl, setupCommand: codex.setupCommand }, {
       access: 'local-log',
