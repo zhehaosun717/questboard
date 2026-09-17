@@ -285,7 +285,14 @@ describe('the front door wired into a real Vite dev server, in front of a real b
 
   it('the localhost alias really is a different server on this platform (threat context, not the guard itself)', async () => {
     if (!alias) return; // platform refused the dual-stack same-port bind; nothing to demonstrate here
-    const res = await fetch(`http://localhost:${devPort}/`);
+    // Deliberately not `http://localhost:${devPort}/`: Node's fetch() races the IPv4 and IPv6 connections for
+    // a hostname that resolves to both families (RFC 8305 "Happy Eyeballs" — `net.getDefaultAutoSelectFamily()`
+    // is true by default since Node 20), and with a real listener on both `127.0.0.1` (Vite) and `::1` (this
+    // alias) at the very same port number, that race nondeterministically lands the request on either one —
+    // this was observed to flip the guarded-server test below between pass and fail across runs. Targeting the
+    // alias's own literal bound address removes the race and asserts only what this test claims: that a
+    // distinct server actually answers on the family Vite did not bind.
+    const res = await fetch(`http://[::1]:${devPort}/`);
     expect(res.headers.get('x-probe')).toBe('foreign');
   });
 
@@ -381,6 +388,15 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
   let alias: http.Server | null;
   let ownOrigin: string;
   let aliasOrigin: string;
+  // The literal, unambiguous address to actually open every real connection against in this block —
+  // `127.0.0.1` or `[::1]`, whichever family Vite really bound — never the `localhost` name in `ownOrigin`.
+  // `ownOrigin`/`aliasOrigin` stay hostnames because they are exactly the Origin/Referer *header values* under
+  // test; but once this block also plants a foreign listener on the opposite family at the same port (the
+  // `alias` below), `localhost` resolves to both, and Node's fetch()/http.request() race those two connections
+  // (RFC 8305 "Happy Eyeballs", on by default since Node 20) — nondeterministically landing a "real" request on
+  // the foreign alias instead of Vite. Pinning the connection target to `devTarget` while leaving the headers
+  // exactly as designed removes that race from every guard-behaviour assertion below.
+  let devTarget: string;
   let usageCalls: Array<{ refresh: boolean; provider: string | null }>;
   let board: { connections: number; requests: number };
   const priorBoardUrl = process.env.QUESTBOARD_URL;
@@ -423,6 +439,7 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
     } else {
       throw new Error(`unexpected default-host bind address ${JSON.stringify(address)}`);
     }
+    devTarget = address.family === 'IPv6' ? `http://[${address.address}]:${address.port}` : `http://${address.address}:${address.port}`;
   }, 60000);
 
   afterAll(async () => {
@@ -435,14 +452,17 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
 
   function rawRequest(headers: http.OutgoingHttpHeaders): Promise<{ status?: number; body: string }> {
     return new Promise((resolve, reject) => {
-      const url = new URL(ownOrigin);
+      // Connect to the literal `devTarget`, not `ownOrigin` (the `localhost` name) — see the `devTarget`
+      // declaration above for why a `localhost` connection target races against the foreign alias.  The
+      // `Host` header is still `ownOrigin`'s, exactly what a real page opened at `ownOrigin` would send.
+      const target = new URL(devTarget);
       const req = http.request(
         {
-          host: url.hostname,
-          port: url.port,
+          host: target.hostname,
+          port: target.port,
           method: 'GET',
           path: '/api/usage?refresh=1',
-          headers: { host: url.host, ...headers },
+          headers: { host: new URL(ownOrigin).host, ...headers },
         },
         (res) => {
           let body = '';
@@ -457,7 +477,9 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
 
   it('the actual bound origin succeeds: forwards to the board', async () => {
     const before = usageCalls.length;
-    const response = await fetch(`${ownOrigin}/api/usage?refresh=1`, {
+    // Connect to `devTarget` (the literal bound address), not `ownOrigin` — see the `devTarget` declaration
+    // above. The Origin/Referer headers are still `ownOrigin`, exactly the case under test.
+    const response = await fetch(`${devTarget}/api/usage?refresh=1`, {
       headers: { origin: ownOrigin, referer: `${ownOrigin}/usage` },
     });
     expect(response.status).toBe(200);
@@ -468,7 +490,7 @@ describe('the front door with Vite\'s default host (no host set — the plain "n
     const beforeConn = board.connections;
     const beforeReq = board.requests;
     const beforeCalls = usageCalls.length;
-    const response = await fetch(`${ownOrigin}/api/usage?refresh=1`, {
+    const response = await fetch(`${devTarget}/api/usage?refresh=1`, {
       headers: { origin: aliasOrigin, referer: `${aliasOrigin}/usage` },
     });
     const body = await response.json();
