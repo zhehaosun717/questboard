@@ -244,3 +244,17 @@ describe('roster env deny policy round 6 (browser download mirrors)', () => {
     }
   });
 });
+
+describe('roster env allow shapes (owner decision 2026-09-17: _BASE is a base-URL name)', () => {
+  it('accepts a plain _BASE name such as OC_BASE, with no legacy note', () => {
+    assert.equal(isAllowedCardEnvShape('OC_BASE'), true);
+    assert.deepEqual(validateAdventurer({ ...base, env: { OC_BASE: 'http://127.0.0.1:6099' } }).env, { OC_BASE: 'http://127.0.0.1:6099' });
+    assert.equal(envPolicyViolation({ env: { OC_BASE: 'http://127.0.0.1:6099' } }), null);
+  });
+
+  it('still refuses a name that only contains _BASE without ending in it', () => {
+    assert.equal(isAllowedCardEnvShape('OC_BASE_EXTRA'), false);
+    assert.equal(isAllowedCardEnvShape('_BASE'), false);
+    assert.throws(() => validateAdventurer({ ...base, env: { OC_BASE_EXTRA: 'x' } }), /不是卡片可以设置的/);
+  });
+});

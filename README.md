@@ -97,7 +97,7 @@ Dated decisions ("paused on 9/12 because it costs too much") are status records,
 roster stays reusable.
 
 A card's `env` is for provider settings only, and only non-secret values. A name is accepted only if it
-ends with `_BASE_URL`, `_API_BASE`, `_API_URL`, `_MODEL`, `_MODEL_NAME`, `_MODEL_ID`, `_REGION`,
+ends with `_BASE`, `_BASE_URL`, `_API_BASE`, `_API_URL`, `_MODEL`, `_MODEL_NAME`, `_MODEL_ID`, `_REGION`,
 `_ACCOUNT_ID`, `_PROJECT_ID`, `_ORG_ID`, `_ORGANIZATION`, `_TIMEOUT_MS`, `_MAX_TOKENS`, `_TEMPERATURE`,
 `_EFFORT`, `_VARIANT`, `_PROVIDER`, `_DEPLOYMENT` or `_API_VERSION`; is one of `MAX_TOKENS`, `MODEL_NAME`,
 `MODEL`, `PROVIDER_REGION`, `API_TIMEOUT_MS`; or is listed in the project's `policy.cardEnvAllow` (exact

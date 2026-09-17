@@ -70,7 +70,10 @@ export const LOADER_ENV_EXACT_NAMES = Object.freeze([
 // policy above still runs first on every name, so a deny hit wins even over an allowed shape or the
 // project list (defence in depth). Base URLs are allowed on purpose: one lane, several providers.
 export const CARD_ENV_ALLOWED_SUFFIXES = Object.freeze([
-  '_BASE_URL', '_API_BASE', '_API_URL', '_MODEL', '_MODEL_NAME', '_MODEL_ID', '_REGION', '_ACCOUNT_ID',
+  // Owner decision 2026-09-17: '_BASE' joins the base-URL class. A project's own lane wrappers commonly
+  // read a plain '..._BASE' name (this machine's Wastecape uses OC_BASE in tools/oc.js and in the lane's
+  // env), and it is the same kind of setting as _BASE_URL: where the provider is reached.
+  '_BASE', '_BASE_URL', '_API_BASE', '_API_URL', '_MODEL', '_MODEL_NAME', '_MODEL_ID', '_REGION', '_ACCOUNT_ID',
   '_PROJECT_ID', '_ORG_ID', '_ORGANIZATION', '_TIMEOUT_MS', '_MAX_TOKENS', '_TEMPERATURE', '_EFFORT',
   '_VARIANT', '_PROVIDER', '_DEPLOYMENT', '_API_VERSION',
 ]);

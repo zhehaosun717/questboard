@@ -43,9 +43,12 @@
 
 .roster-bulk-card-check {
   display: inline-flex;
-  flex: 1 1 210px;
+  /* Two lines per card: [checkbox name] then the id on its own line. The old single-line row squeezed the
+     name to a couple of characters whenever the id was long, which made a picker of 284 cards unreadable. */
+  flex: 1 1 240px;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
+  gap: 3px 6px;
   min-width: 0;
   max-width: 100%;
   padding: 4px 6px;
@@ -55,10 +58,20 @@
 }
 .roster-bulk-card-check.hidden,
 .roster-bulk-card-check.folded { color: var(--dim); }
-.roster-bulk-card-check span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.roster-bulk-card-check code { min-width: 0; overflow: hidden; overflow-wrap: anywhere; text-overflow: ellipsis; white-space: nowrap; }
-.roster-bulk-card-check code { color: var(--cable); }
-.roster-bulk-card-check small { color: var(--amber); font-size: 10px; }
+.roster-bulk-card-check input { flex: 0 0 auto; margin: 0; }
+.roster-bulk-card-check span { flex: 1 1 60%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roster-bulk-card-check small { flex: 0 0 auto; color: var(--amber); font-size: 10px; }
+.roster-bulk-card-check code {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 22px;
+  color: var(--cable);
+  font-size: 11px;
+  opacity: 0.9;
+}
 
 .roster-bulk-fields {
   display: grid;

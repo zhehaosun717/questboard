@@ -98,7 +98,7 @@ cursor-agent）报给你，让你用 `--lane` 自己加。
 
 带日期的决定（「9 月 12 日暂停，太费钱」）永远是**状态记录**，不是名册里的文字——这样名册才能复用。
 
-卡的 `env` 只用来放模型服务的设置，而且只能放非密钥的值。变量名必须以 `_BASE_URL`、`_API_BASE`、
+卡的 `env` 只用来放模型服务的设置，而且只能放非密钥的值。变量名必须以 `_BASE`、`_BASE_URL`、`_API_BASE`、
 `_API_URL`、`_MODEL`、`_MODEL_NAME`、`_MODEL_ID`、`_REGION`、`_ACCOUNT_ID`、`_PROJECT_ID`、`_ORG_ID`、
 `_ORGANIZATION`、`_TIMEOUT_MS`、`_MAX_TOKENS`、`_TEMPERATURE`、`_EFFORT`、`_VARIANT`、`_PROVIDER`、
 `_DEPLOYMENT` 或 `_API_VERSION` 结尾；或者就是 `MAX_TOKENS`、`MODEL_NAME`、`MODEL`、`PROVIDER_REGION`、
