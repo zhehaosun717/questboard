@@ -212,10 +212,10 @@ export const commands = {
   async assign(args) {
     const { config, base } = context(args);
     const requested = option(args, '--adventurer');
-    // A preference never overrides an explicit choice: only a missing card falls back to 策略 → 默认卡,
+    // A preference never overrides an explicit choice: only a missing card falls back to 派出禁令（规则与限制） → 默认卡,
     // and the board says which card it picked and why before it does anything.
     const adventurer = requested === undefined ? config.policy.defaultCard || undefined : requested;
-    if (requested === undefined && adventurer !== undefined) out(`没指定卡，用设置 → 策略 里的默认卡「${adventurer}」`);
+    if (requested === undefined && adventurer !== undefined) out(`没指定卡，用派出禁令（规则与限制）里的默认卡「${adventurer}」`);
     if (adventurer) {
       // S3: a review quest's upstream check (src/core/rules.js reviewUpstreamEvidence) is judged here from
       // the same snapshot the board's own drop preview reads, so the CLI shows the identical warning or

@@ -56,13 +56,7 @@ function packageIdentity(quest, dispatch, identitiesByName) {
 }
 
 function attemptStartAt(quest, dispatch) {
-  const attempts = [
-    ...(quest?.assignee ? [quest.assignee] : []),
-    ...[...(quest?.dispatches || [])].reverse(),
-  ];
-  const matching = attempts.find((attempt) => attempt && attempt.name === dispatch.name
-    && (!dispatch.attemptId || !attempt.attemptId || dispatch.attemptId === attempt.attemptId));
-  return matching?.at || dispatch.at;
+  return quest?.assignee?.at || dispatch.at;
 }
 
 function baseEntry(pkg, dispatch, data, now, adventurerId, quest) {
@@ -70,7 +64,11 @@ function baseEntry(pkg, dispatch, data, now, adventurerId, quest) {
     ...data.dispatches.map((d) => ({ at: d.at, lane: d.lane, model: d.model, event: 'dispatch' })),
     ...data.notes.map((n) => ({ at: n.at, event: 'note', text: n.text })),
   ].sort((a, b) => a.at.localeCompare(b.at));
-  const current = Boolean(quest?.assignee && isCurrentRow({ dispatchedAt: dispatch.at }, quest.assignee, quest));
+  const current = Boolean(
+    quest?.assignee
+    && quest.assignee.name === dispatch.name
+    && isCurrentRow({ dispatchedAt: dispatch.at }, quest.assignee, quest),
+  );
   const startedAt = current ? attemptStartAt(quest, dispatch) : dispatch.at;
   return {
     package: pkg, lane: dispatch.lane, model: dispatch.model, variant: dispatch.variant || '', name: dispatch.name,

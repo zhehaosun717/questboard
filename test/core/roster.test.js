@@ -19,8 +19,19 @@ describe('roster variants', () => {
   });
 
   it('fails loudly with variants named for malformed declarations', () => {
-    for (const variants of ['high', [1], [''], ['  '], ['high', 'high']]) {
+    for (const variants of ['high', [1], [''], ['  '], [' high'], ['high '], ['high', 'high']]) {
       assert.throws(() => validateAdventurer({ ...base, variants }), /variants/);
     }
+  });
+
+  it('rejects variant entries whose trimmed form differs from the value', () => {
+    assert.throws(
+      () => validateAdventurer({ ...base, variants: [' high'] }),
+      (err) => err.message.includes('variants') && /leading or trailing whitespace/.test(err.message),
+    );
+    assert.throws(
+      () => validateAdventurer({ ...base, variants: ['low', 'high '] }),
+      (err) => err.message.includes('variants') && /leading or trailing whitespace/.test(err.message),
+    );
   });
 });

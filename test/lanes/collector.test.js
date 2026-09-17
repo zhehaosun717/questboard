@@ -159,6 +159,39 @@ describe('collector', () => {
     assert.deepEqual(deriveTransitions([freshQuest], freshLanes.packages, freshNow), []);
   });
 
+  it('an older attempt sharing the row name must not lend its start time to an unrelated hand run', async () => {
+    const { config, write } = makeProject({ lanes: {
+      limited: { run: ['tools/run.sh'], outputDir: '.work/limited', limits: { maxMinutes: 30 } },
+    } });
+    const t0 = Date.parse('2026-09-16T10:00:00.000Z');
+    const t1 = Date.parse('2026-09-16T11:00:00.000Z');
+    const handRunAt = t1 + 5 * 60 * 1000;
+    const now = t1 + 15 * 60 * 1000;
+
+    appendJsonLine(config.paths.registry, {
+      at: new Date(handRunAt).toISOString(), event: 'dispatch', variant: '', package: 'PKG-1',
+      lane: 'limited', model: 'm', name: 'run4',
+    });
+    write('.work/limited/run4.out', 'still running');
+
+    const quest = {
+      id: 'PKG-1',
+      status: 'dispatched',
+      assignee: { name: 'run4-2', at: new Date(t1).toISOString() },
+      dispatches: [{ name: 'run4', at: new Date(t0).toISOString() }],
+      kind: 'code',
+    };
+    const questFile = path.join(config.paths.data, 'quests.jsonl');
+    fs.mkdirSync(path.dirname(questFile), { recursive: true });
+    fs.writeFileSync(questFile, `${JSON.stringify(quest)}\n`);
+
+    const lanes = await createCollector(config).collect({ now });
+    assert.equal(lanes.packages[0].dispatchedAt, new Date(handRunAt).toISOString());
+    assert.equal(lanes.packages[0].attemptAt, undefined, 'an older attempt sharing the row name must not lend attemptAt');
+    assert.equal(lanes.packages[0].elapsed, 10 * 60 * 1000);
+    assert.equal(lanes.packages[0].state, 'running');
+  });
+
   it('reports lane limits and the verification strip', async () => {
     const { config, write } = makeProject({ verification: { progressDirs: ['.work/full'] } });
     dispatch(config, { package: 'LIMIT-1', lane: 'codex', model: 'gpt-5.6-luna', name: 'old', adventurerId: 'codex-luna' });

@@ -51,6 +51,9 @@ export function validateAdventurer(entry, where = 'adventurer') {
     if (!Array.isArray(entry.variants) || entry.variants.some((variant) => typeof variant !== 'string' || !variant.trim())) {
       fail(`${at}.variants must be an array of non-empty strings`);
     }
+    if (entry.variants.some((variant) => variant.trim() !== variant)) {
+      fail(`${at}.variants entries must not contain leading or trailing whitespace`);
+    }
     if (new Set(entry.variants).size !== entry.variants.length) fail(`${at}.variants must not contain duplicate values`);
   }
   if (entry.agent !== undefined && typeof entry.agent !== 'string') fail(`${at}.agent must be a string`);

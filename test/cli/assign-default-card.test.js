@@ -37,7 +37,7 @@ describe('questboard assign default card', () => {
   it('uses the 策略 default card when no --adventurer is given, and says which card and why', async () => {
     const done = await atBoard(['assign', 'AS-1']);
     assert.equal(done.status, 0, done.stderr);
-    assert.match(done.stdout, /没指定卡，用设置 → 策略 里的默认卡「oc-mimo」/);
+    assert.match(done.stdout, /没指定卡，用派出禁令（规则与限制）里的默认卡「oc-mimo」/);
     const quest = (await fx.api('/api/quests/AS-1')).body.quest;
     assert.equal(quest.assignee.model, 'xiaomi/mimo-v2.5-pro', 'the default card真正拿到了这个任务');
   });

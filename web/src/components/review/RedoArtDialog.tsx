@@ -282,7 +282,7 @@ export function RedoArtDialog({
               className="redo-input redo-path"
               type="text"
               value={customBrief}
-              placeholder="例如 docs/briefs/art-redo.md"
+              placeholder="例如 docs/briefs/ART-REDO-1.md"
               onChange={(event) => changeCustomBrief(event.target.value)}
             />
           </label>
