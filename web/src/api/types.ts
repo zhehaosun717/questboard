@@ -98,9 +98,29 @@ export interface Quest {
   cancelRequest?: CancelRequest;
   manualResolution?: ManualResolution | null;
   roleCard?: RoleCardRef;
+  // Feedback 15: present only once a done transition carried a validated acceptance record; an older server,
+  // or a done quest accepted before this field existed, simply has none.
+  acceptance?: Acceptance;
   // Suggestion S3: present only once someone has recorded an exception to this review quest's own
   // upstream-evidence refusal (POST .../review-override). Absent on every other quest and on an older server.
   reviewOverride?: ReviewOverride;
+}
+
+export type AcceptanceActor = 'owner' | 'coordinator';
+
+// One current-attempt evidence item (src/core/evidence.js EvidenceItem) an acceptance named — kind/digest/
+// attemptId are what the server matched against, `ref` is carried along for display only.
+export interface AcceptanceEvidenceRef {
+  kind: EvidenceKind;
+  ref: string | null;
+  digest: string | null;
+  attemptId: string | null;
+}
+
+export interface Acceptance {
+  actor: AcceptanceActor;
+  evidenceRefs: AcceptanceEvidenceRef[];
+  note?: string;
 }
 
 // Owner-driven correction of a posted quest's own descriptive fields (POST /api/quests/:id/metadata,

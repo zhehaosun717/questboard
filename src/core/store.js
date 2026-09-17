@@ -16,6 +16,7 @@ import {
   reviewTargetLockedMessage, findReviewAncestorLock, reviewAncestorLockedMessage, kindLockReason,
 } from './metadataUpdate.js';
 import { validateRoleCard } from './roleCard.js';
+import { validateAcceptanceShape } from './acceptance.js';
 
 export const KINDS = new Set(['code', 'review', 'art', 'tool', 'owner']);
 export const QUEST_STATUSES = new Set(['posted', 'dispatched', 'delivered', 'reviewing', 'needs_owner', 'owner_playtest', 'lane_limited',
@@ -389,10 +390,15 @@ export class QuestStore extends EventEmitter {
     return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
   }
 
-  setStatus(id, status, { detail = '', by = 'coordinator', report = null, source, ack = false, evidence } = {}) {
+  setStatus(id, status, { detail = '', by = 'coordinator', report = null, source, ack = false, evidence, acceptance } = {}) {
     if (!QUEST_STATUSES.has(status)) throw new Error(`status must be one of ${[...QUEST_STATUSES].join('|')}`);
     const quest = this.quests.get(id);
     if (!quest) return null;
+    // Feedback 15: an additive, validated acceptance record — shape only here (actor/evidenceRefs/note); the
+    // match against this quest's real current-attempt evidence is the caller's job (src/server/questRoutes.js,
+    // src/core/acceptance.js buildAcceptance), since store.js never sees the project-verification/hook data
+    // questEvidence() needs. Carried only on done; every other status ignores it.
+    const acceptanceRecord = status === 'done' ? validateAcceptanceShape(acceptance) : undefined;
     let current = quest;
     if (this.freesSlot(status) && holdsSlot(current)) current = this.authorizeFreeTransition(current, status, { detail, by, source, ack, evidence });
     // Terminal statuses go through setTerminalStatus, which owns the durable ordering (persist the fact,
@@ -403,7 +409,10 @@ export class QuestStore extends EventEmitter {
     // A stall is silence, not a confirmed exit: the worker keeps the quest (and its slot and file
     // reservations) until release() says the process is gone. failed/bounced come from exit files.
     const stillAssigned = ['dispatched', 'delivered', 'reviewing', 'stalled'].includes(status);
-    const next = this.save({ ...current, status, assignee: stillAssigned ? current.assignee : null, lastDetail: String(detail).slice(0, 2000), updatedAt: now() });
+    const next = this.save({
+      ...current, status, assignee: stillAssigned ? current.assignee : null, lastDetail: String(detail).slice(0, 2000), updatedAt: now(),
+      ...(acceptanceRecord ? { acceptance: acceptanceRecord } : {}),
+    });
     this.emitEvent(next, STATUS_EVENTS[status] || `status_${status}`, { by, detail, assignee: current.assignee || {} });
     return next;
   }

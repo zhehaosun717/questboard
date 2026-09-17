@@ -1,6 +1,6 @@
 // The only module that talks to the board server. Errors carry the server's refusal reasons.
 import type {
-  AdventurerInput, ArtRedoResponse, Card, CardStatus, LanePreviewRequest, LanePreviewResponse, LaneServerStatus, LanesReport, Message, MetadataUpdateInput, OmoChange, OmoConfig, Quest, QuestDetail, QuestEvent,
+  Acceptance, AdventurerInput, ArtRedoResponse, Card, CardStatus, LanePreviewRequest, LanePreviewResponse, LaneServerStatus, LanesReport, Message, MetadataUpdateInput, OmoChange, OmoConfig, Quest, QuestDetail, QuestEvent,
   QuestStatus, Reason, ReportText, SettingsReport, Snapshot, Thread, ThreadDetail, ThreadStatusFilter, UsageReport,
   RosterBulkRequest, RosterBulkResponse,
 } from './types';
@@ -53,7 +53,10 @@ export const api = {
   // otherwise refuse it. Never marks any evidence as passed; refused (409) on anything but a review quest.
   reviewOverride: (questId: string, reason: string) =>
     call<{ quest: Quest }>(`${quest(questId)}/review-override`, 'POST', { reason, by: 'owner' }),
-  setQuestStatus: (questId: string, status: QuestStatus, detail: string, ack = false) => call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, ack, by: 'owner' }),
+  // acceptance (feedback 15) only takes effect on status 'done'; actor must be 'owner' — the board can never
+  // claim coordinator, since this call always records `by: 'owner'`.
+  setQuestStatus: (questId: string, status: QuestStatus, detail: string, ack = false, acceptance?: Acceptance) =>
+    call<{ quest: Quest }>(`${quest(questId)}/status`, 'POST', { status, detail, ack, by: 'owner', ...(acceptance ? { acceptance } : {}) }),
   cancelQuest: (questId: string, reason: string) => call<{ quest: Quest; result: string }>(`${quest(questId)}/cancel`, 'POST', { reason }),
   // Revision-guarded correction of title/brief/parents/conflicts/allowedLanes/needsOwner — never status,
   // assignee or dispatch history. Send only the fields actually changed (see lib/metadataForm.ts diffDraft);

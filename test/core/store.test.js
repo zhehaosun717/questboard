@@ -270,6 +270,48 @@ describe('QuestStore', () => {
     assert.deepEqual(new QuestStore(project.config).get('RUN-9'), before);
   });
 
+  describe('acceptance (feedback 15)', () => {
+    it('stores a validated acceptance additively on done, and never on any other status', () => {
+      store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+      store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
+      collectorStatus('RUN-4', 'delivered');
+      const acceptance = { actor: 'owner', evidenceRefs: [{ kind: 'report', ref: 'x', digest: 'd1', attemptId: 'a1' }], note: '看过了' };
+      const done = store.setStatus('RUN-4', 'done', { detail: 'owner 验收：看过了', by: 'ui', acceptance });
+      assert.deepEqual(done.acceptance, acceptance);
+      // A stall carrying the same shaped object must not pick it up — only done ever stores it.
+      store.post({ package: 'RUN-9', brief: 'docs/briefs/RUN-9-not-posted.md' });
+      store.assign('RUN-9', { adventurer: card('codex-luna'), name: 'run9' });
+      const stalled = store.setStatus('RUN-9', 'stalled', { detail: 'no output', acceptance });
+      assert.equal(stalled.acceptance, undefined);
+    });
+
+    it('refuses a malformed acceptance without touching the quest', () => {
+      store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+      store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
+      collectorStatus('RUN-4', 'delivered');
+      assert.throws(() => store.setStatus('RUN-4', 'done', { acceptance: { actor: 'nobody' } }), /owner 或 coordinator/);
+      assert.equal(store.get('RUN-4').status, 'delivered', 'a refused acceptance must not still move the quest to done');
+    });
+
+    it('leaves a legacy done quest with no acceptance field untouched', () => {
+      store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+      store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
+      collectorStatus('RUN-4', 'delivered');
+      const legacy = store.setStatus('RUN-4', 'done', { detail: 'owner 验收' });
+      assert.equal('acceptance' in legacy, false);
+    });
+
+    it('never transitions to done by itself: a delivered quest with a PASS report stays delivered until setStatus(done) is called', () => {
+      const { quest } = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
+      assert.equal(quest.status, 'posted');
+      store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });
+      const report = { source: 'delivery', ref: '.work/oc/run4.md', digest: 'd1', capturedAt: new Date().toISOString(), attemptId: store.get('RUN-4').assignee.attemptId, verdict: { verdict: 'PASS' } };
+      const delivered = collectorStatus('RUN-4', 'delivered', { report });
+      assert.equal(delivered.status, 'delivered');
+      assert.equal(store.get('RUN-4').status, 'delivered', 'a PASS report alone never advances the quest to done');
+    });
+  });
+
   describe('updateMetadata', () => {
     it('corrects only the fields passed, bumps the revision, and records the actor and changed fields on metadata_update', () => {
       const { quest } = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', title: 'old title' });

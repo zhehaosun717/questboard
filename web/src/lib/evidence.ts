@@ -3,7 +3,7 @@
 // belongs to no single quest. Each rung names who said it, and who is expected to say it: returned code and
 // tools wait on the coordinator's technical review, art and 你来 work wait on the owner. Nothing here
 // guesses an actor from a status: an unrecorded acceptance says it is unrecorded.
-import type { Quest, ReportSource, Snapshot } from '../api/types';
+import type { AcceptanceEvidenceRef, Quest, ReportSource, Snapshot } from '../api/types';
 import { isAwaitingSignOff, reviewsOf } from './questState';
 import { acceptanceBy } from './labels';
 
@@ -82,6 +82,9 @@ export interface Rung {
   label: string;
   state: RungState;
   note: string;
+  // Feedback 15: present only on the accepted rung of a quest with a structured acceptance record — the
+  // evidence items it named, for a short "kind + digest" display (EvidenceLadder.tsx).
+  refs?: AcceptanceEvidenceRef[];
 }
 
 const CLAIMED = new Set<Quest['status']>(['delivered', 'reviewing', 'done']);
@@ -157,6 +160,19 @@ function acceptedRung(quest: Quest): Rung {
   const by = acceptanceBy(quest.kind);
   const base = { key: 'accepted' as const, label: by === 'coordinator' ? 'coordinator 验收' : '你验收' };
   if (quest.status === 'done') {
+    // Feedback 15: a structured acceptance record is authoritative — actor and the evidence it named, never
+    // guessed from the note text. A done quest from before this field existed (or an older server) has none
+    // and falls back to the legacy text-sniffed actor below.
+    const record = quest.acceptance;
+    if (record) {
+      const label = record.actor === 'owner' ? 'owner 验收' : 'coordinator 验收';
+      const mismatch = record.actor === 'owner' && by === 'coordinator'
+        ? '（技术活本该 coordinator 先核验）'
+        : record.actor === 'coordinator' && by === 'owner'
+          ? '（这本该由你验收）'
+          : '';
+      return { ...base, label, state: 'done', note: `${label}${mismatch}`, ...(record.evidenceRefs.length ? { refs: record.evidenceRefs } : {}) };
+    }
     const actor = recordedAcceptor(quest.lastDetail ?? '');
     // A completed quest is labelled by who the record actually names. An owner clicking 验收 on technical
     // work stays the owner's click — the rung must not quietly hand the coordinator credit for it.

@@ -14,6 +14,7 @@ import { briefExists, briefUnusable, lockPresent } from '../core/snapshot.js';
 import { laneServers } from '../core/laneServer.js';
 import { attemptOf, questReportView, readCapturedReport } from '../core/reportEvidence.js';
 import { questEvidence } from '../core/evidence.js';
+import { buildAcceptance } from '../core/acceptance.js';
 import { canDispatch, reviewUpstreamEvidence } from '../core/rules.js';
 import { createRosterBulkRoutes } from './rosterBulkRoutes.js';
 
@@ -225,7 +226,20 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     if (parts[3] === 'status') {
       if (!MANUAL_STATUSES.has(body.status)) { sendJson(response, 400, { error: `status must be one of ${[...MANUAL_STATUSES].join('|')}; dispatch goes through assign` }); return; }
       try {
-        sendJson(response, 200, { quest: store.setStatus(questId, body.status, { detail: body.detail || '', by: actorSource, source, ack: body.ack === true }) });
+        // Feedback 15: an acceptance record is only ever built from THIS quest's own current-attempt evidence
+        // (src/core/evidence.js), so a stale or fabricated ref cannot be stored, and `by` is the identity this
+        // request was recorded under above — 'owner' for a board click (the client always sends it), never
+        // overridable to 'coordinator' from the board.
+        const acceptance = body.status === 'done' && body.acceptance !== undefined && body.acceptance !== null
+          ? buildAcceptance(body.acceptance, {
+            by,
+            evidenceItems: questEvidence({
+              config, quest: store.get(questId), verification: (getLanes() || {}).verification || null,
+              latestDispatchAt: projectLatestDispatchAt(store.list()),
+            }).items,
+          })
+          : undefined;
+        sendJson(response, 200, { quest: store.setStatus(questId, body.status, { detail: body.detail || '', by: actorSource, source, ack: body.ack === true, ...(acceptance ? { acceptance } : {}) }) });
       } catch (error) {
         sendJson(response, 409, { error: 'refused', reasons: [{ code: error.code || 'status_refused', message: error.message }] });
       }

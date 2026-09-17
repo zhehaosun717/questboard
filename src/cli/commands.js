@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { option, optionAll, projectConfig, serverUrl, request } from './client.js';
+import { validateAcceptanceShape } from '../core/acceptance.js';
 import { startServer } from '../server/server.js';
 import { validateBoardPort } from '../core/config.js';
 import { homePaths } from '../core/home.js';
@@ -34,6 +35,22 @@ export function parsePortOption(raw) {
   if (raw === undefined) return undefined;
   if (!/^-?\d+$/.test(raw.trim())) throw new Error(`questboard: --port 必须是 1 到 65535 之间的整数，收到 "${raw}"`);
   return validateBoardPort(Number(raw), '--port');
+}
+
+// Feedback 15: `--evidence-ref kind=report,digest=<sha>,attemptId=<id>` (repeatable). Parsed here only into
+// the small ref shape the server matches against real evidence (src/core/acceptance.js) — this file never
+// decides whether a ref is real, it only reads the flag the coordinator typed.
+function parseEvidenceRef(raw) {
+  const ref = {};
+  for (const pair of raw.split(',')) {
+    const eq = pair.indexOf('=');
+    if (eq < 0) continue;
+    const key = pair.slice(0, eq).trim();
+    const value = pair.slice(eq + 1).trim();
+    if (['kind', 'ref', 'digest', 'attemptId'].includes(key)) ref[key] = value;
+  }
+  if (!ref.kind) throw new Error(`--evidence-ref 格式不对，至少要有 kind：${raw}（例：kind=report,digest=<sha256>,attemptId=<id>）`);
+  return ref;
 }
 
 function questLine(quest) {
@@ -199,7 +216,17 @@ export const commands = {
   async status(args) {
     const { base } = context(args);
     const [id, status] = args;
-    const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/status`, 'POST', { status, detail: option(args, '--detail'), by: option(args, '--by') || 'coordinator' }, { source: 'cli' });
+    const by = option(args, '--by') || 'coordinator';
+    // Feedback 15: --evidence-ref/--note build an acceptance record only for `status done`; actor is always
+    // this request's own --by (default coordinator), so it can never claim an identity the request wasn't
+    // recorded under. Shape-validated here so a bad flag is refused locally before the round trip; the server
+    // still matches every ref against the quest's real current-attempt evidence.
+    const evidenceRefs = optionAll(args, '--evidence-ref').map(parseEvidenceRef);
+    const note = option(args, '--note');
+    const acceptance = status === 'done' && (evidenceRefs.length > 0 || note !== undefined)
+      ? validateAcceptanceShape({ actor: by, evidenceRefs, note })
+      : undefined;
+    const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/status`, 'POST', { status, detail: option(args, '--detail'), by, ...(acceptance ? { acceptance } : {}) }, { source: 'cli' });
     out(questLine(quest));
   },
 
@@ -283,7 +310,9 @@ export const commands = {
     // sends no `evidence` field says so instead of printing `undefined`.
     if (args.includes('--evidence')) {
       if (!quest.evidence) throw new Error(`${id} 没有证据数据：服务器版本不支持 evidence 字段`);
-      out(JSON.stringify(quest.evidence, null, 2));
+      // Feedback 15: the acceptance record (if any) rides alongside the evidence it was matched against —
+      // additive, null on a quest never accepted or on an older server that predates the field.
+      out(JSON.stringify({ ...quest.evidence, acceptance: quest.acceptance ?? null }, null, 2));
       return;
     }
     out(args.includes('--json') ? JSON.stringify(quest, null, 2) : questDetailText(quest));

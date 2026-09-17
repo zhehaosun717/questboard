@@ -10,6 +10,9 @@
 //   questboard get <id> | show <id> [--json]                        (one quest: revision, worker, dispatch history, detail, files; --json for agents)
 //   questboard release <id> --detail "how you confirmed the worker stopped"   (frees a stalled quest only; never kills or forces anything)
 //   questboard status RUN-4 done|delivered|reviewing|needs_owner|owner_playtest|lane_limited|superseded|cancelled|failed [--detail "..."]
+//        [--by coordinator|owner] [--evidence-ref kind=report,digest=<sha>,attemptId=<id> ...] [--note "..."]
+//        (--evidence-ref/--note only take effect on `done`: they record an acceptance naming --by as the actor,
+//        matched against the quest's own current-attempt evidence; refused if a ref does not match)
 //   questboard ruling RUN-4 --text "..."
 //   questboard update RUN-4 [--title "..."] [--brief docs/briefs/x.md] [--parents A-1,B-2] [--conflicts C-3]
 //        [--lanes codex,agy] [--needs-owner "question"] [--if-revision 3] [--by who]

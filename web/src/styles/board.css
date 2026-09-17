@@ -305,6 +305,9 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: var(--ink); ba
 .evidence-pending { border-top-color: var(--amber); } .evidence-pending .evidence-mark { color: var(--brass-lt); }
 .evidence-bad { border-top-color: var(--blood); } .evidence-bad .evidence-mark { color: var(--wax-lt); }
 .evidence-skipped { opacity: .75; }
+/* Feedback 15: the accepted rung's named evidence (kind + short digest). */
+.evidence-accepted-refs { margin: 3px 0 0; padding: 0; list-style: none; font-size: 10px; color: var(--dim); }
+.evidence-accepted-refs li { line-height: 1.4; }
 .d-sec { margin-top: 20px; }
 .d-sec h3 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; padding-bottom: 5px; font: 400 18px var(--han); color: var(--tag); border-bottom: 1px solid var(--steel); }
 .d-sec h3 span { font: 400 11px var(--display); letter-spacing: .3em; color: var(--rust); }

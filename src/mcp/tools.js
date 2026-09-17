@@ -22,6 +22,8 @@ function questSummary(quest) {
     ...(quest.parents.length ? { parents: quest.parents } : {}),
     ...(quest.cancelRequest ? { cancelRequest: quest.cancelRequest } : {}),
     ...(quest.manualResolution ? { manualResolution: quest.manualResolution } : {}),
+    // Feedback 15: additive — present only once a done transition carried a validated acceptance record.
+    ...(quest.acceptance ? { acceptance: quest.acceptance } : {}),
   };
 }
 
@@ -55,7 +57,7 @@ export function createTools({ config, base, author, home, request }) {
     {
       name: 'questboard_get_quest',
       title: 'Get a quest',
-      description: 'One quest with its history, the files its brief may edit, linked message-board threads, live worker output, which cards may take it right now (refusals grouped by reason), and the current attempt\'s structured evidence (worker report, project verification, verification hook — see `evidence`).',
+      description: 'One quest with its history, the files its brief may edit, linked message-board threads, live worker output, which cards may take it right now (refusals grouped by reason), the current attempt\'s structured evidence (worker report, project verification, verification hook — see `evidence`), and, once accepted, `acceptance` (actor and the evidence items it named).',
       inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Package id, e.g. RUN-4' } }, required: ['id'] },
       annotations: read,
       handler: async (args) => {
@@ -136,12 +138,36 @@ export function createTools({ config, base, author, home, request }) {
     {
       name: 'questboard_set_quest_status',
       title: 'Set a quest status',
-      description: 'Move a quest after verification or a decision: done, delivered, reviewing, needs_owner, owner_playtest, lane_limited, superseded, cancelled, failed. Dispatch itself only happens through assign or adopt.',
-      inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string', enum: MANUAL_STATUSES }, detail: { type: 'string' }, ack: { type: 'boolean' } }, required: ['id', 'status'] },
+      description: 'Move a quest after verification or a decision: done, delivered, reviewing, needs_owner, owner_playtest, lane_limited, superseded, cancelled, failed. Dispatch itself only happens through assign or adopt. On `done`, acceptance is optional: pass it to record who accepted and which of this quest\'s current-attempt evidence items (from get_quest\'s `evidence`) that acceptance relied on — actor must equal this call\'s own identity (the configured author), and every evidenceRef must match a bound item by kind, digest and attemptId or the call is refused.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' }, status: { type: 'string', enum: MANUAL_STATUSES }, detail: { type: 'string' }, ack: { type: 'boolean' },
+          acceptance: {
+            type: 'object',
+            description: 'Only meaningful on status "done".',
+            properties: {
+              actor: { type: 'string', enum: ['owner', 'coordinator'], description: 'Must equal this call\'s own identity.' },
+              evidenceRefs: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: { kind: { type: 'string', enum: ['report', 'project-verification', 'hook'] }, ref: { type: 'string' }, digest: { type: 'string' }, attemptId: { type: 'string' } },
+                  required: ['kind'],
+                },
+              },
+              note: { type: 'string' },
+            },
+            required: ['actor'],
+          },
+        },
+        required: ['id', 'status'],
+      },
       annotations: write,
       handler: async (args) => {
         required(args, ['id', 'status']);
-        return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/status`, 'POST', { status: args.status, detail: args.detail || '', ack: args.ack === true, by: author })).quest);
+        const body = { status: args.status, detail: args.detail || '', ack: args.ack === true, by: author, ...(args.acceptance ? { acceptance: args.acceptance } : {}) };
+        return questSummary((await api(`/api/quests/${encodeURIComponent(args.id)}/status`, 'POST', body)).quest);
       },
     },
     {

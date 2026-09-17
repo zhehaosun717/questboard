@@ -160,6 +160,29 @@ describe('evidenceFor', () => {
     expect(accepted?.note).toContain('技术活本该 coordinator 先核验');
   });
 
+  it('feedback 15: a structured acceptance record is authoritative and shows actor and evidence, never guessed from lastDetail', () => {
+    const record = { actor: 'owner' as const, evidenceRefs: [{ kind: 'report' as const, ref: '.work/oc/mod1.md', digest: '0123456789abcdef', attemptId: 'a1' }] };
+    const rung = evidenceFor(work({ status: 'done', lastDetail: 'this text is ignored', acceptance: record }), makeSnapshot())[2];
+    expect(rung?.label).toBe('owner 验收');
+    expect(rung?.state).toBe('done');
+    expect(rung?.note).toBe('owner 验收（技术活本该 coordinator 先核验）');
+    expect(rung?.refs).toEqual(record.evidenceRefs);
+  });
+
+  it('feedback 15: a coordinator acceptance is labelled coordinator, with no mismatch note for technical work', () => {
+    const record = { actor: 'coordinator' as const, evidenceRefs: [] };
+    const rung = evidenceFor(work({ status: 'done', acceptance: record }), makeSnapshot())[2];
+    expect(rung?.label).toBe('coordinator 验收');
+    expect(rung?.note).toBe('coordinator 验收');
+    expect(rung?.refs).toBeUndefined();
+  });
+
+  it('feedback 15: an owner accepting art (the expected verifier) gets no mismatch note', () => {
+    const record = { actor: 'owner' as const, evidenceRefs: [] };
+    const rung = evidenceFor(work({ kind: 'art', status: 'done', acceptance: record }), makeSnapshot())[2];
+    expect(rung?.note).toBe('owner 验收');
+  });
+
   it('the board records every acceptance click as owner, whatever the kind — notes cannot name a coordinator who did not click (QB-FB-BG)', () => {
     expect(boardAcceptanceDetail('')).toBe('owner 验收');
     expect(boardAcceptanceDetail(' 跑过了 npm test ')).toBe('owner 验收：跑过了 npm test');

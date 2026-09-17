@@ -107,6 +107,13 @@
 .attempt-evidence-time { margin: 4px 0 0; font-size: 11px; color: var(--dim); }
 .attempt-evidence-reason { margin: 4px 0 0; font-size: 11px; color: var(--dim); }
 
+/* Feedback 15: the acceptance panel's evidence checkboxes (AcceptancePanel), inside ReviewSection. */
+.acceptance-panel { margin: 8px 0; }
+.acceptance-panel-items { display: grid; gap: 4px; margin-top: 4px; }
+.acceptance-panel-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cable); }
+.acceptance-panel-item-disabled { color: var(--dim); opacity: .75; }
+.acceptance-panel-reason { font-size: 11px; color: var(--dim); }
+
 /* S3: the review-order upstream check (UpstreamEvidence) — a review quest's own standing record of its
    parents' evidence, independent of EvidenceSection above (this attempt's own evidence). */
 .upstream-evidence { display: grid; gap: 8px; }

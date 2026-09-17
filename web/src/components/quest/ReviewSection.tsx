@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { api } from '../../api/client';
-import type { Quest, Snapshot } from '../../api/types';
+import type { AcceptanceEvidenceRef, Quest, Snapshot } from '../../api/types';
 import { boardAcceptanceDetail, REPORT_SOURCE_LABEL, reviewVerdictOf, VERDICT_LABEL, type ReviewVerdict } from '../../lib/evidence';
 import { acceptanceBy, STATUS } from '../../lib/labels';
 import { isArchived, reviewsOf } from '../../lib/questState';
 import { formatClock } from '../../lib/board';
+import { AcceptancePanel } from './AcceptancePanel';
 import { DrawerSection } from './DrawerSection';
 import '../../styles/report-evidence.css';
 
@@ -63,6 +64,9 @@ const REPORTED = new Set<Quest['status']>(['delivered', 'reviewing']);
 // login to fake.
 export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest, onAssignCard, refresh, pushToast }: ReviewSectionProps) {
   const [busy, setBusy] = useState(false);
+  // Feedback 15: the evidence AcceptancePanel's checkboxes currently name — read into the acceptance record
+  // sent on accept, never on 退回 (a rejection carries no acceptance).
+  const [evidenceRefs, setEvidenceRefs] = useState<AcceptanceEvidenceRef[]>([]);
   const technical = acceptanceBy(quest.kind) === 'coordinator';
   const reviews = reviewsOf(snap, quest.id);
   const openReview = reviews.find((review) => !isArchived(review));
@@ -93,7 +97,9 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
     void run(async () => {
       const note = draft.trim();
       if (note) await api.rule(quest.id, `验收：${note}`);
-      await api.setQuestStatus(quest.id, 'done', boardAcceptanceDetail(note));
+      // Feedback 15: an additive acceptance record alongside the existing owner-验收 detail text — actor is
+      // always 'owner' here, since a board click can never claim coordinator (src/core/acceptance.js).
+      await api.setQuestStatus(quest.id, 'done', boardAcceptanceDetail(note), false, { actor: 'owner', evidenceRefs, ...(note ? { note } : {}) });
       await closeReviews();
       onDraftChange('');
       pushToast(
@@ -171,6 +177,7 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
           ))}
         </details>
       )}
+      <AcceptancePanel quest={quest} onChange={setEvidenceRefs} />
       <textarea
         rows={3}
         placeholder="验收备注（可不写）；退回时必须写原因"
