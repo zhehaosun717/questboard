@@ -562,9 +562,11 @@ export function toRaw(raw: Record<string, unknown> | null | undefined, drafts: S
   else delete nextPolicy.laneConcurrency;
   setOrDelete(nextPolicy, 'defaultLane', drafts.policy.defaultLane);
   setOrDelete(nextPolicy, 'defaultCard', drafts.policy.defaultCard);
+  // X12: a regex may legitimately need a leading or trailing space, so the pattern is written exactly as
+  // typed; code and label stay trimmed, and an all-blank row is still dropped by the filter below.
   const bouncePatternsRaw = drafts.policy.bouncePatterns
-    .map((row) => ({ code: row.code.trim(), pattern: row.pattern.trim(), label: row.label.trim() }))
-    .filter((row) => row.code || row.pattern || row.label);
+    .map((row) => ({ code: row.code.trim(), pattern: row.pattern, label: row.label.trim() }))
+    .filter((row) => row.code || row.pattern.trim() || row.label);
   if (bouncePatternsRaw.length > 0) nextPolicy.bouncePatterns = bouncePatternsRaw;
   else delete nextPolicy.bouncePatterns;
   next.policy = nextPolicy;
@@ -832,18 +834,52 @@ export function validateDrafts(drafts: SettingsDrafts): Record<string, string> {
   for (const [i, row] of drafts.policy.bouncePatterns.entries()) {
     const code = row.code.trim();
     if (!BOUNCE_CODE_PATTERN.test(code)) errors[`policy.bouncePatterns.${i}.code`] = 'code 只能用小写字母、数字、下划线，且以字母开头';
-    const pattern = row.pattern.trim();
-    if (!pattern) {
+    // X12: one clean complaint per problem. A blank pattern only needs '正则不能为空'; a pattern that
+    // fails to compile keeps the engine's detail but drops its own "Invalid regular expression:" lead,
+    // so the message never says the same thing twice. Compile the raw value, exactly as config.js does,
+    // so a space at either end cannot turn a valid regex into an error here.
+    if (!row.pattern.trim()) {
       errors[`policy.bouncePatterns.${i}.pattern`] = '正则不能为空';
     } else {
       try {
-        new RegExp(pattern);
+        new RegExp(row.pattern);
       } catch (error) {
-        errors[`policy.bouncePatterns.${i}.pattern`] = `正则不合法：${error instanceof Error ? error.message : String(error)}`;
+        const detail = error instanceof Error ? error.message.replace(/^Invalid regular expression:\s*/, '') : String(error);
+        errors[`policy.bouncePatterns.${i}.pattern`] = `正则不合法：${detail}`;
       }
     }
     if (!row.label.trim()) errors[`policy.bouncePatterns.${i}.label`] = '标签不能为空';
   }
 
   return errors;
+}
+
+/**
+ * X11: after a save has failed the form keeps validating on every edit, so the errors on screen track what
+ * is actually wrong right now. Recomputing the whole map from the edited drafts means a fixed field drops
+ * its complaint, and deleting or re-adding a row cannot leave an index-keyed error pointing at the wrong
+ * slot or hiding a neighbour's error. Until the first save failure the map stays empty: editing must never
+ * start complaining before the owner has tried to save.
+ */
+export function revalidateAfterEdit(
+  prevErrors: Record<string, string>,
+  next: SettingsDrafts,
+): Record<string, string> {
+  return Object.keys(prevErrors).length > 0 ? validateDrafts(next) : prevErrors;
+}
+
+export interface PolicyEditState {
+  drafts: SettingsDrafts;
+  errors: Record<string, string>;
+}
+
+/**
+ * Round 3 (X11 fix, closes F2): folds "apply the patch" and "revalidate from the result" into one step, so a
+ * caller can never revalidate against anything but the drafts this same call just produced — the earlier bug
+ * class (errors computed from the pre-edit drafts, or the revalidation call skipped) is not just untested but
+ * structurally unreachable through this function.
+ */
+export function applyPolicyEdit(state: PolicyEditState, patch: Partial<PolicyDraft>): PolicyEditState {
+  const drafts: SettingsDrafts = { ...state.drafts, policy: { ...state.drafts.policy, ...patch } };
+  return { drafts, errors: revalidateAfterEdit(state.errors, drafts) };
 }

@@ -6,6 +6,8 @@ interface HeaderProps {
   tab: Tab;
   onTabChange: (tab: Tab) => void;
   openQuestions?: number;
+  defaultCard?: string | null;
+  defaultCardMissing?: boolean;
 }
 
 export function Header({
@@ -13,6 +15,8 @@ export function Header({
   tab,
   onTabChange,
   openQuestions,
+  defaultCard,
+  defaultCardMissing,
 }: HeaderProps) {
   const t = useT();
   const threadsLabel =
@@ -31,6 +35,9 @@ export function Header({
         {/* No standing motto here: this header is on every tab, so a board-only instruction was showing on
             设置 and 用量 too. The guild sidebar says how to dispatch, where the dispatching happens. */}
         <h1>{t('header.title')}</h1>
+        {defaultCardMissing && defaultCard ? (
+          <p className="a-note">{t('header.defaultCardMissing', { id: defaultCard })}</p>
+        ) : null}
       </div>
       <nav className="nav" aria-label={t('header.navLabel')}>
         <button

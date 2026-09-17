@@ -259,10 +259,10 @@ export const commands = {
   async assign(args) {
     const { config, base } = context(args);
     const requested = option(args, '--adventurer');
-    // A preference never overrides an explicit choice: only a missing card falls back to 派出禁令（规则与限制） → 默认卡,
+    // A preference never overrides an explicit choice: only a missing card falls back to 派遣规则 → 默认卡,
     // and the board says which card it picked and why before it does anything.
     const adventurer = requested === undefined ? config.policy.defaultCard || undefined : requested;
-    if (requested === undefined && adventurer !== undefined) out(`没指定卡，用派出禁令（规则与限制）里的默认卡「${adventurer}」`);
+    if (requested === undefined && adventurer !== undefined) out(`没指定卡，用派遣规则里的默认卡「${adventurer}」`);
     if (adventurer) {
       // S3: a review quest's upstream check (src/core/rules.js reviewUpstreamEvidence) is judged here from
       // the same snapshot the board's own drop preview reads, so the CLI shows the identical warning or
@@ -284,9 +284,18 @@ export const commands = {
         }
       }
     }
+    // X12: the header tells the owner in Chinese when the default card is not in the roster and where to fix
+    // it; the CLI is the same owner-facing surface, so when that fallback card is the one the server refuses
+    // by name, say the same sentence instead of the bare English `no adventurer <id>` line.
     const body = await request(base, `/api/quests/${encodeURIComponent(args[0])}/assign`, 'POST', {
       adventurer, by: option(args, '--by') || 'coordinator',
       requestKey: option(args, '--request-key'), ifRevision: option(args, '--if-revision'),
+    }).catch((error) => {
+      if (requested === undefined && adventurer !== undefined
+        && error instanceof Error && error.message === `no adventurer ${adventurer}`) {
+        throw new Error(`默认卡「${adventurer}」不在名册里，去「派遣规则」改掉，或先把卡补进名册。`);
+      }
+      throw error;
     });
     out(`${questLine(body.quest)}${body.repeated ? '  (already dispatched under this request key; nothing new started)' : ''}`);
   },

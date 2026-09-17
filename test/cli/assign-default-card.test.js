@@ -1,4 +1,4 @@
-// questboard assign — with no --adventurer the CLI falls back to 策略 defaultCard (feedback 38), says which
+// questboard assign — with no --adventurer the CLI falls back to the 派遣规则 defaultCard (feedback 38), says which
 // card it picked and why, and an explicit card always wins. Run as a real CLI subprocess against a
 // temporary server (see quest-detail.test.js for why this is async, not sync).
 import { describe, it, before, after } from 'node:test';
@@ -34,10 +34,10 @@ before(async () => {
 after(() => fx.close());
 
 describe('questboard assign default card', () => {
-  it('uses the 策略 default card when no --adventurer is given, and says which card and why', async () => {
+  it('uses the 派遣规则 default card when no --adventurer is given, and says which card and why', async () => {
     const done = await atBoard(['assign', 'AS-1']);
     assert.equal(done.status, 0, done.stderr);
-    assert.match(done.stdout, /没指定卡，用派出禁令（规则与限制）里的默认卡「oc-mimo」/);
+    assert.match(done.stdout, /没指定卡，用派遣规则里的默认卡「oc-mimo」/);
     const quest = (await fx.api('/api/quests/AS-1')).body.quest;
     assert.equal(quest.assignee.model, 'xiaomi/mimo-v2.5-pro', 'the default card真正拿到了这个任务');
   });
@@ -55,5 +55,14 @@ describe('questboard assign default card', () => {
     const done = await atBoard(['assign', 'AS-3']);
     assert.equal(done.status, 1);
     assert.ok(!done.stdout.includes('没指定卡'));
+  });
+
+  it('a default card that is not in the roster fails with the same Chinese sentence the header shows', async () => {
+    fx.project.write('questboard.config.json', JSON.stringify({ name: 'Test Game', lanes: LANES, briefs: { ownerDirs: ['docs/design'] }, policy: { defaultCard: 'ghost-card' } }, null, 2));
+    const done = await atBoard(['assign', 'AS-3']);
+    assert.equal(done.status, 1);
+    assert.match(done.stdout, /没指定卡，用派遣规则里的默认卡「ghost-card」/);
+    assert.match(done.stderr, /默认卡「ghost-card」不在名册里，去「派遣规则」改掉，或先把卡补进名册。/);
+    assert.ok(!`${done.stdout}${done.stderr}`.includes('no adventurer'), 'the server’s bare English refusal must not reach the owner');
   });
 });

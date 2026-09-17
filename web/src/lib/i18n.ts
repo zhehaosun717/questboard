@@ -98,6 +98,7 @@ export const TRANSLATIONS = {
   'header.tab.roster': { zh: '冒险者', en: 'Adventurers' },
   'header.tab.usage': { zh: '用量', en: 'Usage' },
   'header.tab.settings': { zh: '设置', en: 'Settings' },
+  'header.defaultCardMissing': { zh: '默认卡「{id}」不在名册里，去「派遣规则」改掉，或先把卡补进名册。', en: 'The default card "{id}" is not in the roster; change it in Dispatch rules, or add the card first.' },
 
   // — board —
   'board.expand': { zh: '展开', en: 'Expand' },
@@ -373,7 +374,7 @@ export const TRANSLATIONS = {
   'settings.title': { zh: '系统设置', en: 'System settings' },
   'settings.group.project': { zh: '项目与文件', en: 'Project & files' },
   'settings.group.lanes': { zh: '接入方式', en: 'Lanes' },
-  'settings.group.policy': { zh: '派出禁令', en: 'Dispatch bans' },
+  'settings.group.policy': { zh: '派遣规则', en: 'Dispatch rules' },
   'settings.group.verification': { zh: '项目验证', en: 'Project verification' },
   'settings.group.local': { zh: '本机与连接', en: 'Local & connections' },
   'settings.saveFailed': { zh: '保存失败：{error}', en: 'Save failed: {error}' },
@@ -814,8 +815,8 @@ export const TRANSLATIONS = {
   'banRule.advancedNote': { zh: '匹配方式：{mode}。保存时仍按原始正则存储。', en: 'Match type: {mode}. The raw regex is still what gets saved.' },
   'banRule.footnoteModel': { zh: '这里禁止派出的是使用该模型的全部冒险者；想暂停单个冒险者，请去公会名册修改它的状态。', en: 'This bans every adventurer using this model; to pause one adventurer, change its status in the roster.' },
   'banRule.footnoteAgent': { zh: '这里禁止派出的是使用该执行角色的全部冒险者；想暂停单个冒险者，请去公会名册修改它的状态。', en: 'This bans every adventurer using this agent role; to pause one adventurer, change its status in the roster.' },
-  'settingsPolicy.introTitle': { zh: '派出禁令', en: 'Dispatch bans' },
-  'settingsPolicy.intro': { zh: '禁令只作用于当前项目，不会全局禁止派出模型或执行角色。', en: 'Bans apply to this project only; they never block models or agent roles globally.' },
+  'settingsPolicy.introTitle': { zh: '派遣规则', en: 'Dispatch rules' },
+  'settingsPolicy.intro': { zh: '派遣规则只作用于当前项目，不会全局禁止派出模型或执行角色。', en: 'Dispatch rules apply to this project only; they never block models or agent roles globally.' },
   'settingsPolicy.banModelsLabel': { zh: '禁止派出模型', en: 'Banned models' },
   'settingsPolicy.banModelsHint': { zh: '搜索名册中的模型，也可以手动输入尚未入册的模型名。', en: 'Search the roster, or type a model name that is not in it yet.' },
   'settingsPolicy.banAgentsLabel': { zh: '禁止派出执行角色', en: 'Banned agent roles' },

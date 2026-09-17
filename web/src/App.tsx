@@ -119,6 +119,8 @@ export function App() {
         tab={route.tab}
         onTabChange={handleTabChange}
         openQuestions={snap?.openQuestions}
+        defaultCard={snap?.preferences?.defaultCard}
+        defaultCardMissing={snap?.preferences?.defaultCardMissing}
       />
       <Chips snap={snap} connected={connected} error={error} />
 

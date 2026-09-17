@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { api } from '../api/client';
 import { useT } from '../lib/i18n';
 import type { Card, SettingsReport } from '../api/types';
@@ -11,6 +11,7 @@ import {
   type SettingsDrafts,
   type UsageDraft,
   type VerificationDraft,
+  applyPolicyEdit,
   toDrafts,
   toRaw,
   validateDrafts,
@@ -25,6 +26,73 @@ import { SettingsReviewSection } from './settings/SettingsReviewSection';
 import { SettingsUsageKeysSection } from './settings/SettingsUsageKeysSection';
 import { SettingsUsageProvidersSection } from './settings/SettingsUsageProvidersSection';
 import { SettingsVerificationSection } from './settings/SettingsVerificationSection';
+
+// Round 4 (closes F4): state updaters must be pure and must never call another setter. drafts and
+// errors that a policy edit touches live in ONE state value, so a single functional update runs
+// applyPolicyEdit. React may run an updater during render (and twice under StrictMode); a pure reducer
+// returns the same result either way, and a result discarded during render cannot drop the patch.
+export interface SettingsFormState {
+  drafts: SettingsDrafts | null;
+  errors: Record<string, string>;
+}
+
+export type SettingsFormAction =
+  | { type: 'setDrafts'; drafts: SettingsDrafts | null }
+  | { type: 'setErrors'; errors: Record<string, string> }
+  | { type: 'reset' }
+  | { type: 'updateProject'; patch: Partial<ProjectDraft> }
+  | { type: 'updateBriefs'; patch: Partial<BriefsDraft> }
+  | { type: 'updateReview'; patch: Partial<ReviewDraft> }
+  | { type: 'updateLanes'; lanes: LaneDraft[] }
+  | { type: 'updatePolicy'; patch: Partial<PolicyDraft> }
+  | { type: 'updateUsage'; patch: Partial<UsageDraft> }
+  | { type: 'updateVerification'; patch: Partial<VerificationDraft> };
+
+export function settingsFormReducer(state: SettingsFormState, action: SettingsFormAction): SettingsFormState {
+  switch (action.type) {
+    case 'setDrafts':
+      return { ...state, drafts: action.drafts };
+    case 'setErrors':
+      return { ...state, errors: action.errors };
+    case 'reset':
+      return { ...state, errors: {} };
+    case 'updateProject':
+      return state.drafts
+        ? { ...state, drafts: { ...state.drafts, project: { ...state.drafts.project, ...action.patch } } }
+        : state;
+    case 'updateBriefs':
+      return state.drafts
+        ? { ...state, drafts: { ...state.drafts, briefs: { ...state.drafts.briefs, ...action.patch } } }
+        : state;
+    case 'updateReview':
+      return state.drafts
+        ? { ...state, drafts: { ...state.drafts, review: { ...state.drafts.review, ...action.patch } } }
+        : state;
+    case 'updateLanes': {
+      if (!state.drafts) return state;
+      const drafts = { ...state.drafts, lanes: action.lanes };
+      const errors = Object.keys(state.errors).length > 0 ? validateDrafts(drafts) : state.errors;
+      return { drafts, errors };
+    }
+    case 'updatePolicy': {
+      if (!state.drafts) return state;
+      const result = applyPolicyEdit({ drafts: state.drafts, errors: state.errors }, action.patch);
+      return { drafts: result.drafts, errors: result.errors };
+    }
+    case 'updateUsage': {
+      if (!state.drafts) return state;
+      const drafts = { ...state.drafts, usage: { ...state.drafts.usage, ...action.patch } };
+      const errors = Object.keys(state.errors).length > 0 ? validateDrafts(drafts) : state.errors;
+      return { drafts, errors };
+    }
+    case 'updateVerification':
+      return state.drafts
+        ? { ...state, drafts: { ...state.drafts, verification: { ...state.drafts.verification, ...action.patch } } }
+        : state;
+    default:
+      return state;
+  }
+}
 
 // 本机与连接 mixes read-only checks with 手动查看的用量来源, which DOES write usage.manualProviders and the
 // Alibaba pair into questboard.config.json on save. The old group banner ("本组只读检查，不会写入项目配置。")
@@ -72,7 +140,7 @@ interface SettingsViewProps {
 export function SettingsView({ roster }: SettingsViewProps) {
   const t = useT();
   const [settings, setSettings] = useState<SettingsReport | null>(null);
-  const [drafts, setDrafts] = useState<SettingsDrafts | null>(null);
+  const [{ drafts, errors }, dispatch] = useReducer(settingsFormReducer, { drafts: null, errors: {} });
   const [initialDraft, setInitialDraft] = useState<SettingsDrafts | null>(null);
   const [activeGroup, setActiveGroup] = useState<SettingsGroupId>('project-files');
   const [loading, setLoading] = useState(true);
@@ -80,7 +148,6 @@ export function SettingsView({ roster }: SettingsViewProps) {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
-  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const loadSettings = (isMounted: () => boolean) => {
     setLoading(true);
@@ -90,7 +157,7 @@ export function SettingsView({ roster }: SettingsViewProps) {
         if (!isMounted()) return;
         setSettings(data);
         const nextDraft = toDrafts(data.raw);
-        setDrafts(nextDraft);
+        dispatch({ type: 'setDrafts', drafts: nextDraft });
         setInitialDraft(nextDraft);
         setError(null);
       })
@@ -120,7 +187,7 @@ export function SettingsView({ roster }: SettingsViewProps) {
     if (saving) return;
     setSaveSuccess(null);
     setServerError(null);
-    setErrors({});
+    dispatch({ type: 'reset' });
     loadSettings(() => true);
   };
 
@@ -131,11 +198,11 @@ export function SettingsView({ roster }: SettingsViewProps) {
 
     const validationErrors = validateDrafts(drafts);
     if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
+      dispatch({ type: 'setErrors', errors: validationErrors });
       return;
     }
 
-    setErrors({});
+    dispatch({ type: 'setErrors', errors: {} });
     setSaving(true);
     try {
       const rawPayload = toRaw(settings?.raw ?? null, drafts);
@@ -145,7 +212,7 @@ export function SettingsView({ roster }: SettingsViewProps) {
       const refreshed = await api.settings();
       setSettings(refreshed);
       const nextDraft = toDrafts(refreshed.raw);
-      setDrafts(nextDraft);
+      dispatch({ type: 'setDrafts', drafts: nextDraft });
       setInitialDraft(nextDraft);
     } catch (err) {
       setServerError(err instanceof Error ? err.message : String(err));
@@ -168,45 +235,28 @@ export function SettingsView({ roster }: SettingsViewProps) {
 
   const { project, home, usageKeys, openCodeAuthFile, omo } = settings;
 
-  const updateProject = (patch: Partial<ProjectDraft>) => {
-    setDrafts((prev) => (prev ? { ...prev, project: { ...prev.project, ...patch } } : prev));
-  };
+  const updateProject = (patch: Partial<ProjectDraft>) => dispatch({ type: 'updateProject', patch });
 
-  const updateBriefs = (patch: Partial<BriefsDraft>) => {
-    setDrafts((prev) => (prev ? { ...prev, briefs: { ...prev.briefs, ...patch } } : prev));
-  };
+  const updateBriefs = (patch: Partial<BriefsDraft>) => dispatch({ type: 'updateBriefs', patch });
 
-  const updateReview = (patch: Partial<ReviewDraft>) => {
-    setDrafts((prev) => (prev ? { ...prev, review: { ...prev.review, ...patch } } : prev));
-  };
+  const updateReview = (patch: Partial<ReviewDraft>) => dispatch({ type: 'updateReview', patch });
 
-  const updateLanes = (lanes: LaneDraft[]) => {
-    if (!drafts) return;
-    const next = { ...drafts, lanes };
-    setDrafts(next);
-    // Errors are keyed by index/id and only computed on Save, so without this an edit or a delete that
-    // shifts positions would leave a stale error (or a stale "this lane needs attention" state) attached to
-    // whatever now sits at that slot. Only recompute once a save attempt has actually put errors on screen —
-    // before that, editing must not start nagging the owner ahead of their first Save click.
-    setErrors((prevErrors) => (Object.keys(prevErrors).length > 0 ? validateDrafts(next) : prevErrors));
-  };
+  // Errors are keyed by index/id and only computed on Save, so without this an edit or a delete that
+  // shifts positions would leave a stale error (or a stale "this lane needs attention" state) attached to
+  // whatever now sits at that slot. Only recompute once a save attempt has actually put errors on screen —
+  // before that, editing must not start nagging the owner ahead of their first Save click.
+  const updateLanes = (lanes: LaneDraft[]) => dispatch({ type: 'updateLanes', lanes });
 
-  const updatePolicy = (patch: Partial<PolicyDraft>) => {
-    setDrafts((prev) => (prev ? { ...prev, policy: { ...prev.policy, ...patch } } : prev));
-  };
+  // X11: policy rows are keyed by index, so a fixed field must drop its complaint and a deleted row must not
+  // hide the errors of the row that moves into its place. The reducer's updatePolicy action runs
+  // applyPolicyEdit over the combined state, so no closure over `drafts`/`errors` can go stale here.
+  const updatePolicy = (patch: Partial<PolicyDraft>) => dispatch({ type: 'updatePolicy', patch });
 
-  const updateUsage = (patch: Partial<UsageDraft>) => {
-    if (!drafts) return;
-    const next = { ...drafts, usage: { ...drafts.usage, ...patch } };
-    setDrafts(next);
-    // Same reasoning as updateLanes: the Alibaba pairing error is keyed by field, so an edit that now makes
-    // the pair valid again must clear the old complaint once a save attempt has put errors on screen.
-    setErrors((prevErrors) => (Object.keys(prevErrors).length > 0 ? validateDrafts(next) : prevErrors));
-  };
+  // Same reasoning as updateLanes: the Alibaba pairing error is keyed by field, so an edit that now makes
+  // the pair valid again must clear the old complaint once a save attempt has put errors on screen.
+  const updateUsage = (patch: Partial<UsageDraft>) => dispatch({ type: 'updateUsage', patch });
 
-  const updateVerification = (patch: Partial<VerificationDraft>) => {
-    setDrafts((prev) => (prev ? { ...prev, verification: { ...prev.verification, ...patch } } : prev));
-  };
+  const updateVerification = (patch: Partial<VerificationDraft>) => dispatch({ type: 'updateVerification', patch });
 
   const hasGroupErrors = (prefixes: string[]) =>
     Object.keys(errors).some((key) =>

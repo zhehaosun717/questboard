@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apiFieldPatch, describeMalformedHealth, OPENCODE_HEALTH_PRESET, type LaneDraft, type SettingsDrafts, toDrafts, toRaw, validateDrafts } from './settingsForm';
+import { apiFieldPatch, applyPolicyEdit, describeMalformedHealth, OPENCODE_HEALTH_PRESET, type LaneDraft, type PolicyEditState, type SettingsDrafts, revalidateAfterEdit, toDrafts, toRaw, validateDrafts } from './settingsForm';
 
 const exampleConfig = {
   name: 'My Game',
@@ -187,6 +187,52 @@ describe('settingsForm toDrafts and toRaw', () => {
       },
     };
     expect(validateDrafts(ok)).toEqual({});
+  });
+
+  it('writes a bounce pattern exactly as typed, spaces and all, and still accepts it', () => {
+    const raw = {
+      ...exampleConfig,
+      policy: {
+        ...exampleConfig.policy,
+        bouncePatterns: [{ code: ' net_down ', pattern: ' ECONNRESET ', label: ' 网络断了 ' }],
+      },
+    };
+    expect(toRaw(raw, toDrafts(raw)).policy).toEqual({
+      bannedModelPatterns: ['-fast(\\b|-)'],
+      bannedAgents: [],
+      bouncePatterns: [{ code: 'net_down', pattern: ' ECONNRESET ', label: '网络断了' }],
+    });
+    expect(validateDrafts(toDrafts(raw))['policy.bouncePatterns.0.pattern']).toBeUndefined();
+
+    const padded = {
+      ...exampleConfig,
+      policy: {
+        ...exampleConfig.policy,
+        bouncePatterns: [{ code: 'quota_5h', pattern: ' resets (at|in) ', label: '额度用尽' }],
+      },
+    };
+    expect(toRaw(padded, toDrafts(padded))).toEqual(padded);
+  });
+
+  it('reports a blank pattern once, and a malformed one without the engine lead-in', () => {
+    const base = validDrafts();
+    const blank = {
+      ...base,
+      policy: { ...base.policy, bouncePatterns: [{ code: 'quota_5h', pattern: '   ', label: '额度用尽' }] },
+    };
+    const blankError = validateDrafts(blank)['policy.bouncePatterns.0.pattern'];
+    expect(blankError).toBe('正则不能为空');
+    expect(blankError).not.toContain('questboard');
+    expect(blankError).not.toContain('non-empty');
+
+    const malformed = {
+      ...base,
+      policy: { ...base.policy, bouncePatterns: [{ code: 'quota_5h', pattern: '[', label: '额度用尽' }] },
+    };
+    const malformedError = validateDrafts(malformed)['policy.bouncePatterns.0.pattern'];
+    expect(malformedError).toMatch(/^正则不合法：/);
+    expect(malformedError).not.toContain('Invalid regular expression:');
+    expect(malformedError).toContain('/[/');
   });
 
   it('clearing optional fields removes their keys', () => {
@@ -951,5 +997,154 @@ describe('settingsForm usage section (feedback 36)', () => {
   it('accepts a project with no usage settings at all', () => {
     const d = toDrafts(exampleConfig);
     expect(validateDrafts(d)['usage.alibaba']).toBeUndefined();
+  });
+});
+
+describe('revalidateAfterEdit keeps the errors live after a failed save (X11)', () => {
+  it('drops the error of a field that was fixed and keeps the rest', () => {
+    const base = validDrafts();
+    const failed = {
+      ...base,
+      policy: {
+        ...base.policy,
+        stallAfterMinutes: '0',
+        bouncePatterns: [{ code: 'quota_5h', pattern: '(', label: '额度用尽' }],
+      },
+    };
+    const errors = validateDrafts(failed);
+    expect(errors['policy.stallAfterMinutes']).toBe('停摆阈值必须是正整数（分钟）');
+    expect(errors['policy.bouncePatterns.0.pattern']).toMatch(/^正则不合法：/);
+
+    const fixed = { ...failed, policy: { ...failed.policy, stallAfterMinutes: '45' } };
+    const after = revalidateAfterEdit(errors, fixed);
+    expect(after['policy.stallAfterMinutes']).toBeUndefined();
+    expect(after['policy.bouncePatterns.0.pattern']).toMatch(/^正则不合法：/);
+  });
+
+  it('re-keys the surviving limit row when the first one is deleted, so its error stays in view', () => {
+    const base = validDrafts();
+    const failed = {
+      ...base,
+      policy: {
+        ...base.policy,
+        laneConcurrency: [{ lane: 'ghost', limit: '1' }, { lane: 'codex', limit: '0' }],
+      },
+    };
+    const errors = validateDrafts(failed);
+    expect(errors['policy.laneConcurrency.0.lane']).toBe('通道「ghost」不在接入方式里');
+    expect(errors['policy.laneConcurrency.1.limit']).toBe('并发上限必须是正整数');
+
+    const after = revalidateAfterEdit(errors, {
+      ...failed,
+      policy: { ...failed.policy, laneConcurrency: failed.policy.laneConcurrency.slice(1) },
+    });
+    expect(Object.keys(after).filter((key) => key.startsWith('policy.laneConcurrency'))).toEqual([
+      'policy.laneConcurrency.0.limit',
+    ]);
+    expect(after['policy.laneConcurrency.0.limit']).toBe('并发上限必须是正整数');
+  });
+
+  it('re-keys a deleted bounce row the same way, and clears the deleted row instead of hiding it', () => {
+    const base = validDrafts();
+    const failed = {
+      ...base,
+      policy: {
+        ...base.policy,
+        bouncePatterns: [
+          { code: 'quota_5h', pattern: 'resets (at|in)', label: '额度用尽' },
+          { code: 'Bad Code', pattern: '   ', label: '' },
+        ],
+      },
+    };
+    const errors = validateDrafts(failed);
+    expect(errors['policy.bouncePatterns.1.code']).toBe('code 只能用小写字母、数字、下划线，且以字母开头');
+    expect(errors['policy.bouncePatterns.1.pattern']).toBe('正则不能为空');
+    expect(errors['policy.bouncePatterns.1.label']).toBe('标签不能为空');
+
+    const after = revalidateAfterEdit(errors, {
+      ...failed,
+      policy: { ...failed.policy, bouncePatterns: failed.policy.bouncePatterns.slice(1) },
+    });
+    expect(Object.keys(after).filter((key) => key.startsWith('policy.bouncePatterns'))).toEqual([
+      'policy.bouncePatterns.0.code',
+      'policy.bouncePatterns.0.pattern',
+      'policy.bouncePatterns.0.label',
+    ]);
+    expect(after['policy.bouncePatterns.1.code']).toBeUndefined();
+  });
+
+  it('never starts validating a form that has not failed a save yet', () => {
+    const base = validDrafts();
+    const clean: Record<string, string> = {};
+    const broken = { ...base, policy: { ...base.policy, stallAfterMinutes: '0' } };
+    expect(revalidateAfterEdit(clean, broken)).toBe(clean);
+  });
+});
+
+describe('applyPolicyEdit combines the patch and the live errors in one step (round 3, F2)', () => {
+  it('scenario 1: a failed save with two invalid fields, fixing one clears only that error', () => {
+    const base = validDrafts();
+    const failedDrafts = {
+      ...base,
+      policy: {
+        ...base.policy,
+        stallAfterMinutes: '0',
+        bouncePatterns: [{ code: 'quota_5h', pattern: '(', label: '额度用尽' }],
+      },
+    };
+    const state: PolicyEditState = { drafts: failedDrafts, errors: validateDrafts(failedDrafts) };
+    expect(state.errors['policy.stallAfterMinutes']).toBe('停摆阈值必须是正整数（分钟）');
+    expect(state.errors['policy.bouncePatterns.0.pattern']).toMatch(/^正则不合法：/);
+
+    const after = applyPolicyEdit(state, { stallAfterMinutes: '45' });
+    expect(after.drafts.policy.stallAfterMinutes).toBe('45');
+    // Would still show the stale complaint if the step function returned the old error map untouched.
+    expect(after.errors['policy.stallAfterMinutes']).toBeUndefined();
+    expect(after.errors['policy.bouncePatterns.0.pattern']).toMatch(/^正则不合法：/);
+  });
+
+  it('scenario 2: after a failed save, an edit that breaks a previously-valid field makes its error appear', () => {
+    const base = validDrafts();
+    const failedDrafts = {
+      ...base,
+      policy: { ...base.policy, bouncePatterns: [{ code: 'quota_5h', pattern: '(', label: '额度用尽' }] },
+    };
+    const state: PolicyEditState = { drafts: failedDrafts, errors: validateDrafts(failedDrafts) };
+    expect(state.errors['policy.stallAfterMinutes']).toBeUndefined();
+
+    const after = applyPolicyEdit(state, { stallAfterMinutes: '0' });
+    // Would stay undefined if the step function returned the old error map instead of recomputing it.
+    expect(after.errors['policy.stallAfterMinutes']).toBe('停摆阈值必须是正整数（分钟）');
+    expect(after.errors['policy.bouncePatterns.0.pattern']).toMatch(/^正则不合法：/);
+  });
+
+  it('scenario 3: before any failed save, editing does not start validating', () => {
+    const base = validDrafts();
+    const state: PolicyEditState = { drafts: base, errors: {} };
+    const after = applyPolicyEdit(state, { stallAfterMinutes: '0' });
+    // The draft still updates; only validation stays off until the owner has tried to save once.
+    expect(after.drafts.policy.stallAfterMinutes).toBe('0');
+    expect(after.errors).toEqual({});
+  });
+
+  it('scenario 4: deleting a row drops its errors and re-keys the row that takes its place', () => {
+    const base = validDrafts();
+    const failedDrafts = {
+      ...base,
+      policy: {
+        ...base.policy,
+        laneConcurrency: [{ lane: 'ghost', limit: '1' }, { lane: 'codex', limit: '0' }],
+      },
+    };
+    const state: PolicyEditState = { drafts: failedDrafts, errors: validateDrafts(failedDrafts) };
+    expect(state.errors['policy.laneConcurrency.0.lane']).toBe('通道「ghost」不在接入方式里');
+    expect(state.errors['policy.laneConcurrency.1.limit']).toBe('并发上限必须是正整数');
+
+    const after = applyPolicyEdit(state, { laneConcurrency: failedDrafts.policy.laneConcurrency.slice(1) });
+    // A step function that just returned the old error map would keep both stale entries at their old indices.
+    expect(Object.keys(after.errors).filter((key) => key.startsWith('policy.laneConcurrency'))).toEqual([
+      'policy.laneConcurrency.0.limit',
+    ]);
+    expect(after.errors['policy.laneConcurrency.0.limit']).toBe('并发上限必须是正整数');
   });
 });
