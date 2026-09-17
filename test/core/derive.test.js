@@ -151,6 +151,16 @@ describe('sync', () => {
     assert.deepEqual(deriveTransitions([{ ...silent, lastDetail: transition.detail }], [bounded], later(30)), []);
   });
 
+  it('never prefixes a manual_required detail with the result code itself', () => {
+    // No reason/limitReason/lastText on this row, unlike the bound-reason fixture above — the manual
+    // sentence is the whole detail, so a reintroduced `manual_required：` prefix has nowhere to hide behind
+    // an earlier part of the joined string.
+    const manualOnly = { name: 'run4', state: 'failed', manualRequired: true, dispatchedAt: at };
+    const [transition] = deriveTransitions([running], [manualOnly], later(1));
+    assert.equal(transition.detail, '无法自动停止，请手动处理', 'the owner-facing detail is exactly the current Chinese sentence');
+    assert.ok(!transition.detail.startsWith('manual_required'), 'the owner-facing detail must never lead with the raw result code');
+  });
+
   it('stalls a quest whose worker never registered', () => {
     assert.deepEqual(deriveTransitions([running], [], later(5)), []);
     assert.equal(deriveTransitions([running], [], later(11))[0].status, 'stalled');

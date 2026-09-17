@@ -42,7 +42,7 @@ describe('dispatcher.assign queued-start recheck: ambiguous outcomes preserve th
     assert.equal(quest.status, 'dispatched', 'must not be marked failed once a session may already exist upstream');
     assert.ok(quest.assignee, 'the slot must stay reserved, not silently freed');
     const events = readJsonLines(realConfig.paths.events);
-    assert.ok(events.some((e) => e.event === 'status_note' && /ses_777/.test(e.detail) && /人工确认/.test(e.detail)), 'the known session binding and the ambiguity are both surfaced, not silently resolved either way');
+    assert.ok(events.some((e) => e.event === 'status_note' && /ses_777/.test(e.detail) && /手动确认/.test(e.detail)), 'the known session binding and the ambiguity are both surfaced, not silently resolved either way');
   });
 
   it('preserves the reservation instead of marking failed when the session step itself fails with a nonzero code after session_creating was persisted', async () => {
@@ -69,7 +69,7 @@ describe('dispatcher.assign queued-start recheck: ambiguous outcomes preserve th
     assert.equal(quest.assignee.unresolved, true, 'a structured marker, not just prose, records the ambiguity');
     assert.deepEqual(quest.assignee.session, { id: null, saveTo: '.work/oc_session_p1.txt', unknown: true }, 'never narrowed to a known absence of session');
     const events = readJsonLines(realConfig.paths.events);
-    assert.ok(events.some((e) => e.event === 'status_note' && /人工确认/.test(e.detail)), 'the ambiguity is surfaced, not silently resolved either way');
+    assert.ok(events.some((e) => e.event === 'status_note' && /手动确认/.test(e.detail)), 'the ambiguity is surfaced, not silently resolved either way');
   });
 
   it('preserves the reservation the same way when the session runner throws instead of resolving nonzero', async () => {
@@ -103,6 +103,8 @@ describe('dispatcher.assign queued-start recheck: ambiguous outcomes preserve th
     assert.equal(quest.status, 'dispatched', 'a run step\'s own nonzero exit, with no evidence either way, must not be treated as verified never-started');
     assert.ok(quest.assignee, 'the slot must stay reserved');
     assert.equal(quest.assignee.unresolved, true);
+    const events = readJsonLines(realConfig.paths.events);
+    assert.ok(events.some((e) => e.event === 'status_note' && /手动确认/.test(e.detail)), 'the ambiguity is surfaced with the current wording, not silently resolved either way');
   });
 
   it('preserves the reservation the same way when a run-only lane\'s run step throws instead of resolving nonzero (P7b)', async () => {
@@ -135,6 +137,8 @@ describe('dispatcher.assign queued-start recheck: ambiguous outcomes preserve th
     assert.ok(quest.assignee, 'the slot must stay reserved');
     assert.equal(quest.assignee.unresolved, true);
     assert.equal(quest.assignee.session.id, 'ses_known', 'the session id itself must not be lost from the current record');
+    const events = readJsonLines(realConfig.paths.events);
+    assert.ok(events.some((e) => e.event === 'status_note' && /ses_known/.test(e.detail) && /手动确认/.test(e.detail)), 'the known session binding and the ambiguity are both surfaced with the current wording');
   });
 
   it('always keeps a known session binding when the run step throws instead of resolving nonzero (P7d)', async () => {

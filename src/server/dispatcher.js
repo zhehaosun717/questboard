@@ -191,7 +191,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     if (!current) return;
     const knownSessionId = result.session && !result.session.unknown && result.session.id ? result.session.id : null;
     const binding = !result.session ? '' : result.session.unknown ? '（session 是否建立不确定）' : `（已建 session ${result.session.id}）`;
-    const detail = `排队等待期间条件变了，但前面的步骤可能已经生效${binding}，先保留占用，需要人工确认：${result.detail}`;
+    const detail = `排队等待期间条件变了，但前面的步骤可能已经生效${binding}，先保留占用，需要手动确认：${result.detail}`;
     // Both writes are guarded independently: a note event failing to persist must never fall through to
     // failIfStillOurs (that would flip an ambiguous, preserved attempt to a definite 'failed' just because
     // the *report* of the ambiguity could not be written), and neither write's failure may throw back out
@@ -222,7 +222,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   function settleAmbiguousSession(questId, attempt, result) {
     const current = stillOurs(questId, attempt);
     if (!current) return;
-    const detail = `session 步骤失败但可能已经生效（session 是否建立不确定），先保留占用，需要人工确认：${result.detail}`;
+    const detail = `session 步骤失败但可能已经生效（session 是否建立不确定），先保留占用，需要手动确认：${result.detail}`;
     safeguard('settleAmbiguousSession recordPhase', detail, () => store.recordPhase(questId, attempt, { unresolved: true }));
     safeguard('settleAmbiguousSession status_note', detail, () => store.emitEvent(current, 'status_note', { by: 'board', detail }));
   }
@@ -233,7 +233,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   function preserveKnownSessionRun(questId, attempt, result) {
     const current = stillOurs(questId, attempt);
     if (!current) return;
-    const detail = `已建 session ${result.session.id}，启动步骤失败或找不到证据证明没启动，先保留占用，需要人工确认：${result.detail}`;
+    const detail = `已建 session ${result.session.id}，启动步骤失败或找不到证据证明没启动，先保留占用，需要手动确认：${result.detail}`;
     safeguard('preserveKnownSessionRun recordPhase', detail, () => store.recordPhase(questId, attempt, { unresolved: true }));
     safeguard('preserveKnownSessionRun status_note', detail, () => store.emitEvent(current, 'status_note', { by: 'board', detail }));
   }
@@ -246,7 +246,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   function preserveRunAmbiguous(questId, attempt, result) {
     const current = stillOurs(questId, attempt);
     if (!current) return;
-    const detail = `启动步骤失败，等了一段时间也没找到证据证明没启动，先保留占用，需要人工确认：${result.detail}`;
+    const detail = `启动步骤失败，等了一段时间也没找到证据证明没启动，先保留占用，需要手动确认：${result.detail}`;
     safeguard('preserveRunAmbiguous recordPhase', detail, () => store.recordPhase(questId, attempt, { unresolved: true }));
     safeguard('preserveRunAmbiguous status_note', detail, () => store.emitEvent(current, 'status_note', { by: 'board', detail }));
   }

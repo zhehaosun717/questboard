@@ -80,6 +80,13 @@ describe('OpenCode session cancellation containment', () => {
     }
   });
 
+  it('reports manual_required in Chinese when no session id or lane api base was recorded', async () => {
+    const adapter = createOpenCodeSessionAdapter({ timeoutMs: 1000 });
+    const result = await adapter({ attempt: { attemptId: 'attempt-none', name: 'none1' }, laneConfig: {}, assignee: { attemptId: 'attempt-none', name: 'none1' } });
+    assert.equal(result.result, 'manual_required');
+    assert.match(result.detail, /需要手动确认/);
+  });
+
   it('keeps an acknowledged but still-running session unknown in Chinese', async () => {
     const lane = await fakeLane([{ status: 200, body: true }, { status: 200, body: runningMessages }]);
     try {

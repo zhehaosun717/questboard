@@ -115,7 +115,7 @@ export function createOpenCodeSessionAdapter({ fetchImpl = fetch, timeoutMs = AP
   return async ({ attempt, assignee = attempt, laneConfig }) => {
     const baseUrl = laneConfig?.api;
     const sessionId = sessionIdOf(assignee);
-    if (!baseUrl || !sessionId) return { result: 'manual_required', detail: '没有记录的 session id 或 lane API 地址，无法请求远程停止，需要人工确认' };
+    if (!baseUrl || !sessionId) return { result: 'manual_required', detail: '没有记录的 session id 或 lane API 地址，无法请求远程停止，需要手动确认' };
     const deadline = Date.now() + Math.max(1, Number.isFinite(timeoutMs) ? timeoutMs : API_TIMEOUT_MS);
     const abortPath = apiUrl(baseUrl, sessionId, '/abort');
     try {
