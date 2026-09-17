@@ -283,46 +283,62 @@ describe('worker-artifacts', () => {
 
     // Run A takes the lock and starts a short sleep.
     const runA = spawnWrapper(root, 'dup', [], [process.execPath, '-e', "console.log('A-OUT'); setTimeout(() => process.exit(0), 500)"]);
-    await waitForRegistryRows(root, 'dup', 1);
-    await waitForOutMatch(root, 'dup', /A-OUT/);
+    const runAClosed = waitForClose(runA);
+    let runB = null;
+    let runBClosed = null;
+    // If any wait/assertion below throws (e.g. under load, a waitFor* timeout), runA/runB must still be
+    // reaped here so a failing case never leaves a spawned child dangling into the next test or the file's
+    // own shutdown -- that dangling child is what previously cancelled the whole suite mid-run.
+    try {
+      await waitForRegistryRows(root, 'dup', 1);
+      await waitForOutMatch(root, 'dup', /A-OUT/);
 
-    // Operator mistake the README warns against: A's lock is removed by hand while A is still running.
-    fs.unlinkSync(path.join(dir, 'dup.lock'));
+      // Operator mistake the README warns against: A's lock is removed by hand while A is still running.
+      fs.unlinkSync(path.join(dir, 'dup.lock'));
 
-    // Run B starts under the same name, takes a fresh lock (a different token), and archives A's still-live
-    // .out. B sleeps much longer than A, so A finishes first while B is still the active owner.
-    const runB = spawnWrapper(root, 'dup', [], [process.execPath, '-e', "console.log('B-OUT'); setTimeout(() => process.exit(0), 2500)"]);
-    await waitForRegistryRows(root, 'dup', 2);
-    await waitForOutMatch(root, 'dup', /B-OUT/);
-    const bLockToken = JSON.parse(fs.readFileSync(path.join(dir, 'dup.lock'), 'utf8')).token;
+      // Run B starts under the same name, takes a fresh lock (a different token), and archives A's still-live
+      // .out. B sleeps much longer than A, so A finishes first while B is still the active owner.
+      runB = spawnWrapper(root, 'dup', [], [process.execPath, '-e', "console.log('B-OUT'); setTimeout(() => process.exit(0), 2500)"]);
+      runBClosed = waitForClose(runB);
+      await waitForRegistryRows(root, 'dup', 2);
+      await waitForOutMatch(root, 'dup', /B-OUT/);
+      const bLockToken = JSON.parse(fs.readFileSync(path.join(dir, 'dup.lock'), 'utf8')).token;
 
-    await waitForClose(runA);
-    // A has now finished while B is still the active owner. A must not have deleted B's lock, and must not
-    // have published its own (now-stale) result over the live dup.exit/dup.out that B still owns.
-    assert.equal(fs.existsSync(path.join(dir, 'dup.lock')), true, "A's completion must not delete B's live lock");
-    assert.equal(
-      JSON.parse(fs.readFileSync(path.join(dir, 'dup.lock'), 'utf8')).token,
-      bLockToken,
-      "the lock present after A exits must still be B's",
-    );
-    assert.equal(
-      fs.existsSync(path.join(dir, 'dup.exit')),
-      false,
-      'B has not finished yet; A must not have published an exit code in its place',
-    );
+      await runAClosed;
+      // A has now finished while B is still the active owner. A must not have deleted B's lock, and must not
+      // have published its own (now-stale) result over the live dup.exit/dup.out that B still owns.
+      assert.equal(fs.existsSync(path.join(dir, 'dup.lock')), true, "A's completion must not delete B's live lock");
+      assert.equal(
+        JSON.parse(fs.readFileSync(path.join(dir, 'dup.lock'), 'utf8')).token,
+        bLockToken,
+        "the lock present after A exits must still be B's",
+      );
+      assert.equal(
+        fs.existsSync(path.join(dir, 'dup.exit')),
+        false,
+        'B has not finished yet; A must not have published an exit code in its place',
+      );
 
-    // A's own result must be preserved somewhere recoverable, not silently discarded.
-    const archivedAfterA = fs.readdirSync(path.join(dir, '.archive'));
-    assert.ok(
-      archivedAfterA.some((f) => f.startsWith('dup.exit.orphaned.')),
-      "A's result must be preserved as orphaned evidence once it loses ownership, not discarded",
-    );
+      // A's own result must be preserved somewhere recoverable, not silently discarded.
+      const archivedAfterA = fs.readdirSync(path.join(dir, '.archive'));
+      assert.ok(
+        archivedAfterA.some((f) => f.startsWith('dup.exit.orphaned.')),
+        "A's result must be preserved as orphaned evidence once it loses ownership, not discarded",
+      );
 
-    await waitForClose(runB);
-    // B's own, legitimate result is what ends up live.
-    assert.equal(readExit(root, 'dup').trim(), '0');
-    assert.match(fs.readFileSync(path.join(dir, 'dup.out'), 'utf8'), /B-OUT/);
-    assert.equal(fs.existsSync(path.join(dir, 'dup.lock')), false, "B's own lock is released once B finishes normally");
+      await runBClosed;
+      // B's own, legitimate result is what ends up live.
+      assert.equal(readExit(root, 'dup').trim(), '0');
+      assert.match(fs.readFileSync(path.join(dir, 'dup.out'), 'utf8'), /B-OUT/);
+      assert.equal(fs.existsSync(path.join(dir, 'dup.lock')), false, "B's own lock is released once B finishes normally");
+    } finally {
+      runA.kill();
+      await runAClosed;
+      if (runB) {
+        runB.kill();
+        await runBClosed;
+      }
+    }
   });
 
   it("keeps a stale owner's report from ever landing on the new owner's live path (B2)", async () => {
@@ -336,42 +352,57 @@ describe('worker-artifacts', () => {
       "import('node:fs').then((fs) => fs.writeFileSync('report-src.md', 'A REPORT'));" +
       "console.log('A-OUT'); setTimeout(() => process.exit(0), 700);",
     ]);
-    await waitForRegistryRows(root, 'dupreport', 1);
-    await waitForOutMatch(root, 'dupreport', /A-OUT/);
+    const runAClosed = waitForClose(runA);
+    let runB = null;
+    let runBClosed = null;
+    // Same reasoning as the sibling lock-theft test above: guarantee both children are reaped even if a
+    // wait/assertion throws partway, so a failing case can never leave a spawned child dangling.
+    try {
+      await waitForRegistryRows(root, 'dupreport', 1);
+      await waitForOutMatch(root, 'dupreport', /A-OUT/);
 
-    // Operator mistake the README warns against: A's lock is removed by hand while A is still running.
-    fs.unlinkSync(path.join(dir, 'dupreport.lock'));
+      // Operator mistake the README warns against: A's lock is removed by hand while A is still running.
+      fs.unlinkSync(path.join(dir, 'dupreport.lock'));
 
-    // Run B starts under the same name with no --report of its own, takes a fresh lock, and sleeps much
-    // longer than A, so A finishes (and tries to publish its report) first while B is still the active owner.
-    const runB = spawnWrapper(root, 'dupreport', [], [
-      process.execPath, '-e', "console.log('B-OUT'); setTimeout(() => process.exit(0), 2500)",
-    ]);
-    await waitForRegistryRows(root, 'dupreport', 2);
-    await waitForOutMatch(root, 'dupreport', /B-OUT/);
+      // Run B starts under the same name with no --report of its own, takes a fresh lock, and sleeps much
+      // longer than A, so A finishes (and tries to publish its report) first while B is still the active owner.
+      runB = spawnWrapper(root, 'dupreport', [], [
+        process.execPath, '-e', "console.log('B-OUT'); setTimeout(() => process.exit(0), 2500)",
+      ]);
+      runBClosed = waitForClose(runB);
+      await waitForRegistryRows(root, 'dupreport', 2);
+      await waitForOutMatch(root, 'dupreport', /B-OUT/);
 
-    await waitForClose(runA);
-    // A staged its report, then found it no longer owns the lock. B never passed --report, so if A's stale
-    // ownership check were skipped (B2), A's report would appear at the live path anyway -- it must not.
-    assert.equal(
-      fs.existsSync(path.join(dir, 'dupreport.md')),
-      false,
-      "A's stale report must never appear at the live path once B owns the name, during or after B",
-    );
-    const archivedAfterA = fs.readdirSync(path.join(dir, '.archive'));
-    assert.ok(
-      archivedAfterA.some((f) => f.startsWith('dupreport.md.orphaned.')),
-      "A's report must be preserved as orphaned evidence once it loses ownership, not discarded and not published live",
-    );
+      await runAClosed;
+      // A staged its report, then found it no longer owns the lock. B never passed --report, so if A's stale
+      // ownership check were skipped (B2), A's report would appear at the live path anyway -- it must not.
+      assert.equal(
+        fs.existsSync(path.join(dir, 'dupreport.md')),
+        false,
+        "A's stale report must never appear at the live path once B owns the name, during or after B",
+      );
+      const archivedAfterA = fs.readdirSync(path.join(dir, '.archive'));
+      assert.ok(
+        archivedAfterA.some((f) => f.startsWith('dupreport.md.orphaned.')),
+        "A's report must be preserved as orphaned evidence once it loses ownership, not discarded and not published live",
+      );
 
-    await waitForClose(runB);
-    // B's own result is what ends up live: exit 0, and still no report, never A's.
-    assert.equal(readExit(root, 'dupreport').trim(), '0');
-    assert.equal(
-      fs.existsSync(path.join(dir, 'dupreport.md')),
-      false,
-      "B never requested a report; A's must still not have leaked onto the live path after B exits either",
-    );
+      await runBClosed;
+      // B's own result is what ends up live: exit 0, and still no report, never A's.
+      assert.equal(readExit(root, 'dupreport').trim(), '0');
+      assert.equal(
+        fs.existsSync(path.join(dir, 'dupreport.md')),
+        false,
+        "B never requested a report; A's must still not have leaked onto the live path after B exits either",
+      );
+    } finally {
+      runA.kill();
+      await runAClosed;
+      if (runB) {
+        runB.kill();
+        await runBClosed;
+      }
+    }
   });
 
   it("archives the live report itself when --report points at this run's own live <name>.md (M1)", () => {

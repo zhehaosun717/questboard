@@ -7,6 +7,7 @@ import { resolveConfig } from '../../src/core/config.js';
 import { routeParts } from '../../src/server/http.js';
 import { createSettingsRoutes, describeProject, previewLaneCommand } from '../../src/server/settingsRoutes.js';
 import { tmpDir } from '../helpers.js';
+import { listenOnSafePort } from './fixture.js';
 
 async function serve(routes, requests) {
   const server = http.createServer(async (req, res) => {
@@ -16,8 +17,13 @@ async function serve(routes, requests) {
       res.end();
     }
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const base = `http://127.0.0.1:${server.address().port}`;
+  // Same guard as test/server/fixture.js's listenOnSafePort: a listen(0) ephemeral port can land on the
+  // WHATWG Fetch "bad port" list (already the confirmed cause of one flaky MCP stdio run and suspected in
+  // an annotation-origin run — see fetchBlockedPorts.test.js) — the server is up, but fetch() throws
+  // "fetch failed" / 'bad port'. This file used to bind with a raw server.listen(0, ...) and was the one
+  // place left without the retry.
+  const { port } = await listenOnSafePort(server);
+  const base = `http://127.0.0.1:${port}`;
   try {
     return await requests(async (route, init = {}) => {
       const response = await fetch(base + route, {
