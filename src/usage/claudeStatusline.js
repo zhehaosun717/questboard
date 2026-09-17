@@ -69,12 +69,30 @@ function parseClaudeWindow(raw, label, now) {
   };
 }
 
-function failedResult(error) {
+// Fixed, first-party failure codes and their one reviewed Chinese sentence each. This table IS the text: the
+// reader builds `error` from it, and service.js imports the same table instead of keeping its own copy, so the
+// reader's sentence and the sentence the board can render can no longer drift apart. A code with no sentence
+// is a programming error and fails loudly rather than inventing an empty message.
+export const CLAUDE_SNAPSHOT_ERROR_TEXT = Object.freeze({
+  claude_snapshot_unreadable: '无法读取 Claude 状态栏快照文件',
+  claude_snapshot_too_large: 'Claude 状态栏快照文件超出正常大小',
+  claude_snapshot_read_failed: '读取 Claude 状态栏快照失败',
+  claude_snapshot_corrupt: 'Claude 状态栏快照不是有效的 JSON',
+  claude_snapshot_schema: 'Claude 状态栏快照版本不支持（必须为 schema 1）',
+  claude_snapshot_timestamp: 'Claude 状态栏快照时间戳无效',
+  claude_snapshot_no_rate_limits: 'Claude 状态栏快照缺少额度数据',
+  claude_snapshot_no_windows: '快照里没有可用的额度数据',
+});
+
+function failedResult(code) {
+  const error = CLAUDE_SNAPSHOT_ERROR_TEXT[code];
+  if (typeof error !== 'string') throw new Error(`未知的 Claude 快照错误代码：${String(code)}`);
   return {
     ok: false,
     configured: true,
     state: 'failed',
     error,
+    code,
     note: error,
     windows: [],
     balances: [],
@@ -106,33 +124,33 @@ export function readClaudeSnapshot({
   try {
     stat = fs.statSync(filePath);
   } catch {
-    return failedResult('无法读取 Claude 状态栏快照文件');
+    return failedResult('claude_snapshot_unreadable');
   }
 
   if (stat.size > MAX_SNAPSHOT_BYTES) {
-    return failedResult('Claude 状态栏快照文件超出正常大小');
+    return failedResult('claude_snapshot_too_large');
   }
 
   let content;
   try {
     content = fs.readFileSync(filePath, 'utf8');
   } catch {
-    return failedResult('读取 Claude 状态栏快照失败');
+    return failedResult('claude_snapshot_read_failed');
   }
 
   let data;
   try {
     data = JSON.parse(content);
   } catch {
-    return failedResult('Claude 状态栏快照不是有效的 JSON');
+    return failedResult('claude_snapshot_corrupt');
   }
 
   if (!data || typeof data !== 'object' || Array.isArray(data) || data.schema !== 1) {
-    return failedResult('Claude 状态栏快照版本不支持（必须为 schema 1）');
+    return failedResult('claude_snapshot_schema');
   }
 
   if (!isValidIso(data.capturedAt)) {
-    return failedResult('Claude 状态栏快照时间戳无效');
+    return failedResult('claude_snapshot_timestamp');
   }
 
   const capturedAt = data.capturedAt;
@@ -142,7 +160,7 @@ export function readClaudeSnapshot({
 
   const rawLimits = data.rate_limits;
   if (!rawLimits || typeof rawLimits !== 'object' || Array.isArray(rawLimits)) {
-    return failedResult('Claude 状态栏快照缺少额度数据');
+    return failedResult('claude_snapshot_no_rate_limits');
   }
 
   const windows = [];
@@ -153,7 +171,7 @@ export function readClaudeSnapshot({
 
   // Present rate_limits with nothing usable inside is a failure, not an empty success.
   if (windows.length === 0) {
-    return failedResult('快照里没有可用的额度数据');
+    return failedResult('claude_snapshot_no_windows');
   }
 
   let note = '';

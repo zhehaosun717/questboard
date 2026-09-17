@@ -20,7 +20,7 @@ describe('usage service wiring through the real server', () => {
       const entry = res.body.providers.find((e) => e.id === 'nvidia');
       assert.equal(entry.providerState, 'manual_only');
       assert.equal(entry.ok, false);
-      assert.equal(entry.state, 'fresh', 'the cache state vocabulary remains independent');
+      assert.equal(entry.state, 'unconfigured', 'a manual card has no automatic reading to call fresh');
       assert.equal(entry.error, NVIDIA_MANUAL_NOTE);
       assert.ok(!res.body.providers.some((e) => e.id !== 'nvidia' && e.state !== 'pending'), 'no other provider was read');
     } finally {

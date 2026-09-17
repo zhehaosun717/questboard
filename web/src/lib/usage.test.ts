@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UsageProvider } from '../api/types';
+import { TRANSLATIONS } from './i18n';
 import {
   formatAccessLabel,
   formatAsOfLine,
@@ -133,6 +134,30 @@ describe('providerGuidanceText', () => {
 
   it('ignores an unrecognized errorCode and falls back to the state text instead of showing the code itself', () => {
     expect(providerGuidanceText(baseProvider({ configured: false, errorCode: 'brand_new_code' }))).toBe('未接入 / 未配置');
+  });
+
+  it('shows every fixed claude_snapshot_* code as its own specific sentence, never the generic retry text', () => {
+    const expected: Record<string, string> = {
+      claude_snapshot_unreadable: '无法读取 Claude 状态栏快照文件，请稍后重试',
+      claude_snapshot_too_large: 'Claude 状态栏快照文件超出正常大小，请检查状态栏脚本写出的文件',
+      claude_snapshot_read_failed: '读取 Claude 状态栏快照失败，请稍后重试',
+      claude_snapshot_corrupt: 'Claude 状态栏快照不是有效的 JSON，请检查状态栏脚本写出的文件',
+      claude_snapshot_schema: 'Claude 状态栏快照版本不支持（必须为 schema 1）',
+      claude_snapshot_timestamp: 'Claude 状态栏快照时间戳无效，请检查系统时钟',
+      claude_snapshot_no_rate_limits: 'Claude 状态栏快照缺少额度数据，请检查状态栏脚本写出的文件',
+      claude_snapshot_no_windows: '快照里没有可用的额度数据，运行一次 Claude Code 后再刷新',
+    };
+    for (const [code, text] of Object.entries(expected)) {
+      const guidance = providerGuidanceText(
+        baseProvider({ state: 'failed', ok: false, errorCode: code, error: 'raw upstream text' }),
+      );
+      expect(guidance, code).toBe(text);
+      expect(guidance, code).not.toBe('读取失败，请稍后重试');
+      const key = `usageCode.${code}` as keyof typeof TRANSLATIONS;
+      const translation = TRANSLATIONS[key] as { zh: string; en?: string };
+      expect(translation.zh, code).toBe(text);
+      expect(translation.en, code).toBeTruthy();
+    }
   });
 
   it('falls back to a neutral fixed message when the server gives no error text', () => {

@@ -76,7 +76,7 @@ describe('Codex app-server usage adapter', () => {
     assert.equal(fake.spawnCall.options.env.OPENAI_API_KEY, undefined);
     assert.equal(result.state, 'ok');
     assert.deepEqual(result.windows, [{
-      label: '5 小时',
+      label: 'codex · 5 小时',
       usedPercent: null,
       resetsAt: '2000-01-01T00:00:00.000Z',
       state: 'reset',
@@ -109,12 +109,89 @@ describe('Codex app-server usage adapter', () => {
     };
     const fake = fakeSpawn({ rate });
     const result = await readCodexAppServer({ spawnImpl: fake.spawnImpl, resolveImpl: fake.resolveImpl, env: {}, now: NOW });
-    assert.deepEqual(result.windows.map((window) => [window.label, window.usedPercent]), [['每周', 120], ['90 分钟', 7]]);
+    assert.deepEqual(result.windows.map((window) => [window.label, window.usedPercent]), [['codex · 每周', 120], ['codex · 90 分钟', 7]]);
     assert.deepEqual(result.balances, [{ currency: 'unknown', amount: 12.5 }, { currency: 'unknown', amount: 60 }]);
     assert.ok(!JSON.stringify(result).includes('accountId'));
     assert.ok(!JSON.stringify(result).includes('rateLimitUpsell'));
     assert.ok(!JSON.stringify(result).includes('rateLimitResetCredits'));
     assert.ok(!JSON.stringify(result).includes('DROP-ME'));
+  });
+
+  it('shows a lone remainingPercent as a percentage window, never as a balance amount', async () => {
+    const rate = {
+      _dir: 'server',
+      id: 3,
+      result: {
+        rateLimits: {
+          limitId: 'codex',
+          individualLimit: { remainingPercent: 60, resetsAt: NOW / 1000 + 3600 },
+        },
+        rateLimitsByLimitId: null,
+      },
+    };
+    const fake = fakeSpawn({ rate });
+    const result = await readCodexAppServer({ spawnImpl: fake.spawnImpl, resolveImpl: fake.resolveImpl, env: {}, now: NOW });
+    assert.deepEqual(result.windows, [{
+      label: 'codex · 额度',
+      usedPercent: 40,
+      resetsAt: '2026-09-16T13:00:00.000Z',
+    }]);
+    assert.deepEqual(result.balances, []);
+  });
+
+  it('labels windows by limit id when several limits share one duration', async () => {
+    const rate = {
+      _dir: 'server',
+      id: 3,
+      result: {
+        rateLimits: null,
+        rateLimitsByLimitId: {
+          codex: { primary: { usedPercent: 10, windowDurationMins: 10080, resetsAt: null } },
+          'gpt-5': { primary: { usedPercent: 20, windowDurationMins: 10080, resetsAt: null } },
+        },
+      },
+    };
+    const fake = fakeSpawn({ rate });
+    const result = await readCodexAppServer({ spawnImpl: fake.spawnImpl, resolveImpl: fake.resolveImpl, env: {}, now: NOW });
+    assert.deepEqual(result.windows.map((window) => window.label), ['codex · 每周', 'gpt-5 · 每周']);
+    assert.deepEqual(result.windows.map((window) => window.usedPercent), [10, 20]);
+    assert.deepEqual(result.balances, []);
+  });
+
+  it('gives two limit ids that fail safeLabel distinct generated labels', async () => {
+    const rate = {
+      _dir: 'server',
+      id: 3,
+      result: {
+        rateLimits: null,
+        rateLimitsByLimitId: {
+          'bad key 1': { primary: { usedPercent: 10, windowDurationMins: 300, resetsAt: null } },
+          'another bad key!!': { primary: { usedPercent: 20, windowDurationMins: 300, resetsAt: null } },
+        },
+      },
+    };
+    const fake = fakeSpawn({ rate });
+    const result = await readCodexAppServer({ spawnImpl: fake.spawnImpl, resolveImpl: fake.resolveImpl, env: {}, now: NOW });
+    assert.deepEqual(result.windows.map((window) => window.label), ['限额 1 · 5 小时', '限额 2 · 5 小时']);
+    assert.deepEqual(result.windows.map((window) => window.usedPercent), [10, 20]);
+  });
+
+  it('drops a negative remainingPercent instead of showing more than 100% used', async () => {
+    const rate = {
+      _dir: 'server',
+      id: 3,
+      result: {
+        rateLimits: {
+          limitId: 'codex',
+          individualLimit: { remainingPercent: -5, resetsAt: NOW / 1000 + 3600 },
+        },
+        rateLimitsByLimitId: null,
+      },
+    };
+    const fake = fakeSpawn({ rate });
+    const result = await readCodexAppServer({ spawnImpl: fake.spawnImpl, resolveImpl: fake.resolveImpl, env: {}, now: NOW });
+    assert.deepEqual(result.windows, []);
+    assert.deepEqual(result.balances, []);
   });
 
   it('flags a millisecond reset assumption and states that live confirmation is still needed', async () => {

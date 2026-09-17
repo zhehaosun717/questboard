@@ -15,6 +15,7 @@
 // a read that already happened.
 import os from 'node:os';
 import { runCommand, trustedUsageErrorText, trustedResultText } from './common.js';
+import { CLAUDE_SNAPSHOT_ERROR_TEXT } from './claudeStatusline.js';
 import { createCredentials, describeKeySources } from './credentials.js';
 import { EXPERIMENTAL_PROVIDERS, PROVIDERS } from './providers.js';
 import {
@@ -92,10 +93,26 @@ function safeErrorName(error) {
 
 // A provider's own `{ ok:false, error }` free-text field is never displayed: an appearance check (string,
 // short, non-empty) bounds nothing about the content, so it is not a boundary. Only a provider's `code` is
-// looked up against the fixed catalog in common.js; a missing or unrecognised code falls back to a generic
-// message that names the provider but nothing else.
+// looked up against a fixed catalog: first the shared one in common.js, then the Claude snapshot codes — and
+// those sentences are the reader's own table (claudeStatusline.js), imported rather than copied so the two
+// can never drift apart. A missing or unrecognised code still falls back to a generic message that names the
+// provider.
+function claudeSnapshotErrorText(code) {
+  return typeof code === 'string' && Object.prototype.hasOwnProperty.call(CLAUDE_SNAPSHOT_ERROR_TEXT, code)
+    ? CLAUDE_SNAPSHOT_ERROR_TEXT[code]
+    : undefined;
+}
+
+// The displayed entry may carry the fixed code itself (F1) so the board can pick its own sentence from it; a
+// code that is not one of the reader's fixed claude_snapshot_* names is never put on an entry.
+function claudeSnapshotErrorCode(result) {
+  const code = readOwnDataValue(result, 'code');
+  return claudeSnapshotErrorText(code) === undefined ? undefined : code;
+}
+
 function providerResultErrorText(result, provider) {
-  return trustedResultText(readOwnDataValue(result, 'code'), `${provider.name} 没有给出可显示的失败原因`);
+  const code = readOwnDataValue(result, 'code');
+  return trustedResultText(code, claudeSnapshotErrorText(code) ?? `${provider.name} 没有给出可显示的失败原因`);
 }
 
 // A well-formed provider result is a plain object with an ordinary prototype: literally `Object.prototype`
@@ -522,7 +539,8 @@ export function createUsageService({
         const configuredRaw = readOwnDataValue(result, 'configured');
         const configured = configuredRaw === undefined ? true : Boolean(configuredRaw);
         const error = providerResultErrorText(result, provider);
-        return { ...base, kind: configured ? 'failed' : 'unconfigured', configured, error };
+        const errorCode = claudeSnapshotErrorCode(result);
+        return { ...base, kind: configured ? 'failed' : 'unconfigured', configured, error, ...(errorCode !== undefined ? { errorCode } : {}) };
       }
       // A recognised success is either "no ok field" (real adapters may omit it) or an explicit `true`.
       // Anything else — a string, a number, a getter that resolved to neither boolean — is not a signal this
@@ -631,7 +649,7 @@ export function createUsageService({
       };
     }
     if (o.kind === 'unavailable' || o.kind === 'unconfigured' || o.kind === 'expired') {
-      const entry = { ...base, ...empty(), ok: false, configured: o.configured, state: o.kind, fresh: false, stale: false, error: o.error, fetchedAt: iso(slot.attemptedAt), ...meta };
+      const entry = { ...base, ...empty(), ok: false, configured: o.configured, state: o.kind, fresh: false, stale: false, error: o.error, ...(o.errorCode !== undefined ? { errorCode: o.errorCode } : {}), fetchedAt: iso(slot.attemptedAt), ...meta };
       if (o.keyFrom) entry.keyFrom = o.keyFrom;
       return entry;
     }
@@ -663,8 +681,11 @@ export function createUsageService({
           ...numbers,
           ok,
           configured: true,
-          state: 'fresh',
-          fresh: true,
+          // A manual-only card has no automatic reading to be fresh about: the cache-state field must not
+          // claim 'fresh' next to ok:false. 'unconfigured' is the page's plain "未接入" label while
+          // providerState still carries 手动查看 and the note keeps the setup text visible.
+          state: isManual ? 'unconfigured' : 'fresh',
+          fresh: !isManual,
           stale: false,
           fetchedAt: slot.record.fetchedAt,
           ...meta,
@@ -684,18 +705,21 @@ export function createUsageService({
         ...numbers,
         ok: false,
         configured: true,
-        state: 'stale',
+        // N7: a manual card has no automatic reading to go stale about — a re-read that has not settled (or
+        // any later read) must not turn it into 数据已过期 with an empty card. It keeps its manual state and
+        // note, exactly like a fresh manual card does.
+        state: isManual ? 'unconfigured' : 'stale',
         fresh: false,
-        stale: true,
-        error: resultStale
-          ? (slot.record.note || '数据可能已经过期')
-          : (isManual
-            ? slot.record.note
+        stale: !isManual,
+        error: isManual
+          ? slot.record.note
+          : (resultStale
+            ? (slot.record.note || '数据可能已经过期')
             : (isNotConfigured || isNotSubscribed
-            ? (slot.record.note || slot.record.plan || '未订阅')
-            : (unknownWithoutNumbers
-              ? (slot.record.note || slot.record.plan || '状态未知')
-              : (refreshing ? timeoutNote : cooling ? coolingNote : '缓存已过期，正在后台重新读取')))),
+              ? (slot.record.note || slot.record.plan || '未订阅')
+              : (unknownWithoutNumbers
+                ? (slot.record.note || slot.record.plan || '状态未知')
+                : (refreshing ? timeoutNote : cooling ? coolingNote : '缓存已过期，正在后台重新读取')))),
         fetchedAt: slot.record.fetchedAt,
         ...meta,
         ...(slot.record.keyFrom ? { keyFrom: slot.record.keyFrom } : {}),
@@ -716,11 +740,11 @@ export function createUsageService({
       };
       return {
         ...base, ...numbers, ok: false, configured: o.configured, state: 'stale', fresh: false, stale: true,
-        error: o.error, fetchedAt: slot.record.fetchedAt, ...meta,
+        error: o.error, ...(o.errorCode !== undefined ? { errorCode: o.errorCode } : {}), fetchedAt: slot.record.fetchedAt, ...meta,
         ...(o.keyFrom || slot.record.keyFrom ? { keyFrom: o.keyFrom || slot.record.keyFrom } : {}),
       };
     }
-    const entry = { ...base, ...empty(), ok: false, configured: o.configured, state: o.kind, fresh: false, stale: false, error: o.error, fetchedAt: iso(slot.attemptedAt), ...meta };
+    const entry = { ...base, ...empty(), ok: false, configured: o.configured, state: o.kind, fresh: false, stale: false, error: o.error, ...(o.errorCode !== undefined ? { errorCode: o.errorCode } : {}), fetchedAt: iso(slot.attemptedAt), ...meta };
     if (o.keyFrom) entry.keyFrom = o.keyFrom;
     return entry;
   }

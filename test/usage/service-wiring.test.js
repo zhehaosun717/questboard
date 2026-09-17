@@ -77,7 +77,8 @@ describe('usage service wiring', () => {
     const manual = report.providers[0];
     assert.equal(manual.providerState, 'manual_only');
     assert.equal(manual.ok, false);
-    assert.equal(manual.state, 'fresh', 'the cache state vocabulary remains independent');
+    assert.equal(manual.state, 'unconfigured', 'a manual card has no automatic reading to call fresh');
+    assert.equal(manual.fresh, false);
     assert.deepEqual(manual.windows, []);
     assert.equal(manual.note, '请到控制台查看');
     assert.equal(manual.error, '请到控制台查看');

@@ -335,6 +335,16 @@ export const TRANSLATIONS = {
   'usageCard.toppedUp': { zh: '充值 {amount}', en: 'Topped up {amount}' },
   'usageCard.lastSuccess': { zh: '上次成功 {time}', en: 'Last success {time}' },
 
+  // — usage provider guidance: the fixed sentences the card shows for a data-layer errorCode (F1) —
+  'usageCode.claude_snapshot_unreadable': { zh: '无法读取 Claude 状态栏快照文件，请稍后重试', en: 'Could not read the Claude status-line snapshot file; try again in a moment' },
+  'usageCode.claude_snapshot_too_large': { zh: 'Claude 状态栏快照文件超出正常大小，请检查状态栏脚本写出的文件', en: 'The Claude status-line snapshot file is larger than normal; check the file written by the status-line script' },
+  'usageCode.claude_snapshot_read_failed': { zh: '读取 Claude 状态栏快照失败，请稍后重试', en: 'Reading the Claude status-line snapshot failed; try again in a moment' },
+  'usageCode.claude_snapshot_corrupt': { zh: 'Claude 状态栏快照不是有效的 JSON，请检查状态栏脚本写出的文件', en: 'The Claude status-line snapshot is not valid JSON; check the file written by the status-line script' },
+  'usageCode.claude_snapshot_schema': { zh: 'Claude 状态栏快照版本不支持（必须为 schema 1）', en: 'This Claude status-line snapshot version is not supported (must be schema 1)' },
+  'usageCode.claude_snapshot_timestamp': { zh: 'Claude 状态栏快照时间戳无效，请检查系统时钟', en: 'The Claude status-line snapshot timestamp is invalid; check the system clock' },
+  'usageCode.claude_snapshot_no_rate_limits': { zh: 'Claude 状态栏快照缺少额度数据，请检查状态栏脚本写出的文件', en: 'The Claude status-line snapshot has no quota data; check the file written by the status-line script' },
+  'usageCode.claude_snapshot_no_windows': { zh: '快照里没有可用的额度数据，运行一次 Claude Code 后再刷新', en: 'The snapshot has no usable quota data; run Claude Code once and refresh again' },
+
   // — settings view —
   'settings.localNote': {
     zh: '本机信息与用量密钥只读检查，不会写入项目配置。',

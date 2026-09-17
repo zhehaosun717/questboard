@@ -25,6 +25,10 @@ import { fileURLToPath } from 'node:url';
  *   import { extractClaudeSnapshot, writeClaudeSnapshot } from '<path-to-questboard>/examples/claude-usage-statusline.mjs';
  *   // snapshot = extractClaudeSnapshot(stdinText); writeClaudeSnapshot(snapshot);
  *
+ *   Windows note: an absolute ESM import must be a file:/// URL, for example
+ *   'file:///C:/path-to-questboard/examples/claude-usage-statusline.mjs'. A plain 'C:\...' path is
+ *   rejected by Node's ESM loader.
+ *
  * Option 2 - replace your status line with this script and pass your status
  * text as arguments (printed through unchanged):
  *
@@ -114,11 +118,16 @@ export function extractClaudeSnapshot(input, now = Date.now()) {
   };
 }
 
+// The snapshot-path rule lives in the board at src/usage/claudeStatusline.js (which delegates to
+// src/core/home.js questboardHome); this inline copy exists only because a copied-out status-line script
+// cannot import from the repo. Keep the two in step: an absolute path.resolve of QUESTBOARD_HOME (or of
+// <homedir>/.questboard), then 'usage/claude.json'. test/usage/claude-statusline-followups.test.js proves
+// the two functions agree.
 export function getClaudeSnapshotPath({ homedir, env = process.env } = {}) {
   const baseHome = env?.QUESTBOARD_HOME
-    ? path.resolve(env.QUESTBOARD_HOME)
+    ? env.QUESTBOARD_HOME
     : path.join(homedir || os.homedir(), '.questboard');
-  return path.join(baseHome, 'usage', 'claude.json');
+  return path.join(path.resolve(baseHome), 'usage', 'claude.json');
 }
 
 /**

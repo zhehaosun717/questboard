@@ -160,12 +160,15 @@ function protocolIdMatches(value, expected) {
   return value === expected || value === String(expected);
 }
 
-function windowLabel(windowDurationMins) {
+function windowLabel(windowDurationMins, limitId = null) {
   const minutes = toNumber(windowDurationMins);
-  if (!Number.isFinite(minutes) || minutes <= 0) return '额度窗口';
-  if (minutes === 10080) return '每周';
-  if (minutes === 300) return '5 小时';
-  return `${minutes} 分钟`;
+  let duration = '额度窗口';
+  if (Number.isFinite(minutes) && minutes > 0) {
+    duration = minutes === 10080 ? '每周' : minutes === 300 ? '5 小时' : `${minutes} 分钟`;
+  }
+  // The duration alone cannot say what is limited when several limit ids share the same window; a known
+  // limit id prefixes the label so the card tells them apart.
+  return limitId ? `${limitId} · ${duration}` : duration;
 }
 
 function resetInfo(value, nowMs) {
@@ -186,13 +189,13 @@ function resetInfo(value, nowMs) {
   }
 }
 
-function mapWindow(raw, nowMs) {
+function mapWindow(raw, nowMs, limitId = null) {
   if (!isPlainObject(raw)) return null;
   const usedRaw = valueOf(raw, 'usedPercent');
   const usedPercent = typeof usedRaw === 'number' && Number.isFinite(usedRaw) && usedRaw >= 0 ? usedRaw : null;
   const reset = resetInfo(valueOf(raw, 'resetsAt'), nowMs);
   return {
-    label: windowLabel(valueOf(raw, 'windowDurationMins')),
+    label: windowLabel(valueOf(raw, 'windowDurationMins'), limitId),
     usedPercent: reset.past ? null : usedPercent,
     resetsAt: reset.resetsAt,
     ...(reset.past ? { state: 'reset' } : {}),
@@ -205,7 +208,7 @@ function numericValue(value) {
   return parsed === null ? null : parsed;
 }
 
-function mapBalances(snapshot, balances) {
+function mapBalances(snapshot, windows, balances, limitId, nowMs) {
   if (!isPlainObject(snapshot)) return;
   const credits = valueOf(snapshot, 'credits');
   if (isPlainObject(credits)) {
@@ -214,21 +217,43 @@ function mapBalances(snapshot, balances) {
   }
 
   const individualLimit = valueOf(snapshot, 'individualLimit');
-  if (isPlainObject(individualLimit)) {
-    const limit = numericValue(valueOf(individualLimit, 'limit'));
-    const used = numericValue(valueOf(individualLimit, 'used'));
-    const remainingPercent = numericValue(valueOf(individualLimit, 'remainingPercent'));
-    const amount = limit !== null && used !== null ? limit - used : remainingPercent;
-    if (amount !== null && Number.isFinite(amount) && amount >= 0) balances.push({ currency: 'unknown', amount });
+  if (!isPlainObject(individualLimit)) return;
+  const limit = numericValue(valueOf(individualLimit, 'limit'));
+  const used = numericValue(valueOf(individualLimit, 'used'));
+  if (limit !== null && used !== null) {
+    const amount = limit - used;
+    if (Number.isFinite(amount) && amount >= 0) balances.push({ currency: 'unknown', amount });
+    return;
   }
+  // A lone remainingPercent is a percentage, not an amount of money: show it as a window (used = 100 -
+  // remaining) so the card renders a percent bar, never a fabricated balance. A negative remaining is
+  // unknown, not "more than 100% used" — it is dropped rather than shown as a burst that cannot happen.
+  const remainingPercent = numericValue(valueOf(individualLimit, 'remainingPercent'));
+  if (remainingPercent === null || remainingPercent < 0) return;
+  const usedPercent = 100 - remainingPercent;
+  if (!Number.isFinite(usedPercent) || usedPercent < 0) return;
+  const reset = resetInfo(valueOf(individualLimit, 'resetsAt'), nowMs);
+  windows.push({
+    label: limitId ? `${limitId} · 额度` : '额度',
+    usedPercent: reset.past ? null : usedPercent,
+    resetsAt: reset.resetsAt,
+    ...(reset.past ? { state: 'reset' } : {}),
+    ...(reset.resetUnitAssumed ? { resetUnitAssumed: true } : {}),
+  });
 }
 
 function snapshotEntries(source) {
   if (!isPlainObject(source)) return [];
   if (hasOwn(source, 'primary') || hasOwn(source, 'secondary') || hasOwn(source, 'credits') || hasOwn(source, 'individualLimit')) {
-    return [source];
+    return [{ id: safeLabel(valueOf(source, 'limitId')), snapshot: source }];
   }
-  return Object.keys(source).slice(0, 100).map((key) => valueOf(source, key)).filter(isPlainObject);
+  // A key that fails safeLabel (a space, too long, …) must still yield a distinct, human label: without one
+  // its windows would be prefixed identically to every other unsafe key's and read as the same limit. The
+  // positional fallback is generated, so two unsafe keys can never collide, and it can never look like a
+  // real limit id (those are ASCII-only and pass safeLabel).
+  return Object.keys(source).slice(0, 100)
+    .map((key, index) => ({ id: safeLabel(key) ?? `限额 ${index + 1}`, snapshot: valueOf(source, key) }))
+    .filter((entry) => isPlainObject(entry.snapshot));
 }
 
 function mapRateLimits(result, nowMs) {
@@ -238,18 +263,19 @@ function mapRateLimits(result, nowMs) {
   const windows = [];
   const balances = [];
   let resetUnitAssumed = false;
-  for (const snapshot of snapshotEntries(source)) {
+  const entries = snapshotEntries(source);
+  for (const { id, snapshot } of entries) {
     for (const key of ['primary', 'secondary']) {
-      const window = mapWindow(valueOf(snapshot, key), nowMs);
+      const window = mapWindow(valueOf(snapshot, key), nowMs, id);
       if (window) {
         windows.push(window);
         resetUnitAssumed = resetUnitAssumed || window.resetUnitAssumed === true;
       }
     }
-    mapBalances(snapshot, balances);
+    mapBalances(snapshot, windows, balances, id, nowMs);
   }
-  const planType = snapshotEntries(source)
-    .map((snapshot) => safeLabel(valueOf(snapshot, 'planType')))
+  const planType = entries
+    .map(({ snapshot }) => safeLabel(valueOf(snapshot, 'planType')))
     .find(Boolean) || '';
   return { windows, balances, planType, resetUnitAssumed };
 }

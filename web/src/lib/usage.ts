@@ -146,6 +146,16 @@ const KNOWN_ERROR_CODE_TEXT: Readonly<Record<string, string>> = {
   rate_limited: '请求过于频繁，请稍后再试',
   upstream_error: '服务商接口暂时出错，请稍后再试',
   malformed_response: '返回的数据格式不正确',
+  // Bundle J F1: the reader's fixed Claude snapshot codes. Each sentence starts from the reader's own
+  // wording and adds the next step; the zh strings match the usageCode.* entries in lib/i18n.ts.
+  claude_snapshot_unreadable: '无法读取 Claude 状态栏快照文件，请稍后重试',
+  claude_snapshot_too_large: 'Claude 状态栏快照文件超出正常大小，请检查状态栏脚本写出的文件',
+  claude_snapshot_read_failed: '读取 Claude 状态栏快照失败，请稍后重试',
+  claude_snapshot_corrupt: 'Claude 状态栏快照不是有效的 JSON，请检查状态栏脚本写出的文件',
+  claude_snapshot_schema: 'Claude 状态栏快照版本不支持（必须为 schema 1）',
+  claude_snapshot_timestamp: 'Claude 状态栏快照时间戳无效，请检查系统时钟',
+  claude_snapshot_no_rate_limits: 'Claude 状态栏快照缺少额度数据，请检查状态栏脚本写出的文件',
+  claude_snapshot_no_windows: '快照里没有可用的额度数据，运行一次 Claude Code 后再刷新',
 };
 
 /** The only text a provider card shows for "no numbers, here's why". Never reads `provider.error`: that

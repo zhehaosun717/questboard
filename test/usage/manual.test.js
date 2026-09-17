@@ -122,7 +122,7 @@ describe('manual-only providers', () => {
         const [entry] = report.providers;
         assert.equal(entry.ok, false, 'manual-only readings are not successful quota readings');
         assert.equal(entry.providerState, 'manual_only');
-        assert.equal(entry.state, 'fresh', 'cache state stays separate from provider state');
+        assert.equal(entry.state, 'unconfigured', 'a manual card has no automatic reading to call fresh');
         assert.deepEqual(entry.windows, []);
         assert.deepEqual(entry.balances, []);
         assert.equal(entry.keyFrom, undefined, 'No keyFrom should be looked up');
