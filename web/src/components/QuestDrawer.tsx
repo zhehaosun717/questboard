@@ -2,6 +2,7 @@ import { api } from '../api/client';
 import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, formatClock, isSafeReviewUrl, relatedQuestIds, reviewSourcePath } from '../lib/board';
 import { evidenceFor } from '../lib/evidence';
+import { t } from '../lib/i18n';
 import { KIND, STATUS } from '../lib/labels';
 import { nextStep } from '../lib/nextStep';
 import { isArchived } from '../lib/questState';
@@ -18,21 +19,22 @@ import { UpstreamEvidence } from './quest/UpstreamEvidence';
 import { GraphView } from './GraphView';
 
 // Display labels for cancellation codes and sources — the drawer shows these words, never the raw codes.
+// Getters keep them following the per-browser language switch; the zh strings are byte-identical.
 const CANCEL_RESULT: Record<string, string> = {
-  pending: '停止请求已发出，还没收到确认',
-  never_started: 'worker 还没启动',
-  stopped_by_wrapper: '包装脚本已停下它直接启动的进程',
-  stopped_by_api: '已通过通道接口停止',
-  manual_required: '无法自动停止，需要手动处理',
-  unknown: '不确定是否已停止',
+  get pending() { return t('drawer.cancel.pending'); },
+  get never_started() { return t('drawer.cancel.neverStarted'); },
+  get stopped_by_wrapper() { return t('drawer.cancel.stoppedByWrapper'); },
+  get stopped_by_api() { return t('drawer.cancel.stoppedByApi'); },
+  get manual_required() { return t('drawer.cancel.manualRequired'); },
+  get unknown() { return t('drawer.cancel.unknown'); },
 };
 
 const CANCEL_SOURCE: Record<string, string> = {
-  ui: '看板',
-  cli: '命令行',
-  mcp: 'MCP',
-  limit: '超限自动取消',
-  unknown: '未知来源',
+  get ui() { return t('drawer.cancel.source.ui'); },
+  get cli() { return t('drawer.cancel.source.cli'); },
+  get mcp() { return t('drawer.cancel.source.mcp'); },
+  get limit() { return t('drawer.cancel.source.limit'); },
+  get unknown() { return t('drawer.cancel.source.unknown'); },
 };
 
 export interface QuestDrawerProps {
@@ -56,8 +58,8 @@ export function cancelActionFor(status: Quest['status']): 'request' | 'held-stat
 }
 
 export function cancelReasonPromptFor(action: ReturnType<typeof cancelActionFor>): string | null {
-  if (action === 'request') return '请写明取消原因';
-  if (action === 'held-status') return '请写明你怎么确认这个 worker 已经停了；这句话会记成手动释放的理由';
+  if (action === 'request') return t('drawer.cancel.reasonPrompt');
+  if (action === 'held-status') return t('drawer.cancel.heldPrompt');
   return null;
 }
 
@@ -100,55 +102,55 @@ export function QuestDrawer({
     const action = cancelActionFor(quest.status);
     const holdsWorker = Boolean(assignee && action !== 'status');
     const warning = holdsWorker
-      ? `取消 ${quest.id}？它的 worker 可能还在改文件。取消只是发出停止请求，不代表 worker 已经停了。确定继续吗？`
-      : `取消 ${quest.id}？`;
+      ? t('drawer.cancel.warningHolds', { id: quest.id })
+      : t('drawer.cancel.warning', { id: quest.id });
     if (!window.confirm(warning)) {
       return;
     }
     try {
       const reasonPrompt = cancelReasonPromptFor(action);
-      const reason = reasonPrompt ? window.prompt(reasonPrompt)?.trim() : '在看板上手动取消';
+      const reason = reasonPrompt ? window.prompt(reasonPrompt)?.trim() : t('drawer.cancel.defaultReason');
       if (!reason) return;
       if (action === 'request') await api.cancelQuest(quest.id, reason);
       else await api.setQuestStatus(quest.id, 'cancelled', reason, holdsWorker);
       refresh();
     } catch (err) {
-      pushToast(`取消失败：${err instanceof Error ? err.message : String(err)}`);
+      pushToast(t('drawer.cancel.failedToast', { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   const canResolve = Boolean(assignee && quest.cancelRequest
     && ['manual_required', 'stopped_by_wrapper', 'stopped_by_api', 'unknown'].includes(quest.cancelRequest.result));
   const handleResolve = async () => {
-    const reason = window.prompt('请写明你怎么确认这个 worker 已经停了；这句话会记成手动释放的理由')?.trim();
+    const reason = window.prompt(t('drawer.cancel.heldPrompt'))?.trim();
     if (!reason) return;
     try {
       await api.resolveWorker(quest.id, reason);
       refresh();
     } catch (err) {
-      pushToast(`手动释放失败：${err instanceof Error ? err.message : String(err)}`);
+      pushToast(t('drawer.resolve.failedToast', { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   const handleRelease = async () => {
     const name = assignee?.name ?? '';
-    if (!window.confirm(`确认冒险者（编号 ${name}）已经停了？释放后这个委托可以重新派；如果它其实还在跑，会有两个冒险者同时改文件。`)) {
+    if (!window.confirm(t('drawer.release.confirm', { name }))) {
       return;
     }
     try {
-      await api.releaseWorker(quest.id, `owner 在看板上确认冒险者 ${name} 已停止`);
+      await api.releaseWorker(quest.id, t('drawer.release.detail', { name }));
       refresh();
     } catch (err) {
-      pushToast(`释放失败：${err instanceof Error ? err.message : String(err)}`);
+      pushToast(t('drawer.release.failedToast', { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   return (
     <div id="drawer" className="drawer">
       <button className="close" type="button" onClick={onClose}>
-        ✕ 关闭
+        ✕ {t('drawer.close')}
       </button>
-      <p className="eyebrow">DOSSIER · 委托档案</p>
+      <p className="eyebrow">{t('drawer.eyebrow')}</p>
       <div className="d-head">
         <span className="pid">{quest.id}</span>
         <span className={`tape k-${quest.kind}`}>{KIND[quest.kind] || quest.kind}</span>
@@ -156,11 +158,11 @@ export function QuestDrawer({
       </div>
       <h2>{quest.title}</h2>
       <div className="d-meta">
-        发布者 {quest.postedBy || '—'}
+        {t('drawer.postedBy', { name: quest.postedBy || '—' })}
         {quest.brief ? (
           <>
             {' '}
-            · 委托书 <code>{quest.brief}</code>
+            · {t('drawer.briefLabel')} <code>{quest.brief}</code>
           </>
         ) : null}
       </div>
@@ -171,15 +173,15 @@ export function QuestDrawer({
         <DrawerSection en="CANCELLATION" zh="取消请求">
           <div className="rec">
             {quest.cancelRequest
-              ? `${CANCEL_RESULT[quest.cancelRequest.result] ?? quest.cancelRequest.result} · 来自${CANCEL_SOURCE[quest.cancelRequest.bySource] ?? quest.cancelRequest.bySource} · ${quest.cancelRequest.reason}${quest.cancelRequest.detail ? ` · ${quest.cancelRequest.detail}` : ''}`
+              ? `${CANCEL_RESULT[quest.cancelRequest.result] ?? quest.cancelRequest.result} · ${t('drawer.cancel.from')}${CANCEL_SOURCE[quest.cancelRequest.bySource] ?? quest.cancelRequest.bySource} · ${quest.cancelRequest.reason}${quest.cancelRequest.detail ? ` · ${quest.cancelRequest.detail}` : ''}`
               : quest.lastDetail}
           </div>
           {quest.cancelRequest?.result === 'manual_required' || (!quest.cancelRequest && limitStall) ? (
-            <p className="hint">无法自动停止，请手动处理</p>
+            <p className="hint">{t('drawer.cannotAutoStop')}</p>
           ) : null}
           {canResolve ? (
             <div className="row end">
-              <button className="btn primary" type="button" onClick={handleResolve}>确认已停止，手动释放</button>
+              <button className="btn primary" type="button" onClick={handleResolve}>{t('drawer.resolve.button')}</button>
             </div>
           ) : null}
         </DrawerSection>
@@ -224,11 +226,11 @@ export function QuestDrawer({
       {step.action === 'release' && assignee ? (
         <DrawerSection en="RELEASE" zh="确认冒险者已停">
           <p className="hint owner-task-hint">
-            它的位置和文件仍被占着。确认它真的停了再释放：如果它其实还在跑，释放后会有两个冒险者同时改文件。
+            {t('drawer.release.hint')}
           </p>
           <div className="row end">
             <button className="btn primary" type="button" onClick={handleRelease}>
-              确认已停，释放
+              {t('drawer.release.button')}
             </button>
           </div>
         </DrawerSection>
@@ -251,9 +253,9 @@ export function QuestDrawer({
       {assignee ? (
         <DrawerSection en="ON QUEST" zh={quest.status === 'dispatched' ? '正在做的冒险者' : '接手的冒险者'}>
           <div className="rec">
-            ⚔ {assigneeName} · 模型 {assignee.model} · 编号 <code>{assignee.name}</code> · {formatClock(assignee.at)} 派出
+            ⚔ {assigneeName} · {t('drawer.onQuest.model', { model: assignee.model })} · {t('drawer.onQuest.workerId', { name: assignee.name })} · {t('drawer.onQuest.dispatchedAt', { time: formatClock(assignee.at) })}
             {live ? ` · ${live.state} · ${formatAgo(live.elapsed)}` : ''}
-            {live?.heartbeat ? ` · 最近心跳：${Math.max(0, Math.floor(live.heartbeat.ageMs / 1000))} 秒前` : ''}
+            {live?.heartbeat ? ` · ${t('drawer.onQuest.heartbeat', { seconds: Math.max(0, Math.floor(live.heartbeat.ageMs / 1000)) })}` : ''}
           </div>
           {live && live.lastText ? <pre>{live.lastText}</pre> : null}
         </DrawerSection>
@@ -278,17 +280,17 @@ export function QuestDrawer({
           {isSafeReviewUrl(reviewPage.url) ? (
             <a className="rv" href={reviewPage.url} target="_blank" rel="noreferrer">
               <span className="rv-title">{reviewPage.title}</span>
-              <span className="rv-count">已批注 {reviewPage.answered}/{reviewPage.total}</span>
+              <span className="rv-count">{t('drawer.reviewPage.answered', { answered: reviewPage.answered, total: reviewPage.total })}</span>
               {reviewSource ? (
-                <span className="rv-source">评审页文件：评审目录/{reviewSource}</span>
+                <span className="rv-source">{t('drawer.reviewPage.source', { source: reviewSource })}</span>
               ) : null}
             </a>
           ) : (
             <div className="rv">
               <span className="rv-title">{reviewPage.title}</span>
-              <span className="rv-count">已批注 {reviewPage.answered}/{reviewPage.total}</span>
+              <span className="rv-count">{t('drawer.reviewPage.answered', { answered: reviewPage.answered, total: reviewPage.total })}</span>
               {reviewSource ? (
-                <span className="rv-source">评审页文件：评审目录/{reviewSource}</span>
+                <span className="rv-source">{t('drawer.reviewPage.source', { source: reviewSource })}</span>
               ) : null}
             </div>
           )}
@@ -297,12 +299,12 @@ export function QuestDrawer({
 
       {threads.length > 0 ? (
         <DrawerSection en="CHATTER" zh="留言板">
-          {threads.map((t) => (
-            <div key={t.id} className="rec">
-              <a href={`#/threads/${encodeURIComponent(t.id)}`} onClick={onClose}>
-                {t.title}
+          {threads.map((thread) => (
+            <div key={thread.id} className="rec">
+              <a href={`#/threads/${encodeURIComponent(thread.id)}`} onClick={onClose}>
+                {thread.title}
               </a>{' '}
-              · {t.messageCount} 条{t.closed ? ' · 已关闭' : ''}
+              · {t('drawer.chatter.messages', { count: thread.messageCount })}{thread.closed ? ` · ${t('drawer.chatter.closed')}` : ''}
             </div>
           ))}
         </DrawerSection>
@@ -322,7 +324,7 @@ export function QuestDrawer({
         <DrawerSection en="RULINGS" zh="裁决记录">
           {quest.rulings.map((r, i) => (
             <div key={i} className="rec">
-              {new Date(r.at).toLocaleString('zh-CN')} · 问：{r.question || ''} · 答：{r.text}
+              {new Date(r.at).toLocaleString('zh-CN')} · {t('drawer.rulings.question', { question: r.question || '' })} · {t('drawer.rulings.answer', { text: r.text })}
             </div>
           ))}
         </DrawerSection>
@@ -331,7 +333,7 @@ export function QuestDrawer({
       {!archived ? (
         <DrawerSection en="SCRAP" zh="取消">
           <button className="btn danger" type="button" onClick={handleCancel}>
-            取消这个委托
+            {t('drawer.scrap.button')}
           </button>
         </DrawerSection>
       ) : null}

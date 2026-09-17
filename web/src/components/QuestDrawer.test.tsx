@@ -196,4 +196,35 @@ describe('QuestDrawer 修改委托 hook-in', () => {
     expect(html).toContain('评审页文件：评审目录/art/charA/final.html');
     expect(html).toContain('已批注 1/2');
   });
+
+  it('renders the drawer chrome and prompts in English without Chinese in the board-owned text', async () => {
+    const { DEFAULT_LOCALE, setLocale } = await import('../lib/i18n');
+    setLocale('en');
+    try {
+      const quest = makeQuest({
+        id: 'A-EN-DRAWER',
+        status: 'stalled',
+        assignee: makeAssignee('card-1'),
+        cancelRequest: {
+          requestId: 'req-en', attemptId: 'att-en', at: '2026-09-13T00:00:00.000Z', bySource: 'ui',
+          reason: 'stop', result: 'manual_required',
+        },
+        reviewPage: 'p1',
+      });
+      const snap = makeSnapshot({
+        quests: [quest],
+        reviewPages: [{ page: 'p1', title: 'CharA', url: '/review/art/charA/final.html', total: 2, answered: 1 }],
+      });
+      const html = render(quest, snap);
+      expect(html).toContain('Close');
+      expect(html).toContain('QUEST FILE');
+      expect(html).toContain('Cancel this quest');
+      expect(html).toContain('annotated 1/2');
+      expect(html).toContain('Confirm stopped, release manually');
+      expect(html).not.toMatch(/关闭|委托档案|取消这个委托|已批注/);
+      expect(cancelReasonPromptFor('request')).toBe('Write the reason for cancelling');
+    } finally {
+      setLocale(DEFAULT_LOCALE);
+    }
+  });
 });
