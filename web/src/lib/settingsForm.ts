@@ -15,6 +15,11 @@ export interface LaneDraft {
   run: string[];
   outputDir: string;
   api: string;
+  /** lanes.<id>.protocol (src/core/config.js): which server contract `api` speaks. Empty or absent means
+   * "not set" — the default (`opencode-session`, the only accepted value today) applies. Only meaningful
+   * with `api`. Optional (rather than required like the other string fields) so existing call sites that
+   * build a `LaneDraft` literal without it — added before this field existed — still type-check. */
+  protocol?: string;
   /** The command that starts this lane's server; only for lanes with api. */
   serve: string[];
   deliveryDir: string;
@@ -137,6 +142,15 @@ const BOUNCE_CODE_PATTERN = /^[a-z][a-z0-9_]*$/;
 // path that cannot start a new host (no `//`) or hide one behind an escape (no `\`) can never redirect the
 // health check elsewhere — a query string containing "://" is still just a local path.
 const HEALTH_PATH_PATTERN = /^\/(?!\/)[^\s\\]*$/;
+// Matches src/core/config.js's LANE_PROTOCOLS: the only server contract the board knows how to speak today.
+export const LANE_PROTOCOLS = ['opencode-session'] as const;
+export const DEFAULT_LANE_PROTOCOL = 'opencode-session';
+// protocol only exists alongside api (LaneDraft.protocol), so every edit to the api field goes through this
+// instead of a bare `{ api }` patch: clearing api must clear protocol too, or Save is left refusing a field
+// the api-less card no longer even shows.
+export function apiFieldPatch(api: string): Partial<LaneDraft> {
+  return api.trim() ? { api } : { api, protocol: '' };
+}
 const str = (v: unknown): string => (typeof v === 'string' ? v : v !== undefined && v !== null ? String(v) : '');
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -330,6 +344,7 @@ export function toDrafts(raw: Record<string, unknown> | null | undefined): Setti
         run: strList(lane.run),
         outputDir: str(lane.outputDir),
         api: str(lane.api),
+        protocol: str(lane.protocol),
         serve: strList(lane.serve),
         deliveryDir: str(lane.deliveryDir),
         defaultModel: str(lane.defaultModel),
@@ -455,6 +470,13 @@ export function toRaw(raw: Record<string, unknown> | null | undefined, drafts: S
     laneObj.run = [...lane.run];
     setOrDelete(laneObj, 'outputDir', lane.outputDir);
     setOrDelete(laneObj, 'api', lane.api);
+    // Omitted whenever it equals the default (today that is every legal value, since only one protocol is
+    // accepted) so a config nobody touched this field on stays byte-identical after a save. Also omitted
+    // with no api: the field only means anything alongside a server, and a stray value left over from a
+    // just-cleared api (M1) must never reach the file even if some caller forgot apiFieldPatch.
+    const protocol = (lane.protocol || '').trim();
+    if (lane.api.trim() && protocol && protocol !== DEFAULT_LANE_PROTOCOL) laneObj.protocol = protocol;
+    else delete laneObj.protocol;
     if (lane.serve.length > 0) laneObj.serve = [...lane.serve];
     else delete laneObj.serve;
     setOrDelete(laneObj, 'deliveryDir', lane.deliveryDir);
@@ -728,6 +750,16 @@ export function validateDrafts(drafts: SettingsDrafts): Record<string, string> {
       if (parsed.error) {
         errors[`lanes.${i}.env`] = parsed.error; if (laneId) errors[`lanes.${laneId}.env`] = parsed.error;
       }
+    }
+
+    // No "needs api" refusal here (M1): the select that sets protocol is hidden once api is cleared, so a
+    // page-driven edit can never produce this combination, and refusing it anyway would block Save on an
+    // error the owner cannot see or clear. apiFieldPatch clears protocol the moment api is cleared, and
+    // toRaw drops a stray protocol with no api regardless, so this stays a pure format check.
+    const protocolStr = (lane.protocol || '').trim();
+    if (protocolStr && !(LANE_PROTOCOLS as readonly string[]).includes(protocolStr)) {
+      const msg = `协议只能是：${LANE_PROTOCOLS.join('、')}`;
+      errors[`lanes.${i}.protocol`] = msg; if (laneId) errors[`lanes.${laneId}.protocol`] = msg;
     }
 
     const healthPathStr = lane.healthPath.trim();

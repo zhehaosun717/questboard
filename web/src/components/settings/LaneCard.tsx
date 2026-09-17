@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Card, LaneServerStatus } from '../../api/types';
-import { describeMalformedHealth, OPENCODE_HEALTH_PRESET, type LaneDraft } from '../../lib/settingsForm';
+import { apiFieldPatch, describeMalformedHealth, DEFAULT_LANE_PROTOCOL, LANE_PROTOCOLS, OPENCODE_HEALTH_PRESET, type LaneDraft } from '../../lib/settingsForm';
 import { useT } from '../../lib/i18n';
 import { LaneServerPanel, type LaneServerMessage } from './LaneServerPanel';
 import { OptionalArgsEditor } from './OptionalArgsEditor';
@@ -39,6 +39,7 @@ export function LaneCard({
   const counterErr = errors[`lanes.${index}.editCounter`] || errors[`lanes.${lane.id}.editCounter`];
   const envErr = errors[`lanes.${index}.env`] || errors[`lanes.${lane.id}.env`];
   const apiErr = errors[`lanes.${index}.api`] || errors[`lanes.${lane.id}.api`];
+  const protocolErr = errors[`lanes.${index}.protocol`] || errors[`lanes.${lane.id}.protocol`];
   const healthPathErr = errors[`lanes.${index}.healthPath`] || errors[`lanes.${lane.id}.healthPath`];
   const healthJsonErr = errors[`lanes.${index}.healthJson`] || errors[`lanes.${lane.id}.healthJson`];
   const hasOptionalArgsErr = Object.keys(errors).some(
@@ -203,10 +204,29 @@ export function LaneCard({
             id={`cfg-lane-api-${index}`}
             value={lane.api}
             placeholder={t('laneCard.apiPlaceholder')}
-            onChange={(e) => onUpdate({ api: e.target.value })}
+            onChange={(e) => onUpdate(apiFieldPatch(e.target.value))}
           />
         </div>
       </div>
+
+      {lane.api.trim() ? (
+        <div className="form-field">
+          <label htmlFor={`cfg-lane-protocol-${index}`}>
+            协议
+            {protocolErr ? <span className="field-error"> · {protocolErr}</span> : null}
+          </label>
+          <select
+            id={`cfg-lane-protocol-${index}`}
+            value={lane.protocol || ''}
+            onChange={(e) => onUpdate({ protocol: e.target.value })}
+          >
+            <option value="">默认（{DEFAULT_LANE_PROTOCOL}）</option>
+            {LANE_PROTOCOLS.map((protocol) => (
+              <option key={protocol} value={protocol}>{protocol}</option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
       {lane.api.trim() ? (
         <div className="form-field">

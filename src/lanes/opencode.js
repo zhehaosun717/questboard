@@ -1,15 +1,26 @@
 // Server-API workers (OpenCode): state comes from the session's messages over HTTP.
 import { resetAt, STALE_MS } from './workers.js';
 
+// A named reason instead of null silence: the collector shows this where a worker row used to just go
+// quiet. `ok: true` carries the parsed body as `data`; `ok: false` carries a Chinese `reason` naming which
+// of the four ways a server-lane read can fail (connection failure, timeout, an HTTP status, or a body that
+// is not valid JSON) actually happened.
 export async function fetchJson(url, { fetchImpl = fetch, timeout = 3000 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  let response;
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    const response = await fetchImpl(url, { signal: controller.signal });
+    response = await fetchImpl(url, { signal: controller.signal });
+  } catch (error) {
+    return { ok: false, reason: controller.signal.aborted ? '请求超时' : `连接失败：${error.message}` };
+  } finally {
     clearTimeout(timer);
-    return response.ok ? await response.json() : null;
-  } catch {
-    return null;
+  }
+  if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` };
+  try {
+    return { ok: true, data: await response.json() };
+  } catch (error) {
+    return { ok: false, reason: `响应不是合法 JSON：${error.message}` };
   }
 }
 

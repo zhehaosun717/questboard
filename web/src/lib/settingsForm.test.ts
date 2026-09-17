@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeMalformedHealth, OPENCODE_HEALTH_PRESET, type LaneDraft, type SettingsDrafts, toDrafts, toRaw, validateDrafts } from './settingsForm';
+import { apiFieldPatch, describeMalformedHealth, OPENCODE_HEALTH_PRESET, type LaneDraft, type SettingsDrafts, toDrafts, toRaw, validateDrafts } from './settingsForm';
 
 const exampleConfig = {
   name: 'My Game',
@@ -351,6 +351,57 @@ describe('settingsForm validateDrafts rules', () => {
     expect(validateDrafts(d)['lanes.0.serve']).toMatch(/api/);
     lane.serve = [];
     expect('serve' in laneOf(toRaw(raw, d), 'oc')).toBe(false);
+  });
+
+  it('Bundle 3: protocol round-trips, is omitted at its default so an untouched save stays byte-identical, and never blocks a save once api is cleared (M1)', () => {
+    const raw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096' } } };
+    const d = toDrafts(raw);
+    const lane = laneAt(d, 0);
+    expect(lane.protocol).toBe('');
+    expect(validateDrafts(d)['lanes.0.protocol']).toBeUndefined();
+    // Never touched: the saved config comes back exactly as it was, no protocol key added.
+    expect(toRaw(raw, d)).toEqual(raw);
+    expect('protocol' in laneOf(toRaw(raw, d), 'oc')).toBe(false);
+
+    // Explicitly choosing the one accepted value is still the default — still omitted on save.
+    lane.protocol = 'opencode-session';
+    expect(validateDrafts(d)['lanes.0.protocol']).toBeUndefined();
+    expect('protocol' in laneOf(toRaw(raw, d), 'oc')).toBe(false);
+
+    // An unknown value is refused, naming the accepted list.
+    lane.protocol = 'ghost-protocol';
+    expect(validateDrafts(d)['lanes.0.protocol']).toMatch(/协议只能是/);
+
+    // M1: clearing api (as the page's own api field does, via apiFieldPatch) clears protocol too, so Save
+    // never refuses on a field the card no longer shows. A lane loaded with api+protocol, api cleared,
+    // still saves cleanly as a plain file lane: no protocol error, and no protocol (or api) in the raw.
+    lane.protocol = 'opencode-session';
+    Object.assign(lane, apiFieldPatch(''));
+    expect(lane.protocol).toBe('');
+    expect(validateDrafts(d)['lanes.0.protocol']).toBeUndefined();
+    const clearedRaw = toRaw(raw, d);
+    expect('protocol' in laneOf(clearedRaw, 'oc')).toBe(false);
+    expect('api' in laneOf(clearedRaw, 'oc')).toBe(false);
+
+    // Defense in depth: even a draft that reached this shape some other way (api cleared without going
+    // through apiFieldPatch, leaving a stray protocol behind) is never refused and never written.
+    lane.api = '';
+    lane.protocol = 'opencode-session';
+    expect(validateDrafts(d)['lanes.0.protocol']).toBeUndefined();
+    expect('protocol' in laneOf(toRaw(raw, d), 'oc')).toBe(false);
+
+    // A hand-edited file that already spells out the default explicitly still loads it into the draft
+    // (toDrafts never hides what is actually on disk) — it is toRaw's save path, not toDrafts' read path,
+    // that normalizes the only accepted value away.
+    const explicitRaw = { ...exampleConfig, lanes: { oc: { run: ['node', 'tools/oc.js'], api: 'http://127.0.0.1:6096', protocol: 'opencode-session' } } };
+    const explicitDrafts = toDrafts(explicitRaw);
+    expect(laneAt(explicitDrafts, 0).protocol).toBe('opencode-session');
+  });
+
+  it('M1: apiFieldPatch clears protocol exactly when api goes blank', () => {
+    expect(apiFieldPatch('http://127.0.0.1:6096')).toEqual({ api: 'http://127.0.0.1:6096' });
+    expect(apiFieldPatch('  ')).toEqual({ api: '  ', protocol: '' });
+    expect(apiFieldPatch('')).toEqual({ api: '', protocol: '' });
   });
 
   it('rule 11: health path relative to api, JSON object, needs api, empty removes it', () => {

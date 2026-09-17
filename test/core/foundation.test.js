@@ -10,6 +10,9 @@ import { validateRoster, upsertAdventurer, saveRoster, loadRoster } from '../../
 import { splitLegacyRoster } from '../../src/core/legacy.js';
 import { readJsonLines } from '../../src/core/jsonl.js';
 import { questboardHome, homePaths } from '../../src/core/home.js';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const tmp = (prefix) => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 const lanes = { codex: { run: ['tools/codex-run.sh', '{name}', '{brief}', '{model}', '{variant}'], outputDir: '.claude/codex' } };
@@ -144,6 +147,32 @@ describe('config', () => {
     assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], outputDir: 'o', health: { path: '/h' } } } }), /needs api/);
     assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096', health: { path: 'no-slash' } } } }), /must start with \//);
     assert.throws(() => resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096', health: { path: '/h', json: 'nope' } } } }), /health\.json must be an object/);
+  });
+
+  it('defaults a server lane\'s protocol to opencode-session and refuses an unknown one (Bundle 3)', () => {
+    // A lane that never mentions protocol resolves exactly like a lane that spells out the only accepted
+    // value today — every config written before this field existed keeps loading unchanged.
+    const implicit = resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096' } } });
+    const explicit = resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096', protocol: 'opencode-session' } } });
+    assert.equal(implicit.lanes.oc.protocol, 'opencode-session');
+    assert.deepEqual(implicit.lanes.oc, explicit.lanes.oc);
+
+    // examples/ configs (and any other file lane with no api) never had this field and never need it.
+    assert.equal(resolveConfig('E:/g', { name: 'G', lanes }).lanes.codex.protocol, undefined);
+
+    assert.throws(
+      () => resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], api: 'http://127.0.0.1:6096', protocol: 'ghost-protocol' } } }),
+      /通道 oc 的 protocol「ghost-protocol」不认识，只接受：opencode-session/,
+    );
+    assert.throws(
+      () => resolveConfig('E:/g', { name: 'G', lanes: { oc: { run: ['x'], outputDir: 'o', protocol: 'opencode-session' } } }),
+      /protocol 需要先配置 api/,
+    );
+
+    // A real shipped config with no api/protocol at all (examples/basic) still resolves unchanged.
+    const exampleRaw = JSON.parse(fs.readFileSync(path.join(repoRoot, 'examples/basic/questboard.config.json'), 'utf8'));
+    const example = resolveConfig('E:/g', exampleRaw);
+    for (const lane of Object.values(example.lanes)) assert.equal(lane.protocol, undefined);
   });
 });
 

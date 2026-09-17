@@ -16,6 +16,10 @@ const CARD_ID = /^[a-z0-9-]{1,48}$/;
 // A structured bounce code: lowercase words joined by underscores, starting with a letter (e.g. rate_limit).
 const BOUNCE_CODE = /^[a-z][a-z0-9_]*$/;
 const EDIT_COUNTERS = new Set(['patch', 'stream-json', 'none']);
+// Vendor-neutral server-lane contracts the board knows how to speak (src/lanes/protocols.js). Only one
+// exists today (OpenCode's session API); a lane with `api` and no explicit `protocol` defaults to it so
+// every config written before this field existed keeps resolving identically.
+const LANE_PROTOCOLS = new Set(['opencode-session']);
 // name/brief/model/package are always required and can never be dropped; only these two may control an
 // optional argument group (lanes.<id>.optionalArgs — see validateOptionalArgs and fillOptionalArgs below).
 const OPTIONAL_ARGS_WHEN = new Set(['variant', 'agent']);
@@ -186,6 +190,12 @@ function validateLane(id, lane) {
   }
   if (lane.outputDir !== undefined) result.outputDir = requireString(lane.outputDir, `${field}.outputDir`);
   if (lane.api !== undefined) result.api = requireString(lane.api, `${field}.api`);
+  if (lane.protocol !== undefined && lane.api === undefined) fail(`${field}.protocol 需要先配置 api，没有 api 就没有服务器可以对话`);
+  if (lane.api !== undefined) {
+    const protocol = lane.protocol === undefined ? 'opencode-session' : requireString(lane.protocol, `${field}.protocol`);
+    if (!LANE_PROTOCOLS.has(protocol)) fail(`通道 ${id} 的 protocol「${protocol}」不认识，只接受：${[...LANE_PROTOCOLS].join('、')}`);
+    result.protocol = protocol;
+  }
   if (lane.control !== undefined) {
     if (!lane.control || typeof lane.control !== 'object' || Array.isArray(lane.control)) fail(`${field}.control must be an object`);
     if (!['generic-wrapper', 'opencode-session'].includes(lane.control.type)) fail(`${field}.control.type must be generic-wrapper or opencode-session`);

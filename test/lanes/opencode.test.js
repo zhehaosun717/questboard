@@ -7,7 +7,7 @@
 // timestamps; and a turn without any timestamp stays uncertain with a reason instead of being guessed.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { sessionState } from '../../src/lanes/opencode.js';
+import { fetchJson, sessionState } from '../../src/lanes/opencode.js';
 import { STALE_MS } from '../../src/lanes/workers.js';
 
 const now = () => Date.now();
@@ -126,6 +126,30 @@ describe('sessionState terminal rules (N12-N14)', () => {
     const aborted = sessionState([msg(completed({ error: { name: 'MessageAbortedError' } }), [txt('partial notes')])]);
     assert.equal(aborted.state, 'failed');
     assert.match(aborted.reason, /MessageAbortedError/);
+  });
+
+  it('names a Chinese reason instead of going silent (Bundle 3: connection, timeout, HTTP status, non-JSON)', async () => {
+    const refused = await fetchJson('http://oc.test', { fetchImpl: async () => { throw new Error('ECONNREFUSED'); } });
+    assert.deepEqual(refused, { ok: false, reason: '连接失败：ECONNREFUSED' });
+
+    const timedOut = await fetchJson('http://oc.test', {
+      timeout: 5,
+      fetchImpl: (url, { signal }) => new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')));
+      }),
+    });
+    assert.equal(timedOut.ok, false);
+    assert.equal(timedOut.reason, '请求超时');
+
+    const badStatus = await fetchJson('http://oc.test', { fetchImpl: async () => ({ ok: false, status: 500 }) });
+    assert.deepEqual(badStatus, { ok: false, reason: 'HTTP 500' });
+
+    const badJson = await fetchJson('http://oc.test', { fetchImpl: async () => ({ ok: true, json: async () => { throw new SyntaxError('Unexpected token'); } }) });
+    assert.equal(badJson.ok, false);
+    assert.match(badJson.reason, /响应不是合法 JSON/);
+
+    const ok = await fetchJson('http://oc.test', { fetchImpl: async () => ({ ok: true, json: async () => ({ hello: 'world' }) }) });
+    assert.deepEqual(ok, { ok: true, data: { hello: 'world' } });
   });
 
   it('respects stallAfterMinutes threshold: 21m running, 46m stalled >45m', () => {

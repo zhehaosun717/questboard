@@ -129,6 +129,7 @@ Every field below is optional; a config that never mentions one keeps the behavi
 | `lanes.<id>.roleInPrompt` (bool) | This lane accepts a `{role}` role card in its prompt (see `--role` in `examples/basic/README.md`) |
 | `lanes.<id>.limits.maxMessages`, `.maxMinutes` | `maxMessages` caps a session-lane attempt's message count; `maxMinutes` caps wall-clock runtime on any lane. Going over a limit marks the attempt `stalled` with a reason — a `generic-wrapper` lane is cancelled automatically, other lanes need manual handling |
 | `lanes.<id>.control.type` (only `"generic-wrapper"`) | This lane's script speaks the wrapper's cancel IPC (`QUESTBOARD_ATTEMPT_ID`/`QUESTBOARD_CONTROL_TOKEN`), so `questboard_cancel_worker` can ask it to stop |
+| `lanes.<id>.protocol` (only `"opencode-session"`, needs `api`) | Which server contract `api` speaks; defaults to `opencode-session` when `api` is set, so no existing config has to name it |
 | `lanes.<id>.optionalArgs[{when,args,omitWhen,insertAt}]` | Inserts extra argv only when `when` (`variant` or `agent`) is actually supplied, unless its value is in `omitWhen`; `insertAt` picks the position, defaulting to the end of `run` |
 | `policy.stallAfterMinutes` (default 20) | How long a lane goes quiet before the board calls it `stalled` |
 | `policy.laneConcurrency.<lane>` | A per-lane cap on attempts running at once, on top of each card's own `maxParallel` |

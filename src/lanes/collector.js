@@ -3,7 +3,7 @@
 import path from 'node:path';
 import { readJsonLines } from '../core/jsonl.js';
 import { workerState, countEdits, readText, laneLimitFromEvidence, active, laneEvidence as readLaneEvidence, mtime, resetAt } from './workers.js';
-import { fetchJson, sessionLimitReason, sessionModel, sessionState } from './opencode.js';
+import { protocolFor } from './protocols.js';
 import { latestProgress } from './progress.js';
 import { isCurrentRow, tailText } from '../core/sync.js';
 
@@ -120,20 +120,21 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
     entry.lastText = tailText(report || (lane.editCounter === 'stream-json' ? '' : outText), LAST_TEXT_MAX);
   }
 
-  async function apiWorker(entry, lane, skipStale, now) {
+  async function apiWorker(entry, lane, skipStale, now, protocol) {
     const seen = lastSeen.get(entry.session);
     if (skipStale && seen && now - seen > STALE_3D_MS) {
       Object.assign(entry, { state: 'stale', reason: 'session inactive >3 days', stale: true });
       return;
     }
     if (!entry.session) { entry.reason = 'no session id'; return; }
-    const messages = await fetchJson(`${lane.api}/session/${entry.session}/message`, { fetchImpl });
-    if (!messages) { entry.reason = `${entry.lane} api unreachable`; return; }
-    if (!models.has(entry.session)) models.set(entry.session, sessionModel(messages));
-    const info = sessionState(messages, now, { stallAfterMinutes: config.policy?.stallAfterMinutes });
+    const result = await protocol.fetchJson(protocol.messagesUrl(lane, entry.session), { fetchImpl });
+    if (!result.ok) { entry.reason = `${entry.lane} api unreachable：${result.reason}`; return; }
+    const messages = result.data;
+    if (!models.has(entry.session)) models.set(entry.session, protocol.sessionModel(messages));
+    const info = protocol.sessionState(messages, now, { stallAfterMinutes: config.policy?.stallAfterMinutes });
     if (info.lastActivityMs) lastSeen.set(entry.session, info.lastActivityMs);
     Object.assign(entry, info);
-    if (!TERMINAL_STATES.has(entry.state) && stallForLimit(entry, sessionLimitReason(messages, entry.elapsed, lane.limits), lane)) return;
+    if (!TERMINAL_STATES.has(entry.state) && stallForLimit(entry, protocol.sessionLimitReason(messages, entry.elapsed, lane.limits), lane)) return;
     if (TERMINAL_STATES.has(entry.state)) {
       const observed = info.observedAt || info.lastActivityMs || now;
       entry.observedAt = new Date(observed).toISOString();
@@ -142,8 +143,8 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
         entry.resetsAt = parsedReset ? new Date(parsedReset).toISOString() : null;
       }
     }
-    const session = await fetchJson(`${lane.api}/session/${entry.session}`, { fetchImpl });
-    if (session && session.tokens) entry.tokens = session.tokens;
+    const sessionResult = await protocol.fetchJson(protocol.sessionUrl(lane, entry.session), { fetchImpl });
+    if (sessionResult.ok && sessionResult.data && sessionResult.data.tokens) entry.tokens = sessionResult.data.tokens;
   }
 
   function recoverModel(entry, lane) {
@@ -172,8 +173,9 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
       const lane = config.lanes[entry.lane];
       rows.push(entry);
       try {
+        const protocol = lane ? protocolFor(lane) : null;
         if (!lane) entry.reason = `lane ${entry.lane} is not configured`;
-        else if (lane.api) jobs.push(() => apiWorker(entry, lane, skipStale, now).catch((error) => { entry.reason = error.message; }));
+        else if (protocol) jobs.push(() => apiWorker(entry, lane, skipStale, now, protocol).catch((error) => { entry.reason = error.message; }));
         else fileWorker(entry, lane, now, dispatch.token);
       } catch (error) {
         entry.state = 'unknown';

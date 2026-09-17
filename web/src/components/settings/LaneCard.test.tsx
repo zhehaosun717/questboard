@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { toDrafts, type LaneDraft } from '../../lib/settingsForm';
+import { apiFieldPatch, toDrafts, type LaneDraft } from '../../lib/settingsForm';
 import { LaneCard } from './LaneCard';
 
 // Renders the real LaneCard.tsx (not a stand-in) so a JSX regression — a wrong condition on which block or
@@ -32,6 +32,7 @@ function render(lane: LaneDraft, errors: Record<string, string>) {
 
 const pathInputId = 'id="cfg-lane-health-path-0"';
 const checkboxRowMarker = '健康检查 (health';
+const protocolSelectId = 'id="cfg-lane-protocol-0"';
 
 describe('LaneCard health block (real JSX)', () => {
   it('a plain lane with no api and no health shows neither the api-server panel nor the health block', () => {
@@ -199,6 +200,36 @@ describe('LaneCard health block (real JSX)', () => {
       const errors = { 'lanes.0.optionalArgs[0].args': '参数不能为空白' };
       const html = render(lane, errors);
       expect(html).toContain('<details class="lane-optional-args-section" open=""');
+    });
+  });
+
+  describe('Bundle 3: protocol select', () => {
+    it('a plain lane with no api shows no protocol select', () => {
+      const lane = draftLane({});
+      const html = render(lane, {});
+      expect(html).not.toContain(protocolSelectId);
+    });
+
+    it('a lane with api shows the select, defaulted, with the one accepted value listed', () => {
+      const lane = draftLane({ api: API });
+      const html = render(lane, {});
+      expect(html).toContain(protocolSelectId);
+      expect(html).toContain('opencode-session');
+    });
+
+    it('shows the field error next to the label when present', () => {
+      const lane = draftLane({ api: API });
+      const errors = { 'lanes.0.protocol': '协议只能是：opencode-session' };
+      const html = render(lane, errors);
+      expect(html).toContain('协议只能是：opencode-session');
+    });
+
+    it('M1: a lane loaded with api+protocol, api cleared via the api field\'s own patch, hides the select with no stray error', () => {
+      const lane: LaneDraft = { ...draftLane({ api: API, protocol: 'opencode-session' }), ...apiFieldPatch('') };
+      expect(lane.protocol).toBe('');
+      const html = render(lane, {});
+      expect(html).not.toContain(protocolSelectId);
+      expect(html).not.toContain('field-error');
     });
   });
 });

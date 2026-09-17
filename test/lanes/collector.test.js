@@ -5,7 +5,8 @@ import path from 'node:path';
 import { createCollector } from '../../src/lanes/collector.js';
 import { laneLimit, laneLimitFromEvidence, active, laneEvidence, workerState, countEdits, bounceTimeMs } from '../../src/lanes/workers.js';
 import { parseProgress, latestProgress } from '../../src/lanes/progress.js';
-import { sessionModel } from '../../src/lanes/opencode.js';
+import { fetchJson, sessionLimitReason, sessionModel, sessionState } from '../../src/lanes/opencode.js';
+import { PROTOCOLS } from '../../src/lanes/protocols.js';
 import { deriveTransitions } from '../../src/core/sync.js';
 import { appendJsonLine } from '../../src/core/jsonl.js';
 import { makeProject } from '../helpers.js';
@@ -64,6 +65,43 @@ describe('collector', () => {
     assert.equal(row.edits, 1);
     assert.deepEqual(row.tokens, { input: 5, output: 7 });
     assert.deepEqual([row.model, row.modelSource], ['kimi-for-coding/k3-256k', 'session']);
+  });
+
+  it('names why a server lane is unreachable instead of going silent (Bundle 3)', async () => {
+    const { config } = makeProject();
+    dispatch(config, { package: 'MOD-2', lane: 'opencode', model: 'unknown', name: 'mod2', session: 'ses_2' });
+    const fetchImpl = async () => ({ ok: false, status: 503, json: async () => { throw new Error('should not be called'); } });
+    const [row] = (await createCollector(config, { fetchImpl }).collect()).packages;
+    assert.equal(row.state, 'unknown');
+    assert.match(row.reason, /opencode api unreachable：HTTP 503/);
+  });
+
+  it('honours a registry entry with different URL shapes instead of collector.js hard-coding OpenCode\'s paths (M2)', async () => {
+    const { config } = makeProject();
+    // A made-up second protocol, registered only for this test, with URL shapes nothing like OpenCode's —
+    // if collector.js still built `${lane.api}/session/...` itself anywhere, these stubbed responses (keyed
+    // on the vendor's own path) would never be seen and the row would stay 'unknown'.
+    config.lanes.vendor2 = { api: 'http://vendor2.test', protocol: 'vendor2-chat' };
+    dispatch(config, { package: 'V2-1', lane: 'vendor2', model: 'unknown', name: 'v2-1', session: 'chat_1' });
+    const messages = [{ info: { role: 'assistant', time: { completed: Date.now() } }, parts: [{ type: 'text', text: 'ok' }] }];
+    const seenUrls = [];
+    const fetchImpl = async (url) => {
+      seenUrls.push(url);
+      return { ok: true, json: async () => (url.endsWith('/msgs') ? messages : { tokens: { input: 1, output: 2 } }) };
+    };
+    PROTOCOLS['vendor2-chat'] = {
+      fetchJson, sessionModel, sessionState, sessionLimitReason,
+      messagesUrl: (lane, session) => `${lane.api}/v2/chats/${session}/msgs`,
+      sessionUrl: (lane, session) => `${lane.api}/v2/chats/${session}`,
+    };
+    try {
+      const [row] = (await createCollector(config, { fetchImpl }).collect()).packages;
+      assert.equal(row.state, 'delivered');
+      assert.deepEqual(row.tokens, { input: 1, output: 2 });
+      assert.deepEqual(seenUrls, ['http://vendor2.test/v2/chats/chat_1/msgs', 'http://vendor2.test/v2/chats/chat_1']);
+    } finally {
+      delete PROTOCOLS['vendor2-chat'];
+    }
   });
 
   it('stalls file lanes over maxMinutes and session lanes over all-message maxMessages', async () => {
