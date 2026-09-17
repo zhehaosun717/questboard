@@ -1,4 +1,4 @@
-/* questboard — roster, usage & settings tab styling (salvage-guild style). */
+/* questboard — roster, usage & settings tab styling (guild style). */
 
 /* ── common tab container ────────────────────────────────── */
 .roster-view-container, .usage-view-container { display: flex; flex-direction: column; gap: 20px; min-height: 72vh; }

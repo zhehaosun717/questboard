@@ -1,4 +1,4 @@
-/* questboard — tab views extension (salvage-guild style). */
+/* questboard — tab views extension (guild style). */
 
 .layout.tab-full { grid-template-columns: minmax(0, 1fr); }
 

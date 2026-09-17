@@ -7,6 +7,9 @@ import { isBrowserUnsafePort } from './browserUnsafePorts.js';
 import { ALIBABA_EDITIONS, ALIBABA_REGIONS, MANUAL_PROVIDERS } from '../usage/manualProviders.js';
 
 export const CONFIG_FILE = 'questboard.config.json';
+// The one place the board's default port is a number; everywhere else (init, doctor, the CLI's own
+// messages) imports this instead of repeating the literal.
+export const DEFAULT_PORT = 6097;
 const PLACEHOLDER = /\{([a-z]+)\}/g;
 const PLACEHOLDERS = new Set(['name', 'brief', 'model', 'variant', 'agent', 'package', 'role']);
 const LANE_ID = /^[a-z][a-z0-9-]{0,31}$/;
@@ -56,7 +59,7 @@ function requireString(value, field) {
 // before anything starts or binds, never silently replaced with a fallback.
 export function validateBoardPort(port, field = 'port') {
   if (!Number.isInteger(port) || port < 1 || port > 65535) fail(`${field} 必须是 1 到 65535 之间的整数`);
-  if (isBrowserUnsafePort(port)) fail(`${field} ${port} 浏览器会直接拒绝连接（这是 Fetch 规范里的禁用端口），换一个端口，比如默认的 6097`);
+  if (isBrowserUnsafePort(port)) fail(`${field} ${port} 浏览器会直接拒绝连接（这是 Fetch 规范里的禁用端口），换一个端口，比如默认的 ${DEFAULT_PORT}`);
   return port;
 }
 
@@ -461,7 +464,7 @@ export function resolveConfig(root, raw) {
   const abs = (value, field) => path.resolve(base, requireString(value, field));
   if (!raw.lanes || typeof raw.lanes !== 'object' || !Object.keys(raw.lanes).length) fail('lanes must define at least one lane');
   const briefs = raw.briefs || {};
-  const port = raw.port === undefined ? 6097 : raw.port;
+  const port = raw.port === undefined ? DEFAULT_PORT : raw.port;
   // A browser refuses to open the board at all on a blocked port (see src/core/browserUnsafePorts.js) — the
   // port would "work" (the server listens fine) but every tab would just show a connection-refused page.
   validateBoardPort(port);

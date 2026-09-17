@@ -4,6 +4,7 @@ import nodeFs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { bashPath } from '../core/dispatch.js';
+import { DEFAULT_PORT } from '../core/config.js';
 import { homePaths, questboardHome } from '../core/home.js';
 import { loadRoster } from '../core/roster.js';
 import { createCredentials } from '../usage/credentials.js';
@@ -154,7 +155,7 @@ export async function runDoctor({
   }
 
   // 9. Board server
-  const port = config?.port || 6097;
+  const port = config?.port || DEFAULT_PORT;
   try {
     const res = await Promise.race([fetchImpl(`http://127.0.0.1:${port}/api/health`), timeout(2000)]);
     let body = res;

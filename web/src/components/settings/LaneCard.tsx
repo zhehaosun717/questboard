@@ -236,7 +236,7 @@ export function LaneCard({
             {serveErr ? <span className="field-error"> · {serveErr}</span> : null}
           </label>
           <div className="lane-placeholders-hint">
-            {t('laneCard.serveHintPrefix')}<code>opencode</code> <code>serve</code> <code>--port</code> <code>6096</code>{t('laneCard.serveHintSuffix')}
+            {t('laneCard.serveHintPrefix')}<code>my-agent</code> <code>serve</code> <code>--port</code> <code>8000</code>{t('laneCard.serveHintSuffix')}
           </div>
           <div className="lane-args-list">
             {lane.serve.map((arg, argIdx) => (

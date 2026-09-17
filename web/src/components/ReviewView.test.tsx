@@ -64,7 +64,7 @@ describe('ReviewView (real render)', () => {
   });
 
   it('a non-legacy raw server error never leaks into the page, and gets the fixed safe label', () => {
-    const pages = [unrecognisedError('bad/page.html', 'ENOENT: no such file, open C:/Users/A/secret/x.html')];
+    const pages = [unrecognisedError('bad/page.html', 'ENOENT: no such file, open C:/Users/someone/secret/x.html')];
     const html = render({ reviewPages: pages });
     expect(html).toContain('页面信息无法读取');
     expect(html).not.toContain('ENOENT');

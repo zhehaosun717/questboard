@@ -5,7 +5,7 @@ import path from 'node:path';
 import { option, optionAll, projectConfig, serverUrl, request } from './client.js';
 import { validateAcceptanceShape } from '../core/acceptance.js';
 import { startServer } from '../server/server.js';
-import { validateBoardPort } from '../core/config.js';
+import { validateBoardPort, DEFAULT_PORT } from '../core/config.js';
 import { homePaths } from '../core/home.js';
 import { splitLegacyRoster } from '../core/legacy.js';
 import { loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.js';
@@ -174,12 +174,11 @@ export const commands = {
     if (result.rosterCreated) out(`  + ${result.rosterFile}（空名册）`);
     if (result.custom.length) out(`按你指定的写了通道：${result.custom.join('、')}`);
     if (result.detected.length) out(`检测到已安装：${result.detected.join('、')}，已写好对应通道`);
-    if (!result.custom.length && !result.detected.length) out('没检测到 codex 或 claude，先按它们写了通道；装好就能用，或者用 --lane 指定你自己的工具');
     if (result.manual.length) out(`另外检测到 ${result.manual.join('、')}：它们不是从 stdin 读提示词，要用 --lane ${result.manual[0]}="<你的命令>" 自己指定（见 README 的 Project config 一节）`);
     out('\n接下来：');
-    out(`  questboard card add --id my-codex --name Codex --provider OpenAI --lane ${result.lanes[0]} --model <模型 id>`);
+    out(`  questboard card add --id my-card --name "我的卡" --provider my-provider --lane ${result.lanes[0]} --model <模型 id>`);
     out(`  questboard serve --project ${result.root}`);
-    out('  然后打开 http://127.0.0.1:' + (option(args, '--port') || 6097) + '/ ，把卡拖到任务上');
+    out('  然后打开 http://127.0.0.1:' + (option(args, '--port') || DEFAULT_PORT) + '/ ，把卡拖到任务上');
   },
 
   async serve(args) {

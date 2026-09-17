@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn node_gets_paths_without_the_verbatim_prefix() {
-        assert_eq!(node_path(Path::new(r"\\?\C:\Users\A\AppData\Local\questboard\questboard")), PathBuf::from(r"C:\Users\A\AppData\Local\questboard\questboard"));
+        assert_eq!(node_path(Path::new(r"\\?\C:\Users\someone\AppData\Local\questboard\questboard")), PathBuf::from(r"C:\Users\someone\AppData\Local\questboard\questboard"));
         assert_eq!(node_path(Path::new(r"\\?\UNC\server\share\q")), PathBuf::from(r"\\server\share\q"));
         assert_eq!(node_path(Path::new("E:/questboard")), PathBuf::from("E:/questboard"));
         let args = init_args(Path::new(r"\\?\C:\app\questboard"), Path::new(r"\\?\E:\game"));

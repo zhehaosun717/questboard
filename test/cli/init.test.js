@@ -4,8 +4,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildConfig, commandExists, KNOWN_LANES, parseLaneFlag, runInit } from '../../src/cli/init.js';
-import { resolveConfig } from '../../src/core/config.js';
+import { DEFAULT_PORT, resolveConfig } from '../../src/core/config.js';
 import { loadRoster } from '../../src/core/roster.js';
 import { tmpDir } from '../helpers.js';
 
@@ -33,7 +34,7 @@ describe('questboard init', () => {
     const raw = JSON.parse(fs.readFileSync(result.configFile, 'utf8'));
     const config = resolveConfig(dir, raw);
     assert.equal(config.name, 'my-game');
-    assert.equal(config.port, 6097);
+    assert.equal(config.port, DEFAULT_PORT);
     assert.deepEqual(Object.keys(config.lanes), ['codex', 'claude']);
     assert.equal(config.lanes.claude.editCounter, 'stream-json');
     // The brief travels on stdin: codex reads it only when no prompt argument follows the model.
@@ -52,11 +53,13 @@ describe('questboard init', () => {
     assert.deepEqual(Object.keys(config.lanes), ['claude'], 'no lane is written for a CLI we cannot drive');
   });
 
-  it('still writes usable lanes when no agent CLI is installed yet', () => {
+  it('refuses in Chinese when no agent CLI is detected and no --lane is given, without writing anything', () => {
     const dir = tmpDir('qb-init-empty-');
-    const result = runInit({ dir, home: freshHome(), exists: () => false });
-    assert.deepEqual(result.detected, []);
-    assert.deepEqual(result.lanes, KNOWN_LANES.map((l) => l.id));
+    assert.throws(
+      () => runInit({ dir, home: freshHome(), exists: () => false }),
+      /通道.*--lane|--lane.*通道/,
+    );
+    assert.deepEqual(fs.readdirSync(dir), [], 'no config, no wrapper, nothing written for a refused init');
   });
 
   it('refuses to overwrite an existing project unless forced, and keeps files already there', () => {
@@ -125,5 +128,23 @@ describe('questboard init', () => {
     assert.equal(commandExists('nope', { platform: 'linux', run }), false);
     assert.deepEqual(calls.map((c) => c[0]), ['which', 'which']);
     assert.equal(commandExists('x', { platform: 'win32', run: () => { throw new Error('no such tool'); } }), false);
+  });
+
+  it('never hardcodes the default port literal in init/doctor/commands, only DEFAULT_PORT', () => {
+    // A literal port would drift silently if DEFAULT_PORT ever changed; these three files must route
+    // through the shared constant instead. Only real line comments are stripped: one that starts the
+    // line (after optional whitespace) or follows `;`, `{`, `}` or `,` plus whitespace. A `//` preceded
+    // by `:` (as in `http://...`) is never treated as a comment start, so a literal port inside a URL
+    // still fails the check; CRLF and LF checkouts are handled the same way.
+    assert.equal(DEFAULT_PORT, 6097, 'sanity check: the constant this test guards has not moved');
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    for (const rel of ['../../src/cli/init.js', '../../src/cli/doctor.js', '../../src/cli/commands.js']) {
+      const source = fs.readFileSync(path.join(here, rel), 'utf8');
+      const withoutLineComments = source
+        .split(/\r?\n/)
+        .map((line) => line.replace(/(^\s*|[;{},]\s+)\/\/.*$/, '$1'))
+        .join('\n');
+      assert.ok(!withoutLineComments.includes('6097'), `${rel} has a literal 6097 outside a comment; use DEFAULT_PORT`);
+    }
   });
 });

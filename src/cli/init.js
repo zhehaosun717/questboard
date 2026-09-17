@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadRosterOrEmpty, saveRoster } from '../core/roster.js';
-import { resolveConfig } from '../core/config.js';
+import { resolveConfig, DEFAULT_PORT } from '../core/config.js';
 
 export const INSTALL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WRAPPER_SOURCE = path.join(INSTALL_ROOT, 'examples', 'basic', 'scripts', 'run-worker.mjs');
@@ -51,7 +51,7 @@ const wrapperRun = (laneId, agentArgs) => [
   '--', ...agentArgs,
 ];
 
-export function buildConfig({ name, port = 6097, lanes }) {
+export function buildConfig({ name, port = DEFAULT_PORT, lanes }) {
   return {
     name,
     port,
@@ -83,18 +83,23 @@ function copyIfMissing(source, target, created, root) {
   created.push(path.relative(root, target).split(path.sep).join('/'));
 }
 
-export function runInit({ dir, name, port = 6097, force = false, home, exists = commandExists, extraLanes = [] } = {}) {
+export function runInit({ dir, name, port = DEFAULT_PORT, force = false, home, exists = commandExists, extraLanes = [] } = {}) {
   const root = path.resolve(dir || process.cwd());
   const configFile = path.join(root, 'questboard.config.json');
   if (fs.existsSync(configFile) && !force) throw new Error(`${configFile} exists; pass --force to replace it`);
   if (!fs.existsSync(WRAPPER_SOURCE)) throw new Error(`this questboard install has no ${WRAPPER_SOURCE}; clone the repository rather than copying src/ alone`);
 
   const detected = KNOWN_LANES.filter((lane) => exists(lane.binary));
-  // Lanes the owner named win over a detected one with the same id; the two built-in guesses are a fallback
-  // only when nothing else is known, so a named lane never drags in a CLI that is not there.
+  // Lanes the owner named win over a detected one with the same id. Nothing here ever falls back to a
+  // vendor CLI the machine does not have — see the refusal below.
   const named = new Map(extraLanes.map((lane) => [lane.id, lane]));
   const combined = [...detected.filter((lane) => !named.has(lane.id)), ...named.values()];
-  const lanes = combined.length ? combined : KNOWN_LANES;
+  if (!combined.length) {
+    // Kept to one line: the desktop app's first-run dialog (server.rs first_useful_error) only shows the
+    // first line of a failed init's stderr, so a second line with the example would be silently dropped.
+    throw new Error('没有检测到已安装的 agent CLI（codex、claude），也没有用 --lane 指定：通道（lane）是驱动某个 AI 编程工具的一条命令，questboard 会把简报文本喂给它的标准输入；用 --lane 指定一个，例如：--lane my-agent="my-agent-cli --run"');
+  }
+  const lanes = combined;
   const manual = MANUAL_LANE_CLIS.filter((binary) => exists(binary) && !named.has(binary));
 
   const built = buildConfig({ name: name || path.basename(root), port, lanes });
