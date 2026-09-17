@@ -7,9 +7,12 @@ import {
   bulkSelectionToken,
   formatBulkApplyToast,
   formatBulkError,
+  formatBulkResultBreakdown,
   formatBulkResultItem,
+  formatBulkResultTitle,
   invalidateBulkOperationForIdentityChange,
   isBulkOperationCurrent,
+  splitDeniedActiveCards,
 } from './BulkActions';
 
 function card(id: string, name = id, over: Partial<Card> = {}): Card {
@@ -124,13 +127,56 @@ describe('BulkActions', () => {
     expect(message).toContain('状态记录失败');
   });
 
-  it('puts every apply count in the owner toast, including partial writes', () => {
+  it('puts every apply count in the owner toast, including partial writes, in one count wording', () => {
     const message = formatBulkApplyToast({
       counts: { requested: 6, ready: 6, changed: 4, unchanged: 0, denied: 1, failed: 1, partial: 1 },
     });
-    expect(message).toContain('4');
-    expect(message).toContain('拒绝 1');
-    expect(message).toContain('失败 1');
-    expect(message).toContain('部分完成 1');
+    expect(message).toContain('4 张改了');
+    expect(message).toContain('0 张没变');
+    expect(message).toContain('1 张被拒绝');
+    expect(message).toContain('1 张失败');
+    expect(message).toContain('1 张部分完成');
+  });
+
+  // F1: the result dialog's breakdown paragraph must use the same "{n} 张…" wording as the title and the
+  // toast, and must not repeat the title's "批量操作结束" prefix.
+  it('shows the full count breakdown under the result title without repeating its prefix', () => {
+    const breakdown = formatBulkResultBreakdown({
+      counts: { requested: 6, ready: 6, changed: 4, unchanged: 0, denied: 1, failed: 1, partial: 1 },
+    });
+    expect(breakdown).not.toContain('批量操作结束');
+    expect(breakdown).toContain('4 张改了');
+    expect(breakdown).toContain('0 张没变');
+    expect(breakdown).toContain('1 张被拒绝');
+    expect(breakdown).toContain('1 张失败');
+    expect(breakdown).toContain('1 张部分完成');
+  });
+
+  // X8: a quota-evidence refusal must not be shown under the "还在进行或结果未定" heading, and the result
+  // dialog's own title must say how many changed and how many were refused instead of a bare "done".
+  it('separates quota-evidence refusals from active/undetermined refusals', () => {
+    const deniedActiveCards = [
+      { id: 'quota-card', reasons: [{ code: 'quota_evidence', message: '卡片 quota-card 当前仍有具体的限额证据' }] },
+      { id: 'active-card', reasons: [{ code: 'holds_slot', message: '不能批量修改 active-card：还有 worker 在用这张卡' }] },
+      { id: 'unresolved-card', reasons: [{ code: 'unresolved_attempt', message: '结果还没确定，先手动确认' }] },
+    ];
+    const { quota, active } = splitDeniedActiveCards(deniedActiveCards);
+    expect(quota.map((item) => item.id)).toEqual(['quota-card']);
+    expect(active.map((item) => item.id)).toEqual(['active-card', 'unresolved-card']);
+  });
+
+  it('never claims the result is done when every card was refused, and names both counts', () => {
+    const allRefused = formatBulkResultTitle({
+      counts: { requested: 3, ready: 0, changed: 0, unchanged: 0, denied: 3, failed: 0, partial: 0 },
+    });
+    expect(allRefused).not.toContain('完成');
+    expect(allRefused).toContain('0');
+    expect(allRefused).toContain('3');
+
+    const mixed = formatBulkResultTitle({
+      counts: { requested: 5, ready: 4, changed: 4, unchanged: 0, denied: 1, failed: 0, partial: 0 },
+    });
+    expect(mixed).toContain('4');
+    expect(mixed).toContain('1');
   });
 });

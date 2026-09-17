@@ -27,6 +27,30 @@ describe('rosterForm validation', () => {
     expect(parseCardVariants('low,low').error).toContain('重复');
   });
 
+  // X10: list mode with an empty box must not silently save `[]` — it needs at least one value, or an
+  // explicit confirmation that the card will support no variants (same outcome as choosing "none" outright).
+  it('refuses an empty list-mode box until the owner explicitly confirms it', () => {
+    const base = { id: 'a-card', name: 'A', provider: 'P', lane: 'code', model: 'm', family: 'm' };
+
+    const unconfirmed = validateCardForm({ ...base, variants: '', variantsMode: 'list' }, lanes);
+    expect(unconfirmed.value).toBeNull();
+    expect(unconfirmed.errors.variants).toContain('确认');
+
+    const confirmed = validateCardForm({ ...base, variants: '', variantsMode: 'list', variantsConfirmEmpty: true }, lanes);
+    expect(confirmed.errors).toEqual({});
+    expect(confirmed.value?.variants).toEqual([]);
+
+    // Filling in a real value needs no confirmation.
+    const filled = validateCardForm({ ...base, variants: 'low', variantsMode: 'list' }, lanes);
+    expect(filled.errors).toEqual({});
+    expect(filled.value?.variants).toEqual(['low']);
+
+    // Explicitly choosing "none" (not list mode) is a deliberate choice and never needs confirmation.
+    const none = validateCardForm({ ...base, variants: [], variantsMode: 'none' }, lanes);
+    expect(none.errors).toEqual({});
+    expect(none.value?.variants).toEqual([]);
+  });
+
   it('reads env lines, drops the field when empty, and refuses key-shaped values', () => {
     expect(parseCardEnv('OPENAI_BASE_URL=https://api.example.test/v1\n# 说明\n\nORG_ID=acme')).toEqual({
       env: { OPENAI_BASE_URL: 'https://api.example.test/v1', ORG_ID: 'acme' },

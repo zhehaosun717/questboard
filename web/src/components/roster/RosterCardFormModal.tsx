@@ -35,6 +35,7 @@ export function RosterCardFormModal({
   const initialVariantsMode = card?.variants === undefined ? 'unknown' : card.variants.length === 0 ? 'none' : 'list';
   const [variantsMode, setVariantsMode] = useState<'unknown' | 'none' | 'list'>(initialVariantsMode);
   const [variants, setVariants] = useState(card?.variants?.join(', ') ?? '');
+  const [variantsConfirmEmpty, setVariantsConfirmEmpty] = useState(false);
   const [agent, setAgent] = useState(card?.agent ?? '');
   const [billing, setBilling] = useState(card?.billing ?? '');
   const [maxParallel, setMaxParallel] = useState<string>(
@@ -65,6 +66,8 @@ export function RosterCardFormModal({
       family,
       variant,
       variants: variantsMode === 'unknown' ? undefined : variantsMode === 'none' ? [] : variants,
+      variantsMode,
+      variantsConfirmEmpty,
       agent,
       billing,
       maxParallel,
@@ -236,7 +239,10 @@ export function RosterCardFormModal({
             <select
               id="card-variants-mode"
               value={variantsMode}
-              onChange={(e) => setVariantsMode(e.target.value as 'unknown' | 'none' | 'list')}
+              onChange={(e) => {
+                setVariantsMode(e.target.value as 'unknown' | 'none' | 'list');
+                setVariantsConfirmEmpty(false);
+              }}
             >
               <option value="unknown">{t('rosterForm.variantsUnknown')}</option>
               <option value="none">{t('rosterForm.variantsNone')}</option>
@@ -247,8 +253,21 @@ export function RosterCardFormModal({
                 id="card-variants"
                 value={variants}
                 placeholder={t('rosterForm.variantsPlaceholder')}
-                onChange={(e) => setVariants(e.target.value)}
+                onChange={(e) => {
+                  setVariants(e.target.value);
+                  setVariantsConfirmEmpty(false);
+                }}
               />
+            ) : null}
+            {variantsMode === 'list' && !variants.trim() ? (
+              <label className="roster-form-variants-confirm-empty">
+                <input
+                  type="checkbox"
+                  checked={variantsConfirmEmpty}
+                  onChange={(e) => setVariantsConfirmEmpty(e.target.checked)}
+                />
+                {' '}{t('rosterForm.variantsConfirmEmpty')}
+              </label>
             ) : null}
             <p className="hint">{t('rosterForm.variantsHint')}</p>
           </div>

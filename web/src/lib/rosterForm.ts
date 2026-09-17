@@ -9,6 +9,11 @@ export interface CardFormValues {
   family?: string;
   variant?: string;
   variants?: string | string[];
+  /** Only meaningful when `variants` is a string: which of the three editor modes produced it, so an
+   * empty list-mode box can be told apart from an explicit "no variants" choice. */
+  variantsMode?: 'unknown' | 'none' | 'list';
+  /** List mode with an empty box needs an explicit yes before it saves `[]`, same as `none`. */
+  variantsConfirmEmpty?: boolean;
   agent?: string;
   billing?: string;
   maxParallel?: number | string;
@@ -62,10 +67,10 @@ export function parseCardVariants(value: string | string[]): { variants: string[
   const rawValues = typeof value === 'string' ? (value.trim() ? value.split(',') : []) : value;
   const variants = rawValues.map((item) => (typeof item === 'string' ? item.trim() : item));
   if (variants.some((item) => typeof item !== 'string' || !item)) {
-    return { variants: [], error: 'variant 列表里不能有空项，请用逗号分隔非空值' };
+    return { variants: [], error: '变体列表里不能有空项，用逗号分开' };
   }
   if (new Set(variants).size !== variants.length) {
-    return { variants: [], error: 'variant 列表里不能有重复值' };
+    return { variants: [], error: '变体列表里不能有重复值' };
   }
   return { variants, error: null };
 }
@@ -164,6 +169,13 @@ export function validateCardForm(
   const parsedVariants = values.variants === undefined ? null : parseCardVariants(values.variants);
   if (parsedVariants?.error) {
     errors.variants = parsedVariants.error;
+  } else if (
+    values.variantsMode === 'list'
+    && parsedVariants
+    && parsedVariants.variants.length === 0
+    && !values.variantsConfirmEmpty
+  ) {
+    errors.variants = '变体列表是空的：填至少一个变体，或者勾选确认框，保存为「不支持任何变体」';
   }
 
   if (Object.keys(errors).length > 0) {

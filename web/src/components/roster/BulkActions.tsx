@@ -87,6 +87,19 @@ function resultReasons(item: RosterBulkResult): string {
   return item.reasons?.map((reason) => reason.message).filter(Boolean).join(t('common.statementSeparator')) || '';
 }
 
+/**
+ * A quota-evidence refusal ("this card still has specific limit evidence") is a different fact from an
+ * active/undetermined refusal ("a worker is using it, or its last attempt isn't resolved yet") and must not
+ * be shown under the same heading (backlog X8).
+ */
+export function splitDeniedActiveCards(
+  deniedActiveCards: RosterBulkResponse['deniedActiveCards'],
+): { quota: RosterBulkResponse['deniedActiveCards']; active: RosterBulkResponse['deniedActiveCards'] } {
+  const quota = deniedActiveCards.filter((item) => item.reasons?.some((reason) => reason.code === 'quota_evidence'));
+  const active = deniedActiveCards.filter((item) => !item.reasons?.some((reason) => reason.code === 'quota_evidence'));
+  return { quota, active };
+}
+
 export function formatBulkResultItem(item: RosterBulkResult): string {
   const reason = resultReasons(item);
   if (item.partial) {
@@ -103,6 +116,20 @@ export function formatBulkResultItem(item: RosterBulkResult): string {
 export function formatBulkApplyToast(response: Pick<RosterBulkResponse, 'counts'>): string {
   const { changed, unchanged, denied, failed, partial } = response.counts;
   return t('rosterBulk.toast', { changed, unchanged, denied, failed, partial });
+}
+
+// The result dialog must never claim the operation "completed" when cards were refused, so its own title
+// says how many changed and how many were refused instead of a bare "done" (backlog X8).
+export function formatBulkResultTitle(response: Pick<RosterBulkResponse, 'counts'>): string {
+  const { changed, denied } = response.counts;
+  return t('rosterBulk.resultTitle', { changed, denied });
+}
+
+// The full five-count breakdown under the title must use the same "{n} 张…" wording as the title and the
+// toast, and must not repeat the title's "批量操作结束" prefix (backlog H1/F1).
+export function formatBulkResultBreakdown(response: Pick<RosterBulkResponse, 'counts'>): string {
+  const { changed, unchanged, denied, failed, partial } = response.counts;
+  return t('rosterBulk.resultBreakdown', { changed, unchanged, denied, failed, partial });
 }
 
 export interface BulkOperationToken {
@@ -447,12 +474,25 @@ export function BulkActions({
               <div><dt>{t('rosterBulk.summaryPreserved')}</dt><dd>{fieldText(preview.preservedFields)}</dd></div>
               <div><dt>{t('rosterBulk.summaryResult')}</dt><dd>{t('rosterBulk.summaryCounts', { ready: preview.counts.ready, denied: preview.counts.denied })}</dd></div>
             </dl>
-            {preview.deniedActiveCards.length ? (
-              <div className="roster-bulk-denied">
-                <strong>{t('rosterBulk.deniedTitle')}</strong>
-                {preview.deniedActiveCards.map((item) => <div key={item.id}><code>{item.id}</code>：{item.reasons?.map((r) => r.message).join('；')}</div>)}
-              </div>
-            ) : null}
+            {(() => {
+              const { quota, active } = splitDeniedActiveCards(preview.deniedActiveCards);
+              return (
+                <>
+                  {quota.length ? (
+                    <div className="roster-bulk-denied roster-bulk-denied-quota">
+                      <strong>{t('rosterBulk.deniedQuotaTitle')}</strong>
+                      {quota.map((item) => <div key={item.id}><code>{item.id}</code>：{item.reasons?.map((r) => r.message).join('；')}</div>)}
+                    </div>
+                  ) : null}
+                  {active.length ? (
+                    <div className="roster-bulk-denied">
+                      <strong>{t('rosterBulk.deniedTitle')}</strong>
+                      {active.map((item) => <div key={item.id}><code>{item.id}</code>：{item.reasons?.map((r) => r.message).join('；')}</div>)}
+                    </div>
+                  ) : null}
+                </>
+              );
+            })()}
             <ul className="roster-bulk-result-list">
                 {preview.results.map((item) => <li key={item.id} className={item.ok ? 'ok' : 'bad'}><code>{item.id}</code><span>{item.ok ? t('rosterBulk.itemChange', { fields: fieldText(item.changedFields) }) : formatBulkResultItem(item)}</span></li>)}
             </ul>
@@ -470,10 +510,8 @@ export function BulkActions({
         <div className="modal-back" onClick={closeDialogs}>
           <div className="order roster-bulk-dialog" role="dialog" aria-modal="true" aria-labelledby="bulkResultTitle" onClick={(event) => event.stopPropagation()}>
             <p className="eyebrow">{t('rosterBulk.eyebrowResult')}</p>
-            <h2 id="bulkResultTitle">{t('rosterBulk.resultTitle')}</h2>
-            <p className="roster-bulk-result-count">
-              {t('rosterBulk.toast', { changed: result.counts.changed, unchanged: result.counts.unchanged, denied: result.counts.denied, failed: result.counts.failed, partial: result.counts.partial })}
-            </p>
+            <h2 id="bulkResultTitle">{formatBulkResultTitle(result)}</h2>
+            <p className="roster-bulk-result-count">{formatBulkResultBreakdown(result)}</p>
             <ul className="roster-bulk-result-list">
                 {result.results.map((item) => <li key={item.id} className={item.partial ? 'partial' : item.ok ? 'ok' : 'bad'}><code>{item.id}</code><span>{formatBulkResultItem(item)}</span></li>)}
             </ul>
