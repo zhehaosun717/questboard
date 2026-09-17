@@ -488,7 +488,19 @@ let cancelRequestId = null;
 let cancelAcknowledged = false;
 
 // The board's cooperative stop boundary is intentionally narrow: verify the per-attempt IPC payload,
-// acknowledge that exact request, and kill only the direct child handle this wrapper created.
+// acknowledge that exact request, and kill only the process tree this wrapper created. The direct child
+// handle stays the one authority: a tree kill only runs while that exact child is still alive (its PID
+// cannot have been reused while the handle says it is running), and it never touches a process this
+// wrapper did not spawn. Breakaway descendants cannot be ruled out generically, so the wrapper still
+// reports exactly what it did, never a universal "all stopped".
+function killTree() {
+  if (process.platform !== 'win32' || !child || child.exitCode !== null || typeof child.pid !== 'number') return;
+  try {
+    const { spawnSync } = require('node:child_process');
+    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: 5000 });
+  } catch {}
+}
+
 function receiveControl(message) {
   if (settled || !message || typeof message !== 'object' || message.type !== 'questboard-cancel') return;
   const requestId = typeof message.requestId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(message.requestId) ? message.requestId : null;
@@ -496,6 +508,7 @@ function receiveControl(message) {
   cancelRequestId = requestId;
   cancelAcknowledged = true;
   try { if (typeof process.send === 'function') process.send({ type: 'questboard-cancel-ack', attemptId: controlAttemptId, requestId, scope: 'direct-child' }); } catch {}
+  killTree();
   try { child.kill(); } catch {}
 }
 

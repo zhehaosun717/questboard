@@ -175,4 +175,55 @@ describe('example-wrapper', () => {
     const output = fs.readFileSync(outPath, 'utf8');
     assert.match(output, /ROLE CARD\n\nBRIEF BODY/);
   });
+
+  it('cancel IPC stops the direct child and its still-alive grandchild on Windows', async () => {
+    if (process.platform !== 'win32') return;
+    const { fork } = await import('node:child_process');
+    const root = tmpDir('example-wrapper-tree-');
+    fs.copyFileSync(CONFIG_SRC, path.join(root, 'questboard.config.json'));
+    fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+    fs.copyFileSync(WRAPPER_SRC, path.join(root, 'scripts', 'run-worker.mjs'));
+    fs.writeFileSync(path.join(root, 'brief.md'), 'BRIEF');
+    const heartbeat = path.join(root, 'grandchild-heartbeat.txt');
+    const agent = path.join(root, 'agent.cjs');
+    const agentBody = [
+      "const fs = require('node:fs');",
+      "const { spawn } = require('node:child_process');",
+      "const hb = process.argv[2];",
+      "const grand = spawn(process.execPath, ['-e', \"setInterval(() => require('node:fs').writeFileSync(process.argv[1], String(Date.now())), 100)\", hb], { stdio: 'ignore' });",
+      "grand.unref();",
+      "setInterval(() => {}, 1000);",
+    ].join('\n');
+    fs.writeFileSync(agent, agentBody);
+    const wrapper = path.join(root, 'scripts', 'run-worker.mjs');
+    const child = fork(wrapper, [
+      '--lane', 'codex', '--name', 'tree_worker', '--brief', 'brief.md', '--package', 'RUN-TREE', '--',
+      process.execPath, agent, heartbeat,
+    ], {
+      cwd: root,
+      env: { ...process.env, QUESTBOARD_ATTEMPT_ID: 'att-tree', QUESTBOARD_CONTROL_TOKEN: 'tok-tree' },
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    });
+    try {
+      await waitFor(() => fs.existsSync(heartbeat), 5000);
+      const ack = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('no cancel ack')), 5000);
+        child.on('message', (message) => {
+          if (message && message.type === 'questboard-cancel-ack' && message.scope === 'direct-child') {
+            clearTimeout(timer);
+            resolve(message);
+          }
+        });
+      });
+      child.send({ type: 'questboard-cancel', attemptId: 'att-tree', requestId: 'req-tree', token: 'tok-tree' });
+      await ack;
+      const last = fs.readFileSync(heartbeat, 'utf8');
+      await waitFor(() => {
+        if (!fs.existsSync(heartbeat)) return true;
+        return fs.readFileSync(heartbeat, 'utf8') === last;
+      }, 5000);
+    } finally {
+      try { child.kill(); } catch {}
+    }
+  });
 });
