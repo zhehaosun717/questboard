@@ -106,12 +106,22 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     }));
   }
 
+  // One shared rendering for the warnings canDispatch returned for this attempt, so every path that
+  // announces a start carries the variant warnings identically — the normal start and the "wrapper
+  // reported an error but the worker started" fallback alike. With no warnings the join leaves the single
+  // headline string, byte-identical to the announcements before this helper existed.
+  function withWarnings(detail, warnings) {
+    return [detail, ...(warnings || []).map(({ code, message }) => `警告 ${code}：${message}`)].join('\n');
+  }
+
   // A bounded, guarded diagnostic sink for a persistence op that failed inside one of the settle/preserve
   // paths below — never raw secrets (env values, tokens), just the human-facing detail already produced for
-  // the quest itself. Wrapped in its own try/catch: even the sink can be gone (a closed stderr) and that must
-  // not become yet another throw.
-  function reportPersistenceFailure(label, detail, error) {
-    try { process.stderr.write(`[dispatcher] ${label} 没能写盘（${error && error.message}）：${String(detail).slice(0, 500)}\n`); } catch { /* nothing left to report to */ }
+  // the quest itself. `failure` says what actually failed: a write that did not land (没写成) or a read that
+  // could not come back (读取失败), so a report that could not be read is never logged as if something had
+  // failed to be written. Wrapped in its own try/catch: even the sink can be gone (a closed stderr) and that
+  // must not become yet another throw.
+  function reportPersistenceFailure(label, detail, error, failure = '没写成') {
+    try { process.stderr.write(`[dispatcher] ${label} ${failure}（${error && error.message}）：${String(detail).slice(0, 500)}\n`); } catch { /* nothing left to report to */ }
   }
 
   // Runs a store write (recordPhase/emitEvent/setStatus) from inside an async settle/preserve callback,
@@ -134,11 +144,11 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // decision the caller is about to make; it is reported like any other persistence shortfall and the
   // transition proceeds with no reference, which the surfaces render as 报告不可用.
   function captureReportFor(quest) {
-    try { return captureAttemptReport({ config, quest }); } catch (error) { reportPersistenceFailure('captureAttemptReport', quest.id, error); return null; }
+    try { return captureAttemptReport({ config, quest }); } catch (error) { reportPersistenceFailure('captureAttemptReport', quest.id, error, '读取失败'); return null; }
   }
 
   function triggerDeliveredHooks(quest) {
-    try { verificationHooks.onDelivered(quest); } catch (error) { reportPersistenceFailure('verification hook trigger', quest.id, error); }
+    try { verificationHooks.onDelivered(quest); } catch (error) { reportPersistenceFailure('verification hook trigger', quest.id, error, '触发失败'); }
   }
 
   function failIfStillOurs(questId, attempt, detail, evidence = { kind: 'never_started', attempt: attemptEvidence(attempt) }) {
@@ -250,11 +260,11 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // out. Folding it into the same "no evidence this iteration" path a clean miss takes keeps the one honest
   // fallback (preserveRunAmbiguous, once the deadline passes) as the only outcome a read fault can ever reach.
   function readWorkerEvidence(laneId, name, sinceIso) {
-    try { return workerEvidence(config, laneId, name, sinceIso); } catch (error) { reportPersistenceFailure('workerEvidence read', `${laneId}/${name}`, error); return null; }
+    try { return workerEvidence(config, laneId, name, sinceIso); } catch (error) { reportPersistenceFailure('workerEvidence read', `${laneId}/${name}`, error, '读取失败'); return null; }
   }
 
   // A wrapper's exit code is not the truth about its worker; wait for the registry row or output first.
-  async function settleFailedWrapper(quest, laneId, attempt, result) {
+  async function settleFailedWrapper(quest, laneId, attempt, result, warnings) {
     // A verified-never-started run step (runScript's own spawn-level catch, never an arbitrary throw from
     // some other layer — see dispatch.js) is the one signal strong enough to free the slot outright: nothing
     // could have started, so there is no evidence worth waiting for.
@@ -262,7 +272,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     const deadline = Date.now() + evidenceWaitMs;
     for (;;) {
       const evidence = readWorkerEvidence(laneId, attempt.name, quest.assignee.at);
-      if (evidence) { announceStarted(quest.id, attempt, `脚本报错但 worker 已启动（${evidence}）：${result.detail.split('\n')[0]}`); return; }
+      if (evidence) { announceStarted(quest.id, attempt, withWarnings(`脚本报错但 worker 已启动（${evidence}）：${result.detail.split('\n')[0]}`, warnings)); return; }
       if (Date.now() >= deadline) break;
       await delay(Math.min(2000, Math.max(0, deadline - Date.now())));
     }
@@ -423,7 +433,11 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       } catch (error) {
         // Assignment is already durable, but no child effect has started. Settle this verified
         // never-started attempt through the normal failed transition so a 409 cannot hide a held slot.
-        const detail = `批注快照没写成（派遣 ${assignedAttempt.attemptId}），worker 没有启动：${error.message}`;
+        // The detail names the step that actually failed: the snapshot write itself when no file came out,
+        // or the recording of the snapshot's metadata onto the attempt once the file was already written —
+        // never one blanket "write failed" for both.
+        const what = annotationSnapshot ? '批注快照记录没写成' : '批注快照没写成';
+        const detail = `${what}（派遣 ${assignedAttempt.attemptId}），worker 没有启动：${error.message}`;
         try {
           store.setStatus(quest.id, 'failed', {
             detail, by: 'board', source: 'dispatcher',
@@ -442,7 +456,10 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       roleCard = writeRoleCard({ config, quest, attempt: { ...assignedAttempt, kind: quest.kind } });
       running = store.recordRoleCard(quest.id, assignedAttempt, roleCard);
     } catch (error) {
-      const detail = `角色卡写入失败（派遣 ${assignedAttempt.attemptId}，worker 还没启动）：${error.message}`;
+      // Same honesty as the snapshot settle above: a failed record of an already-written card is named as
+      // the record step, not as a card write that actually succeeded.
+      const what = roleCard ? '角色卡记录没写成' : '角色卡写入失败';
+      const detail = `${what}（派遣 ${assignedAttempt.attemptId}，worker 还没启动）：${error.message}`;
       try {
         store.setStatus(quest.id, 'failed', {
           detail, by: 'board', source: 'dispatcher',
@@ -528,13 +545,13 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
           } else failIfStillOurs(quest.id, attempt, result.detail);
           return undefined;
         }
-        if (result.ok) return announceStarted(quest.id, attempt, [`脚本已启动，worker ${attempt.name}`, ...(verdict.warnings || []).map(({ code, message }) => `警告 ${code}：${message}`)].join('\n'));
+        if (result.ok) return announceStarted(quest.id, attempt, withWarnings(`脚本已启动，worker ${attempt.name}`, verdict.warnings));
         if (result.session && result.session.unknown) return settleAmbiguousSession(quest.id, attempt, result);
         // A known session binding (a real captured id) already names a resource that may exist upstream
         // regardless of what the run step itself did — always preserved, never routed through
         // settleFailedWrapper's evidence wait/neverStarted logic, which is about the run step alone.
         if (result.session && result.session.id) return preserveKnownSessionRun(quest.id, attempt, result);
-        return settleFailedWrapper(running, adventurer.lane, attempt, result);
+        return settleFailedWrapper(running, adventurer.lane, attempt, result, verdict.warnings);
       })
       .catch((error) => settleUnexpectedFailure(quest.id, attempt, `派遣异常：${error.message}`));
     return { status: 200, body: { quest: running } };
@@ -770,7 +787,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
           if (transition.status === 'delivered' && next) triggerDeliveredHooks(next);
           if (transition.limitReason && !current?.cancelRequest && ['generic-wrapper', 'opencode-session'].includes(lane?.control?.type)) {
             void cancel(transition.id, 'limit', transition.limitReason).catch((error) => {
-              reportPersistenceFailure('limit cancellation', transition.id, error);
+              reportPersistenceFailure('limit cancellation', transition.id, error, '取消失败');
             });
           }
         }
