@@ -1,5 +1,6 @@
 import { formatClockTime } from '../../lib/usage';
 import { USAGE_INTERVAL_PRESETS_MS, type UsageRefreshMode } from '../../lib/usagePreference';
+import { useT } from '../../lib/i18n';
 
 interface UsageControlsProps {
   fetchedAt: number | null;
@@ -11,10 +12,6 @@ interface UsageControlsProps {
   onModeChange: (mode: UsageRefreshMode) => void;
   onIntervalChange: (ms: number) => void;
   paused: boolean;
-}
-
-function intervalLabel(ms: number): string {
-  return ms % 60000 === 0 ? `${ms / 60000} 分钟` : `${Math.round(ms / 1000)} 秒`;
 }
 
 /** Header controls for the usage page: manual/interval choice, refresh-all with its own cooldown, and one
@@ -32,39 +29,44 @@ export function UsageControls({
   onIntervalChange,
   paused,
 }: UsageControlsProps) {
+  const t = useT();
+  const intervalLabel = (ms: number): string =>
+    ms % 60000 === 0
+      ? t('usageControls.minutes', { count: ms / 60000 })
+      : t('usageControls.seconds', { count: Math.round(ms / 1000) });
   const canRefreshAll = !refreshingAll && cooldownMs <= 0;
   const refreshAllLabel = refreshingAll
-    ? '正在读取…'
+    ? t('common.reading')
     : cooldownMs > 0
-      ? `冷却中 ${Math.ceil(cooldownMs / 1000)}s`
-      : '刷新全部';
+      ? t('common.cooldown', { seconds: Math.ceil(cooldownMs / 1000) })
+      : t('usageControls.refreshAll');
 
   const statusText = paused
-    ? '页面不可见，自动刷新已暂停'
+    ? t('usageControls.paused')
     : mode === 'interval'
-      ? `每 ${intervalLabel(intervalMs)} 自动刷新一次`
-      : '仅手动刷新';
+      ? t('usageControls.interval', { interval: intervalLabel(intervalMs) })
+      : t('usageControls.manualOnly');
 
   return (
     <div className="usage-controls-row">
       {fetchedAt !== null ? (
         <span className="usage-timestamp">
-          查询于 {formatClockTime(fetchedAt)}
-          {refreshingAll ? ' · 正在更新…' : ''}
+          {t('usageControls.fetchedAt', { time: formatClockTime(fetchedAt) })}
+          {refreshingAll ? t('usageControls.updating') : ''}
         </span>
       ) : null}
 
       <label className="usage-mode-select">
-        更新方式
+        {t('usageControls.mode')}
         <select value={mode} onChange={(e) => onModeChange(e.target.value === 'interval' ? 'interval' : 'manual')}>
-          <option value="manual">手动</option>
-          <option value="interval">定时</option>
+          <option value="manual">{t('usageControls.modeManual')}</option>
+          <option value="interval">{t('usageControls.modeInterval')}</option>
         </select>
       </label>
 
       {mode === 'interval' ? (
         <label className="usage-mode-select">
-          间隔
+          {t('usageControls.intervalLabel')}
           <select value={intervalMs} onChange={(e) => onIntervalChange(Number(e.target.value))}>
             {USAGE_INTERVAL_PRESETS_MS.map((ms) => (
               <option key={ms} value={ms}>

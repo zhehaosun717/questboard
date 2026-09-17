@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../api/client';
 import type { Card } from '../../api/types';
+import { useT } from '../../lib/i18n';
 import { BILLING } from '../../lib/labels';
 import { type CardFormValues, suggestDuplicateId, validateCardForm } from '../../lib/rosterForm';
 
@@ -20,6 +21,7 @@ export function RosterCardFormModal({
   onClose,
   onSuccess,
 }: RosterCardFormModalProps) {
+  const t = useT();
   const isDuplicate = Boolean(duplicate && card);
   const isNew = !card || isDuplicate;
 
@@ -73,7 +75,7 @@ export function RosterCardFormModal({
 
     // Saving upserts by id, so reusing the source id would overwrite the card being copied.
     if (isDuplicate && card && id.trim() === card.id) {
-      setErrors({ id: '复制出来的 ID 要和原冒险者不同，否则会覆盖原来那位' });
+      setErrors({ id: t('rosterForm.duplicateIdError') });
       return;
     }
 
@@ -105,13 +107,17 @@ export function RosterCardFormModal({
       >
         <p className="eyebrow">
           {!card
-            ? 'NEW ADVENTURER · 录入档案'
+            ? t('rosterForm.eyebrowNew')
             : isDuplicate
-              ? 'DUPLICATE ADVENTURER · 照着再开一位'
-              : 'EDIT ADVENTURER · 修改档案'}
+              ? t('rosterForm.eyebrowDuplicate')
+              : t('rosterForm.eyebrowEdit')}
         </p>
         <h2 id="cardFormTitle">
-          {!card ? '新冒险者' : isDuplicate ? `复制「${card.name}」` : `编辑「${card.name}」`}
+          {!card
+            ? t('rosterForm.titleNew')
+            : isDuplicate
+              ? t('rosterForm.titleDuplicate', { name: card.name })
+              : t('rosterForm.titleEdit', { name: card.name })}
         </h2>
 
         {serverError ? (
@@ -121,7 +127,7 @@ export function RosterCardFormModal({
         <form onSubmit={handleSubmit} className="roster-form-body">
           <div className="form-field">
             <label htmlFor="card-id">
-              ID（小写字母、数字、连字符{isNew ? '' : '，不可修改'}）
+              {t('rosterForm.idLabel', { mutable: isNew ? '' : t('rosterForm.idNotEditable') })}
               {errors.id ? <span className="field-error"> · {errors.id}</span> : null}
             </label>
             <input
@@ -129,12 +135,12 @@ export function RosterCardFormModal({
               value={id}
               disabled={!isNew}
               maxLength={48}
-              placeholder="例如 deepseek-v3"
+              placeholder={t('rosterForm.idPlaceholder')}
               onChange={(e) => setId(e.target.value)}
             />
             {isDuplicate && card ? (
               <p className="hint">
-                照「{card.name}」复制，其余字段都填好了；改完 ID 和名称就能入册。
+                {t('rosterForm.duplicateHint', { name: card.name })}
               </p>
             ) : null}
           </div>
@@ -142,25 +148,25 @@ export function RosterCardFormModal({
           <div className="form-grid-2">
             <div className="form-field">
               <label htmlFor="card-name">
-                名称
+                {t('rosterForm.name')}
                 {errors.name ? <span className="field-error"> · {errors.name}</span> : null}
               </label>
               <input
                 id="card-name"
                 value={name}
-                placeholder="例如 深度求索"
+                placeholder={t('rosterForm.namePlaceholder')}
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
             <div className="form-field">
               <label htmlFor="card-provider">
-                服务商
+                {t('rosterForm.provider')}
                 {errors.provider ? <span className="field-error"> · {errors.provider}</span> : null}
               </label>
               <input
                 id="card-provider"
                 value={provider}
-                placeholder="例如 deepseek"
+                placeholder={t('rosterForm.providerPlaceholder')}
                 onChange={(e) => setProvider(e.target.value)}
               />
             </div>
@@ -169,7 +175,7 @@ export function RosterCardFormModal({
           <div className="form-grid-2">
             <div className="form-field">
               <label htmlFor="card-lane">
-                接入方式
+                {t('rosterForm.lane')}
                 {errors.lane ? <span className="field-error"> · {errors.lane}</span> : null}
               </label>
               <select
@@ -186,13 +192,13 @@ export function RosterCardFormModal({
             </div>
             <div className="form-field">
               <label htmlFor="card-family">
-                系列
+                {t('rosterForm.family')}
                 {errors.family ? <span className="field-error"> · {errors.family}</span> : null}
               </label>
               <input
                 id="card-family"
                 value={family}
-                placeholder="例如 deepseek"
+                placeholder={t('rosterForm.familyPlaceholder')}
                 onChange={(e) => setFamily(e.target.value)}
               />
             </div>
@@ -201,22 +207,22 @@ export function RosterCardFormModal({
           <div className="form-grid-2">
             <div className="form-field">
               <label htmlFor="card-model">
-                模型
+                {t('rosterForm.model')}
                 {errors.model ? <span className="field-error"> · {errors.model}</span> : null}
               </label>
               <input
                 id="card-model"
                 value={model}
-                placeholder="例如 deepseek-chat"
+                placeholder={t('rosterForm.modelPlaceholder')}
                 onChange={(e) => setModel(e.target.value)}
               />
             </div>
             <div className="form-field">
-              <label htmlFor="card-variant">变体（可选）</label>
+              <label htmlFor="card-variant">{t('rosterForm.variant')}</label>
               <input
                 id="card-variant"
                 value={variant}
-                placeholder="例如 reasoning"
+                placeholder={t('rosterForm.variantPlaceholder')}
                 onChange={(e) => setVariant(e.target.value)}
               />
             </div>
@@ -224,7 +230,7 @@ export function RosterCardFormModal({
 
           <div className="form-field">
             <label htmlFor="card-variants-mode">
-              支持的 variant（可选）
+              {t('rosterForm.variants')}
               {errors.variants ? <span className="field-error"> · {errors.variants}</span> : null}
             </label>
             <select
@@ -232,34 +238,34 @@ export function RosterCardFormModal({
               value={variantsMode}
               onChange={(e) => setVariantsMode(e.target.value as 'unknown' | 'none' | 'list')}
             >
-              <option value="unknown">不填：未确认</option>
-              <option value="none">留空列表：不接受 variant</option>
-              <option value="list">列出接受的 variant</option>
+              <option value="unknown">{t('rosterForm.variantsUnknown')}</option>
+              <option value="none">{t('rosterForm.variantsNone')}</option>
+              <option value="list">{t('rosterForm.variantsList')}</option>
             </select>
             {variantsMode === 'list' ? (
               <input
                 id="card-variants"
                 value={variants}
-                placeholder="例如 low, medium, high"
+                placeholder={t('rosterForm.variantsPlaceholder')}
                 onChange={(e) => setVariants(e.target.value)}
               />
             ) : null}
-            <p className="hint">不填 = 未确认；留空列表 = 不接受 variant；列出后只接受这些值。</p>
+            <p className="hint">{t('rosterForm.variantsHint')}</p>
           </div>
 
           <div className="form-grid-3">
             <div className="form-field">
-              <label htmlFor="card-agent">代理（可选）</label>
+              <label htmlFor="card-agent">{t('rosterForm.agent')}</label>
               <input
                 id="card-agent"
                 value={agent}
-                placeholder="例如 sisyphus"
+                placeholder={t('rosterForm.agentPlaceholder')}
                 onChange={(e) => setAgent(e.target.value)}
               />
             </div>
             <div className="form-field">
               <label htmlFor="card-billing">
-                计费模式
+                {t('rosterForm.billing')}
                 {errors.billing ? <span className="field-error"> · {errors.billing}</span> : null}
               </label>
               <select
@@ -267,7 +273,7 @@ export function RosterCardFormModal({
                 value={billing}
                 onChange={(e) => setBilling(e.target.value)}
               >
-                <option value="">未指定</option>
+                <option value="">{t('rosterForm.billingUnset')}</option>
                 {Object.entries(BILLING).map(([k, v]) => (
                   <option key={k} value={k}>
                     {v}
@@ -277,7 +283,7 @@ export function RosterCardFormModal({
             </div>
             <div className="form-field">
               <label htmlFor="card-maxParallel">
-                最大并发
+                {t('rosterForm.maxParallel')}
                 {errors.maxParallel ? (
                   <span className="field-error"> · {errors.maxParallel}</span>
                 ) : null}
@@ -294,18 +300,18 @@ export function RosterCardFormModal({
           </div>
 
           <div className="form-field">
-            <label htmlFor="card-strengths">专长（英文逗号分隔）</label>
+            <label htmlFor="card-strengths">{t('rosterForm.strengths')}</label>
             <input
               id="card-strengths"
               value={strengths}
-              placeholder="例如 code, refactor, review"
+              placeholder={t('rosterForm.strengthsPlaceholder')}
               onChange={(e) => setStrengths(e.target.value)}
             />
           </div>
 
           <div className="form-field">
             <label htmlFor="card-notes">
-              备注（最多300字）
+              {t('rosterForm.notes')}
               {errors.notes ? <span className="field-error"> · {errors.notes}</span> : null}
             </label>
             <textarea
@@ -313,35 +319,35 @@ export function RosterCardFormModal({
               maxLength={300}
               rows={3}
               value={notes}
-              placeholder="使用说明或特性记录..."
+              placeholder={t('rosterForm.notesPlaceholder')}
               onChange={(e) => setNotes(e.target.value)}
             />
           </div>
 
           <div className="form-field">
             <label htmlFor="card-env">
-              环境变量（可选，每行 NAME=值；不要放密钥）
+              {t('rosterForm.env')}
               {errors.env ? <span className="field-error"> · {errors.env}</span> : null}
             </label>
             <textarea
               id="card-env"
               rows={3}
               value={env}
-              placeholder={'OPENAI_BASE_URL=https://api.example.com/v1\n# 密钥请放系统环境变量，接入方式命令会继承'}
+              placeholder={t('rosterForm.envPlaceholder')}
               onChange={(e) => setEnv(e.target.value)}
             />
           </div>
 
           <div className="row end form-actions">
             <button className="btn ghost" type="button" onClick={onClose}>
-              算了
+              {t('common.neverMind')}
             </button>
             <button
               className="btn primary"
               type="submit"
               disabled={submitting}
             >
-              {submitting ? '正在登记…' : isNew ? '入册' : '盖章保存'}
+              {submitting ? t('rosterForm.submitting') : isNew ? t('rosterForm.submitNew') : t('rosterForm.submitSave')}
             </button>
           </div>
         </form>

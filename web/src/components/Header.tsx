@@ -1,4 +1,5 @@
 import type { Tab } from '../lib/route';
+import { useT } from '../lib/i18n';
 
 interface HeaderProps {
   projectName?: string;
@@ -13,31 +14,32 @@ export function Header({
   onTabChange,
   openQuestions,
 }: HeaderProps) {
+  const t = useT();
   const threadsLabel =
     openQuestions && openQuestions > 0
-      ? `留言板 · ${openQuestions}`
-      : '留言板';
+      ? t('header.tab.threadsWithCount', { count: openQuestions })
+      : t('header.tab.threads');
 
   return (
     <header className="top">
       <div className="brand">
         <p className="eyebrow" id="projectName">
           {projectName
-            ? `${projectName} · ADVENTURERS' GUILD`
-            : "QUESTBOARD · ADVENTURERS' GUILD"}
+            ? t('header.eyebrowWithProject', { project: projectName })
+            : t('header.eyebrowPlain')}
         </p>
         {/* No standing motto here: this header is on every tab, so a board-only instruction was showing on
             设置 and 用量 too. The guild sidebar says how to dispatch, where the dispatching happens. */}
-        <h1>委托板</h1>
+        <h1>{t('header.title')}</h1>
       </div>
-      <nav className="nav" aria-label="视图">
+      <nav className="nav" aria-label={t('header.navLabel')}>
         <button
           className={`plate tab${tab === 'board' ? ' on' : ''}`}
           data-view="board"
           type="button"
           onClick={() => onTabChange('board')}
         >
-          委托墙
+          {t('header.tab.board')}
         </button>
         <button
           className={`plate tab${tab === 'graph' ? ' on' : ''}`}
@@ -45,7 +47,7 @@ export function Header({
           type="button"
           onClick={() => onTabChange('graph')}
         >
-          冒险地图
+          {t('header.tab.graph')}
         </button>
         <button
           className={`plate tab${tab === 'threads' ? ' on' : ''}`}
@@ -61,7 +63,7 @@ export function Header({
           type="button"
           onClick={() => onTabChange('review')}
         >
-          美术评审
+          {t('header.tab.review')}
         </button>
         <button
           className={`plate tab${tab === 'history' ? ' on' : ''}`}
@@ -69,7 +71,7 @@ export function Header({
           type="button"
           onClick={() => onTabChange('history')}
         >
-          派出记录
+          {t('header.tab.history')}
         </button>
         <button
           className={`plate tab${tab === 'roster' ? ' on' : ''}`}
@@ -77,7 +79,7 @@ export function Header({
           type="button"
           onClick={() => onTabChange('roster')}
         >
-          冒险者
+          {t('header.tab.roster')}
         </button>
         <button
           className={`plate tab${tab === 'usage' ? ' on' : ''}`}
@@ -85,7 +87,7 @@ export function Header({
           type="button"
           onClick={() => onTabChange('usage')}
         >
-          用量
+          {t('header.tab.usage')}
         </button>
         <button
           className={`plate tab${tab === 'settings' ? ' on' : ''}`}
@@ -93,7 +95,7 @@ export function Header({
           type="button"
           onClick={() => onTabChange('settings')}
         >
-          设置
+          {t('header.tab.settings')}
         </button>
       </nav>
     </header>

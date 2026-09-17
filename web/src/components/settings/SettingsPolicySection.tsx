@@ -2,6 +2,7 @@ import type { Card } from "../../api/types";
 import type { BanRuleCard } from "../../lib/banRules";
 import type { LaneDraft, PolicyDraft } from "../../lib/settingsForm";
 import { BanRuleEditor } from "./BanRuleEditor";
+import { useT } from "../../lib/i18n";
 
 interface SettingsPolicySectionProps {
   draft: PolicyDraft;
@@ -23,6 +24,7 @@ function toBanRuleCards(roster: readonly Card[]): BanRuleCard[] {
 }
 
 export function SettingsPolicySection({ draft, roster, lanes, errors, onChange }: SettingsPolicySectionProps) {
+  const t = useT();
   const cards = toBanRuleCards(roster);
   const laneIds = lanes.map((lane) => lane.id.trim()).filter((id) => id !== "");
 
@@ -60,22 +62,22 @@ export function SettingsPolicySection({ draft, roster, lanes, errors, onChange }
   return (
     <div className="config-policy-section">
       <div className="config-policy-intro">
-        <h2>派出禁令</h2>
-        <p>禁令只作用于当前项目，不会全局禁止派出模型或执行角色。</p>
+        <h2>{t("settingsPolicy.introTitle")}</h2>
+        <p>{t("settingsPolicy.intro")}</p>
       </div>
       <BanRuleEditor
         cards={cards}
         field="bannedModelPatterns"
-        label="禁止派出模型"
-        hint="搜索名册中的模型，也可以手动输入尚未入册的模型名。"
+        label={t("settingsPolicy.banModelsLabel")}
+        hint={t("settingsPolicy.banModelsHint")}
         patterns={models}
         onPatternsChange={(patterns) => update("bannedModelPatterns", patterns)}
       />
       <BanRuleEditor
         cards={cards}
         field="bannedAgents"
-        label="禁止派出执行角色"
-        hint="匹配冒险者的 agent 字段，例如 Sisyphus；这不是冒险者名册。"
+        label={t("settingsPolicy.banAgentsLabel")}
+        hint={t("settingsPolicy.banAgentsHint")}
         patterns={agents}
         onPatternsChange={(patterns) => update("bannedAgents", patterns)}
       />
@@ -83,20 +85,20 @@ export function SettingsPolicySection({ draft, roster, lanes, errors, onChange }
       <section className="config-policy-group" aria-labelledby="policy-stall-title">
         <div className="config-policy-heading">
           <div>
-            <h3 id="policy-stall-title">停摆判定</h3>
-            <p>.out 超过这么多分钟没动静、又拿不到有效的 .exit 时，看板把这个 worker 标成停摆。停摆只是提醒，不会取消任务。</p>
+            <h3 id="policy-stall-title">{t("settingsPolicy.stallTitle")}</h3>
+            <p>{t("settingsPolicy.stallHint")}</p>
           </div>
-          <span className="config-policy-scope">单位：分钟</span>
+          <span className="config-policy-scope">{t("settingsPolicy.stallUnit")}</span>
         </div>
         <div className="config-policy-rule-main">
-          <span>停摆阈值（分钟）</span>
+          <span>{t("settingsPolicy.stallLabel")}</span>
           <input
-            aria-label="停摆阈值（分钟）"
+            aria-label={t("settingsPolicy.stallLabel")}
             type="number"
             min={1}
             step={1}
             value={draft.stallAfterMinutes}
-            placeholder="默认 20"
+            placeholder={t("settingsPolicy.stallPlaceholder")}
             onChange={(event) => onChange({ stallAfterMinutes: event.target.value })}
           />
         </div>
@@ -106,31 +108,31 @@ export function SettingsPolicySection({ draft, roster, lanes, errors, onChange }
       <section className="config-policy-group" aria-labelledby="policy-lane-limit-title">
         <div className="config-policy-heading">
           <div>
-            <h3 id="policy-lane-limit-title">通道并发上限</h3>
-            <p>每条通道最多同时跑几个 worker。改小不会停掉已经在跑的 worker，只会挡住新的派遣；默认不限制。</p>
+            <h3 id="policy-lane-limit-title">{t("settingsPolicy.laneLimitTitle")}</h3>
+            <p>{t("settingsPolicy.laneLimitHint")}</p>
           </div>
-          <span className="config-policy-scope">仅此项目</span>
+          <span className="config-policy-scope">{t("settingsPolicy.scope")}</span>
         </div>
         <div className="config-policy-rules">
-          {draft.laneConcurrency.length === 0 && <p className="config-policy-empty">还没有设置上限。</p>}
+          {draft.laneConcurrency.length === 0 && <p className="config-policy-empty">{t("settingsPolicy.laneLimitEmpty")}</p>}
           {draft.laneConcurrency.map((row, index) => (
             <div className="config-policy-rule" key={`policy-lane-${index}`}>
               <div className="config-policy-rule-main">
-                <select aria-label={`第${index + 1}条通道`} value={row.lane} onChange={(event) => updateLaneRow(index, { lane: event.target.value })}>
-                  <option value="">选择通道</option>
+                <select aria-label={t("settingsPolicy.laneAria", { index: index + 1 })} value={row.lane} onChange={(event) => updateLaneRow(index, { lane: event.target.value })}>
+                  <option value="">{t("settingsPolicy.selectLane")}</option>
                   {laneIds.map((id) => <option key={id} value={id}>{id}</option>)}
-                  {row.lane !== "" && !laneIds.includes(row.lane) && <option value={row.lane}>{row.lane}（未配置）</option>}
+                  {row.lane !== "" && !laneIds.includes(row.lane) && <option value={row.lane}>{t("settingsPolicy.unconfigured", { lane: row.lane })}</option>}
                 </select>
                 <input
-                  aria-label={`第${index + 1}条并发上限`}
+                  aria-label={t("settingsPolicy.limitAria", { index: index + 1 })}
                   type="number"
                   min={1}
                   step={1}
                   value={row.limit}
-                  placeholder="比如 2"
+                  placeholder={t("settingsPolicy.limitPlaceholder")}
                   onChange={(event) => updateLaneRow(index, { limit: event.target.value })}
                 />
-                <button type="button" className="config-policy-remove" onClick={() => removeLaneRow(index)}>删除</button>
+                <button type="button" className="config-policy-remove" onClick={() => removeLaneRow(index)}>{t("settingsPolicy.remove")}</button>
               </div>
               {errors[`policy.laneConcurrency.${index}.lane`] !== undefined && <p className="config-policy-error">{errors[`policy.laneConcurrency.${index}.lane`]}</p>}
               {errors[`policy.laneConcurrency.${index}.limit`] !== undefined && <p className="config-policy-error">{errors[`policy.laneConcurrency.${index}.limit`]}</p>}
@@ -138,73 +140,73 @@ export function SettingsPolicySection({ draft, roster, lanes, errors, onChange }
           ))}
         </div>
         <div className="config-policy-add-row">
-          <button type="button" className="btn" onClick={addLaneRow}>添加通道上限</button>
+          <button type="button" className="btn" onClick={addLaneRow}>{t("settingsPolicy.addLaneLimit")}</button>
         </div>
       </section>
 
       <section className="config-policy-group" aria-labelledby="policy-defaults-title">
         <div className="config-policy-heading">
           <div>
-            <h3 id="policy-defaults-title">默认通道与默认卡</h3>
-            <p>没指定时用哪条通道、哪张卡。你手动指定的永远优先；这里不会自动替你派活、也不会悄悄换卡。</p>
+            <h3 id="policy-defaults-title">{t("settingsPolicy.defaultsTitle")}</h3>
+            <p>{t("settingsPolicy.defaultsHint")}</p>
           </div>
-          <span className="config-policy-scope">仅此项目</span>
+          <span className="config-policy-scope">{t("settingsPolicy.scope")}</span>
         </div>
         <div className="config-policy-rule-main">
-          <span>默认通道</span>
-          <select aria-label="默认通道" value={draft.defaultLane} onChange={(event) => onChange({ defaultLane: event.target.value })}>
-            <option value="">不指定</option>
+          <span>{t("settingsPolicy.defaultLane")}</span>
+          <select aria-label={t("settingsPolicy.defaultLane")} value={draft.defaultLane} onChange={(event) => onChange({ defaultLane: event.target.value })}>
+            <option value="">{t("settingsPolicy.noDefault")}</option>
             {laneIds.map((id) => <option key={id} value={id}>{id}</option>)}
-            {draft.defaultLane !== "" && !laneIds.includes(draft.defaultLane) && <option value={draft.defaultLane}>{draft.defaultLane}（未配置）</option>}
+            {draft.defaultLane !== "" && !laneIds.includes(draft.defaultLane) && <option value={draft.defaultLane}>{t("settingsPolicy.unconfigured", { lane: draft.defaultLane })}</option>}
           </select>
         </div>
         {errors["policy.defaultLane"] !== undefined && <p className="config-policy-error">{errors["policy.defaultLane"]}</p>}
         <div className="config-policy-rule-main">
-          <span>默认卡 ID</span>
+          <span>{t("settingsPolicy.defaultCard")}</span>
           <input
-            aria-label="默认卡 ID"
+            aria-label={t("settingsPolicy.defaultCardAria")}
             value={draft.defaultCard}
-            placeholder="例如 my-codex"
+            placeholder={t("settingsPolicy.defaultCardPlaceholder")}
             onChange={(event) => onChange({ defaultCard: event.target.value })}
           />
         </div>
         {errors["policy.defaultCard"] !== undefined && <p className="config-policy-error">{errors["policy.defaultCard"]}</p>}
-        {cardMissing && <p className="config-policy-advanced-note">首选卡「{wantedCard}」不在名册里（设置会保留，不会自动换卡；补上这张卡或改掉 ID 即可）</p>}
-        <p className="config-policy-footnote">questboard assign 不带 --adventurer 时会用它；卡本身在公会名册里维护，这里只记偏好。</p>
+        {cardMissing && <p className="config-policy-advanced-note">{t("settingsPolicy.cardMissing", { id: wantedCard })}</p>}
+        <p className="config-policy-footnote">{t("settingsPolicy.defaultsNote")}</p>
       </section>
 
       <section className="config-policy-group" aria-labelledby="policy-bounce-title">
         <div className="config-policy-heading">
           <div>
-            <h3 id="policy-bounce-title">结构化退避</h3>
-            <p>worker 的退出行匹配到正则时，退避原因显示成你的标签，并带上 code。只匹配最后一行，不扫描整个日志；内置的用量限额识别先跑。</p>
+            <h3 id="policy-bounce-title">{t("settingsPolicy.bounceTitle")}</h3>
+            <p>{t("settingsPolicy.bounceHint")}</p>
           </div>
-          <span className="config-policy-scope">仅此项目</span>
+          <span className="config-policy-scope">{t("settingsPolicy.scope")}</span>
         </div>
         <div className="config-policy-rules">
-          {draft.bouncePatterns.length === 0 && <p className="config-policy-empty">还没有规则，先走内置的用量限额识别。</p>}
+          {draft.bouncePatterns.length === 0 && <p className="config-policy-empty">{t("settingsPolicy.bounceEmpty")}</p>}
           {draft.bouncePatterns.map((row, index) => (
             <div className="config-policy-rule" key={`policy-bounce-${index}`}>
               <div className="config-policy-rule-main">
                 <input
-                  aria-label={`第${index + 1}条 code`}
+                  aria-label={t("settingsPolicy.codeAria", { index: index + 1 })}
                   value={row.code}
-                  placeholder="code，例如 quota_5h"
+                  placeholder={t("settingsPolicy.codePlaceholder")}
                   onChange={(event) => updateBounceRow(index, { code: event.target.value })}
                 />
                 <input
-                  aria-label={`第${index + 1}条正则`}
+                  aria-label={t("settingsPolicy.patternAria", { index: index + 1 })}
                   value={row.pattern}
-                  placeholder="正则，例如 resets (at|in)"
+                  placeholder={t("settingsPolicy.patternPlaceholder")}
                   onChange={(event) => updateBounceRow(index, { pattern: event.target.value })}
                 />
                 <input
-                  aria-label={`第${index + 1}条标签`}
+                  aria-label={t("settingsPolicy.labelAria", { index: index + 1 })}
                   value={row.label}
-                  placeholder="标签，例如 额度用尽"
+                  placeholder={t("settingsPolicy.labelPlaceholder")}
                   onChange={(event) => updateBounceRow(index, { label: event.target.value })}
                 />
-                <button type="button" className="config-policy-remove" onClick={() => removeBounceRow(index)}>删除</button>
+                <button type="button" className="config-policy-remove" onClick={() => removeBounceRow(index)}>{t("settingsPolicy.remove")}</button>
               </div>
               {errors[`policy.bouncePatterns.${index}.code`] !== undefined && <p className="config-policy-error">{errors[`policy.bouncePatterns.${index}.code`]}</p>}
               {errors[`policy.bouncePatterns.${index}.pattern`] !== undefined && <p className="config-policy-error">{errors[`policy.bouncePatterns.${index}.pattern`]}</p>}
@@ -213,11 +215,11 @@ export function SettingsPolicySection({ draft, roster, lanes, errors, onChange }
           ))}
         </div>
         <div className="config-policy-add-row">
-          <button type="button" className="btn" onClick={addBounceRow}>添加退避规则</button>
+          <button type="button" className="btn" onClick={addBounceRow}>{t("settingsPolicy.addBounce")}</button>
         </div>
       </section>
 
-      <p className="config-policy-footnote">保存后需要重启看板才会生效。</p>
+      <p className="config-policy-footnote">{t("settingsPolicy.restartNote")}</p>
     </div>
   );
 }

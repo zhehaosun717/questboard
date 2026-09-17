@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import type { ThreadDetail } from '../../api/types';
 import { linkSegments } from '../../lib/threads';
+import { useT } from '../../lib/i18n';
 
 interface ThreadDetailPaneProps {
   activeThread: ThreadDetail | null;
@@ -42,6 +43,7 @@ export function ThreadDetailPane({
   restoreBusy = false,
   writeBusy = false,
 }: ThreadDetailPaneProps) {
+  const t = useT();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   if (activeError) {
@@ -61,7 +63,7 @@ export function ThreadDetailPane({
         role={refusalMessage ? 'status' : undefined}
         aria-live={refusalMessage ? 'polite' : undefined}
       >
-        {refusalMessage ? <span className="th-refusal">{refusalMessage}</span> : '选一个主题，或者开一个新的'}
+        {refusalMessage ? <span className="th-refusal">{refusalMessage}</span> : t('threads.pickOne')}
       </div>
     );
   }
@@ -80,17 +82,17 @@ export function ThreadDetailPane({
           <div className="th-head-top">
             <h2>{activeThread.title}</h2>
             {trashed && (
-              <span className="stamp s-cancelled">在回收站中</span>
+              <span className="stamp s-cancelled">{t('threads.paneTrashed')}</span>
             )}
             {activeThread.closed && (
-              <span className="stamp s-cancelled">已关闭</span>
+              <span className="stamp s-cancelled">{t('threads.paneClosed')}</span>
             )}
           </div>
           <div className="d-meta">
             {activeThread.author} ·{' '}
             {new Date(activeThread.createdAt).toLocaleString('zh-CN')}
             {activeThread.tags.length > 0 && (
-              <> · 标签：{activeThread.tags.join(', ')}</>
+              <>{t('threads.tagsPrefix')}{activeThread.tags.join(', ')}</>
             )}
           </div>
         </div>
@@ -102,15 +104,15 @@ export function ThreadDetailPane({
               onClick={onRestoreFromTrash}
               disabled={restoreBusy}
             >
-              还原出回收站
+              {t('threads.restoreOut')}
             </button>
           ) : (
             <>
               <button className="btn ghost" type="button" onClick={onTogglePin} disabled={writeBusy}>
-                {activeThread.pinned ? '取消置顶' : '置顶'}
+                {activeThread.pinned ? t('threads.unpin') : t('threads.pin')}
               </button>
               <button className="btn ghost" type="button" onClick={onToggleClose} disabled={writeBusy}>
-                {activeThread.closed ? '重新打开' : '关闭'}
+                {activeThread.closed ? t('threads.reopen') : t('threads.close')}
               </button>
             </>
           )}
@@ -150,7 +152,7 @@ export function ThreadDetailPane({
       <div className="thread-composer">
         {trashed ? (
           <div className="th-closed-tape tb-trashed-note">
-            此主题在回收站里（消息都还在，还原后保持原样继续）。
+            {t('threads.trashNote')}
             {onRestoreFromTrash && (
               <button
                 className="btn primary tb-btn"
@@ -158,16 +160,16 @@ export function ThreadDetailPane({
                 onClick={onRestoreFromTrash}
                 disabled={restoreBusy}
               >
-                还原此主题
+                {t('threads.restoreThis')}
               </button>
             )}
           </div>
         ) : activeThread.closed ? (
-          <div className="th-closed-tape">此主题已关闭</div>
+          <div className="th-closed-tape">{t('threads.closedTape')}</div>
         ) : (
           <div className="th-composer-inner">
             <div className="th-author-row">
-              <label htmlFor="th-reply-author">你的名字：</label>
+              <label htmlFor="th-reply-author">{t('threads.yourName')}</label>
               <input
                 id="th-reply-author"
                 type="text"
@@ -175,13 +177,13 @@ export function ThreadDetailPane({
                 value={author}
                 maxLength={60}
                 onChange={(e) => onAuthorChange(e.target.value)}
-                placeholder="你的昵称"
+                placeholder={t('threads.namePlaceholder')}
               />
-              <span className="hint">Ctrl + Enter 发送</span>
+              <span className="hint">{t('threads.ctrlEnter')}</span>
             </div>
             <textarea
               rows={3}
-              placeholder="写下回复..."
+              placeholder={t('threads.replyPlaceholder')}
               value={replyBody}
               onChange={(e) => onReplyBodyChange(e.target.value)}
               onKeyDown={handleKeyDownReply}
@@ -196,7 +198,7 @@ export function ThreadDetailPane({
                 disabled={replySubmitting}
                 onClick={onSendReply}
               >
-                {replySubmitting ? '发送中…' : '发送回复'}
+                {replySubmitting ? t('threads.sending') : t('threads.sendReply')}
               </button>
             </div>
           </div>

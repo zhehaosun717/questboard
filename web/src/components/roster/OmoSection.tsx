@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import type { OmoConfig, OmoEntry, OmoSection as SectionType } from '../../api/types';
+import { useT } from '../../lib/i18n';
 import {
   changedOmoRows,
   getRoleHint,
@@ -12,6 +13,7 @@ interface OmoSectionProps {
 }
 
 export function OmoSection({ pushToast }: OmoSectionProps) {
+  const t = useT();
   const [config, setConfig] = useState<OmoConfig | null>(null);
   const [editedAgents, setEditedAgents] = useState<OmoEntry[]>([]);
   const [editedCategories, setEditedCategories] = useState<OmoEntry[]>([]);
@@ -114,11 +116,11 @@ export function OmoSection({ pushToast }: OmoSectionProps) {
   };
 
   if (loadingConfig) {
-    return <div className="hint omo-loading">正在读取 OMO 配置…</div>;
+    return <div className="hint omo-loading">{t('omo.loading')}</div>;
   }
 
   if (configError) {
-    return <div className="warn-tape">读取 OMO 配置失败：{configError}</div>;
+    return <div className="warn-tape">{t('omo.loadFailed', { error: configError })}</div>;
   }
 
   // OMO is oh-my-openagent's own config, which most people do not have. Without it this section says nothing
@@ -147,8 +149,8 @@ export function OmoSection({ pushToast }: OmoSectionProps) {
       setConfig(updated);
       setEditedAgents(updated.agents.map((a) => ({ ...a })));
       setEditedCategories(updated.categories.map((c) => ({ ...c })));
-      setSaveSuccessMsg('已保存（旧文件已备份）');
-      pushToast('已保存 OMO 配置（旧文件已备份）');
+      setSaveSuccessMsg(t('omo.saved'));
+      pushToast(t('omo.savedToast'));
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -168,9 +170,9 @@ export function OmoSection({ pushToast }: OmoSectionProps) {
         <table className="roster-table omo-table">
           <thead>
             <tr>
-              <th style={{ width: '220px' }}>名称</th>
-              <th>模型 (provider/model)</th>
-              <th style={{ width: '180px' }}>思考深度 (reasoning)</th>
+              <th style={{ width: '220px' }}>{t('omo.colName')}</th>
+              <th>{t('omo.colModel')}</th>
+              <th style={{ width: '180px' }}>{t('omo.colReasoning')}</th>
             </tr>
           </thead>
           <tbody>
@@ -184,7 +186,7 @@ export function OmoSection({ pushToast }: OmoSectionProps) {
                     <div className="omo-name-cell">
                       <strong className="omo-name">{item.name}</strong>
                       {hint ? <span className="omo-hint">{hint}</span> : null}
-                      {isRowChanged ? <span className="omo-changed-badge">已改</span> : null}
+                      {isRowChanged ? <span className="omo-changed-badge">{t('omo.edited')}</span> : null}
                     </div>
                   </td>
                   <td>
@@ -192,7 +194,7 @@ export function OmoSection({ pushToast }: OmoSectionProps) {
                       className="omo-model-input"
                       list="omo-models-datalist"
                       value={item.model}
-                      placeholder="留空或 provider/model"
+                      placeholder={t('omo.modelPlaceholder')}
                       onChange={(e) =>
                         handleModelChange(section, idx, e.target.value)
                       }
@@ -226,15 +228,15 @@ export function OmoSection({ pushToast }: OmoSectionProps) {
     <div className="omo-section">
       <header className="omo-header">
         <div>
-          <span className="eyebrow">OPENCODE AGENT MODEL CONFIG</span>
-          <h3>OpenCode 代理模型（OMO）</h3>
+          <span className="eyebrow">{t('omo.eyebrow')}</span>
+          <h3>{t('omo.title')}</h3>
           <p className="hint">
-            配置文件：<code>{config.file}</code>
+            {t('omo.configFile')}<code>{config.file}</code>
           </p>
         </div>
         <div className="omo-header-actions">
           {loadingModels ? (
-            <span className="dim-notice">正在读取模型列表…</span>
+            <span className="dim-notice">{t('omo.readingModels')}</span>
           ) : (
             <button
               className="btn"
@@ -242,7 +244,7 @@ export function OmoSection({ pushToast }: OmoSectionProps) {
               disabled={refreshingModels}
               onClick={() => fetchModels(true)}
             >
-              {refreshingModels ? '正在刷新…' : '刷新模型列表'}
+              {refreshingModels ? t('omo.refreshing') : t('omo.refreshModels')}
             </button>
           )}
           <button
@@ -251,7 +253,7 @@ export function OmoSection({ pushToast }: OmoSectionProps) {
             disabled={changes.length === 0 || saving}
             onClick={handleSave}
           >
-            {saving ? '正在保存…' : `保存修改 (${changes.length})`}
+            {saving ? t('common.saving') : t('omo.saveChanges', { count: changes.length })}
           </button>
         </div>
       </header>
@@ -269,8 +271,8 @@ export function OmoSection({ pushToast }: OmoSectionProps) {
         ))}
       </datalist>
 
-      {renderTable('代理 (Agents)', 'agents', editedAgents, changedAgentNames)}
-      {renderTable('分类 (Categories)', 'categories', editedCategories, changedCategoryNames)}
+      {renderTable(t('omo.tableAgents'), 'agents', editedAgents, changedAgentNames)}
+      {renderTable(t('omo.tableCategories'), 'categories', editedCategories, changedCategoryNames)}
     </div>
   );
 }

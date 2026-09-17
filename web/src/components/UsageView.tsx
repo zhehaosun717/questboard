@@ -12,6 +12,7 @@ import {
 } from '../lib/usageCache';
 import { fetchUsageReport } from '../lib/usageClient';
 import { loadUsageRefreshPreference, saveUsageRefreshPreference, type UsageRefreshMode } from '../lib/usagePreference';
+import { useT } from '../lib/i18n';
 import '../styles/usage.css';
 import { UsageControls } from './usage/UsageControls';
 import { UsageProviderCard } from './usage/UsageProviderCard';
@@ -27,6 +28,7 @@ interface UsageViewProps {
 }
 
 export function UsageView({ scope }: UsageViewProps) {
+  const t = useT();
   const projectId = scope.loaded ? scope.projectId : undefined;
   // Only a genuine, server-provided id lets this view trust a cached report across mounts; without one the
   // scope is a shared "(unscoped)" bucket that can legitimately belong to different servers over time (see
@@ -184,21 +186,21 @@ export function UsageView({ scope }: UsageViewProps) {
   // each announcing on every "refresh all", a screen reader user got a flood of simultaneous chatter, and
   // the error banner — the one thing that most needed announcing — was not a live region at all.
   const liveMessage = snapshot.globalError
-    ? `读取用量报告失败：${snapshot.globalError}`
+    ? t('usage.loadFailed', { error: snapshot.globalError })
     : verification === 'unverifiable'
-      ? '无法核实这份用量数据是否仍属于当前服务器'
+      ? t('usage.unverifiable')
       : hidden
-        ? '自动刷新已暂停'
+        ? t('usage.autoPaused')
         : snapshot.refreshingAll
-          ? '正在刷新用量数据…'
+          ? t('usage.refreshingData')
           : '';
 
   return (
     <div className="usage-view-container">
       <header className="usage-view-header">
         <div>
-          <span className="eyebrow">QUOTA &amp; BALANCES</span>
-          <h2>服务商用量</h2>
+          <span className="eyebrow">{t('usage.eyebrow')}</span>
+          <h2>{t('usage.title')}</h2>
         </div>
         <UsageControls
           fetchedAt={snapshot.fetchedAt}
@@ -219,7 +221,7 @@ export function UsageView({ scope }: UsageViewProps) {
 
       {scope.loaded && projectId == null ? (
         <p className="hint usage-scope-warning">
-          当前服务器没有提供项目标识，无法保证下面的用量数据只属于这一个项目；切换过服务器后请手动确认。
+          {t('usage.scopeWarning')}
         </p>
       ) : null}
 
@@ -228,18 +230,20 @@ export function UsageView({ scope }: UsageViewProps) {
           error text where one exists, so there is nothing left to say twice. */}
       {verification === 'confirmed' && snapshot.globalError ? (
         <div className="warn-tape usage-global-error">
-          读取用量报告失败：{snapshot.globalError}
-          {snapshot.report ? '（下面仍是上一次的结果）' : ''}
+          {t('usage.loadFailed', { error: snapshot.globalError })}
+          {snapshot.report ? t('usage.previousResult') : ''}
         </div>
       ) : null}
 
       {!scope.loaded ? (
-        <div className="hint usage-loading-hint">正在读取项目信息…</div>
+        <div className="hint usage-loading-hint">{t('usage.readingProject')}</div>
       ) : verification === 'checking' ? (
-        <div className="hint usage-loading-hint">正在核实这份用量数据是否仍属于当前服务器…</div>
+        <div className="hint usage-loading-hint">{t('usage.verifying')}</div>
       ) : verification === 'unverifiable' ? (
         <div className="warn-tape usage-verify-failed">
-          无法核实这份用量数据是否仍属于当前服务器{snapshot.globalError ? `（${snapshot.globalError}）` : ''}，暂不显示；请点击上方“刷新全部”重试。
+          {snapshot.globalError
+            ? t('usage.verifyFailedWith', { error: snapshot.globalError })
+            : t('usage.verifyFailed')}
         </div>
       ) : providers.length > 0 ? (
         <div className="usage-grid">
@@ -257,9 +261,9 @@ export function UsageView({ scope }: UsageViewProps) {
           ))}
         </div>
       ) : snapshot.refreshingAll ? (
-        <div className="hint usage-loading-hint">正在读取用量数据…</div>
+        <div className="hint usage-loading-hint">{t('usage.reading')}</div>
       ) : (
-        <div className="empty">暂无服务商用量数据</div>
+        <div className="empty">{t('usage.empty')}</div>
       )}
     </div>
   );

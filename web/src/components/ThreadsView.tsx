@@ -12,6 +12,7 @@ import {
 } from '../api/threadBatch';
 import type { ThreadBulkAction, ThreadDetailWithTrash, ThreadWithTrash } from '../api/threadBatch';
 import { formatClock } from '../lib/board';
+import { t as tStatic, useT } from '../lib/i18n';
 import '../styles/thread-batch.css';
 import { NewThreadModal } from './threads/NewThreadModal';
 import { ThreadBulkBar } from './threads/ThreadBulkBar';
@@ -24,12 +25,10 @@ import {
   runIfCurrent,
   shouldCloseConfirmAfterPrune,
 } from './threads/threadAsyncGuards';
-import { MISSING_AUTHOR_REFUSAL, useThreadWriteOperations } from './threads/useThreadWriteOperations';
+import { MISSING_AUTHOR_REFUSAL_KEY, useThreadWriteOperations } from './threads/useThreadWriteOperations';
 
 // A missing name never blocks a loading/refusal reason from showing: only clear the composer's own
 // "type your name" nudge, so typing a name mid-switch cannot wipe the loading text out from under it.
-const PROJECT_SWITCH_LOADING = '主题切换中，请稍候';
-
 interface ThreadsViewProps {
   activeThreadId: string | null;
   onSelectThread: (threadId: string | null) => void;
@@ -80,6 +79,7 @@ export function ThreadsView({
   onCloseNewModal,
   projectId,
 }: ThreadsViewProps) {
+  const t = useT();
   const [threads, setThreads] = useState<ThreadWithTrash[]>([]);
   // G1: the scope (bin toggle + status filter + search text) that produced the `threads` currently in
   // state — not necessarily what the owner is looking at right now. `null` until the first list lands.
@@ -169,7 +169,7 @@ export function ThreadsView({
     // Only the "type your name" nudge is this field's own to clear — a loading/refusal reason set by an
     // in-flight switch or write is not about the author field and must survive typing here.
     if (val.trim()) {
-      setRefusalMessage((prev) => (prev === MISSING_AUTHOR_REFUSAL ? null : prev));
+      setRefusalMessage((prev) => (prev === tStatic(MISSING_AUTHOR_REFUSAL_KEY) ? null : prev));
     }
   };
 
@@ -320,7 +320,7 @@ export function ThreadsView({
     if (gen > 1 && activeIdRef.current) {
       // G3: the routed thread reloads for the new project — say so, the same way a same-project route
       // change already does, instead of leaving the pane looking like nothing is selected.
-      setRefusalMessage(PROJECT_SWITCH_LOADING);
+      setRefusalMessage(tStatic('threads.switchLoading'));
       void loadActiveThread(activeIdRef.current);
     } else {
       setRefusalMessage(null);
@@ -354,7 +354,7 @@ export function ThreadsView({
       setActiveThread(null);
       setActiveThreadProjectId(undefined);
       setActiveError(null);
-      setRefusalMessage(PROJECT_SWITCH_LOADING);
+      setRefusalMessage(tStatic('threads.switchLoading'));
       void loadActiveThread(activeThreadId);
     } else {
       setActiveThread(null);
@@ -396,7 +396,7 @@ export function ThreadsView({
   // click vanishing. A successful toggle clears the previous run's now-stale result line.
   const handleToggleSelect = (id: string) => {
     if (!selected.includes(id) && isAtBulkCap(selected)) {
-      setBulkStatus(`一次最多选择 ${MAX_THREAD_BULK_IDS} 个主题，已达上限，请先取消部分勾选`);
+      setBulkStatus(tStatic('threads.bulkCap', { max: MAX_THREAD_BULK_IDS }));
       return;
     }
     setSelected((prev) => toggleSelectedIds(prev, id));
@@ -466,14 +466,14 @@ export function ThreadsView({
                 onOpenNewModal();
               }}
             >
-              + 新主题
+              {t('threads.newButton')}
             </button>
           </div>
           <div className="filters-grid">
             <input
               ref={searchInputRef}
               type="search"
-              placeholder="搜索主题..."
+              placeholder={t('threads.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -481,7 +481,7 @@ export function ThreadsView({
               // F1: the bin always lists every status (closed question threads were the common case —
               // filtering them hid them behind a falsely empty 回收站). No selector here to mislead.
               <span className="tb-status-locked" role="note">
-                回收站显示全部状态
+                {t('threads.trashAllStatuses')}
               </span>
             ) : (
               <select
@@ -490,14 +490,14 @@ export function ThreadsView({
                   setStatusFilter(e.target.value as ThreadStatusFilter)
                 }
               >
-                <option value="open">开放</option>
-                <option value="all">全部</option>
-                <option value="closed">已关闭</option>
+                <option value="open">{t('threads.filterOpen')}</option>
+                <option value="all">{t('threads.filterAll')}</option>
+                <option value="closed">{t('threads.filterClosed')}</option>
               </select>
             )}
           </div>
           <div className="th-count-row">
-            <span>{trashView ? '回收站（可还原）' : '主题列表'}</span>
+            <span>{trashView ? t('threads.trashHeading') : t('threads.listHeading')}</span>
             <span className="count">{visibleThreads.length}</span>
           </div>
           <div className="tb-view-row">
@@ -507,7 +507,7 @@ export function ThreadsView({
               aria-pressed={trashView}
               onClick={() => setTrashView((v) => !v)}
             >
-              {trashView ? '返回主题列表' : '打开回收站'}
+              {trashView ? t('threads.backToList') : t('threads.openTrash')}
             </button>
           </div>
         </div>
@@ -532,7 +532,7 @@ export function ThreadsView({
             // the server as a write for a row the owner can no longer even see, and this loading copy is
             // never confused with a genuinely empty list.
             <div className="empty" role="status" aria-live="polite">
-              加载中…
+              {t('threads.loading')}
             </div>
           ) : !isListCurrent && listError ? (
             // Minor/P12: nothing is actually pending here — the current scope's only attempt so far
@@ -541,45 +541,45 @@ export function ThreadsView({
             <div className="empty" aria-hidden="true" />
           ) : visibleThreads.length === 0 ? (
             <div className="empty">
-              {trashView ? '回收站是空的' : '还没有主题'}
+              {trashView ? t('threads.trashEmpty') : t('threads.listEmpty')}
             </div>
           ) : (
-            visibleThreads.map((t) => {
-              const lastSeen = getStoredSeen(t.id);
+            visibleThreads.map((topic) => {
+              const lastSeen = getStoredSeen(topic.id);
               const unread = Boolean(
-                t.lastMessageAt && (!lastSeen || t.lastMessageAt > lastSeen),
+                topic.lastMessageAt && (!lastSeen || topic.lastMessageAt > lastSeen),
               );
-              const isActive = t.id === activeThreadId;
+              const isActive = topic.id === activeThreadId;
 
               return (
-                <div key={t.id} className="tb-thread-row">
+                <div key={topic.id} className="tb-thread-row">
                   <input
                     type="checkbox"
                     className="tb-check"
-                    checked={selectedSet.has(t.id)}
-                    onChange={() => handleToggleSelect(t.id)}
+                    checked={selectedSet.has(topic.id)}
+                    onChange={() => handleToggleSelect(topic.id)}
                     disabled={bulkBusy}
-                    aria-label={`选择主题：${t.title}`}
+                    aria-label={t('threads.selectAria', { title: topic.title })}
                   />
                   <button
                     type="button"
                     className={`thread-item${isActive ? ' on' : ''}${unread ? ' unread' : ''}`}
-                    onClick={() => handleSelect(t.id)}
+                    onClick={() => handleSelect(topic.id)}
                   >
                     <div className="th-item-top">
-                      {t.pinned && <span className="pin-mark">●</span>}
-                      <strong className="th-item-title">{t.title}</strong>
-                      {unread && <span className="unread-dot" title="有新消息" />}
+                      {topic.pinned && <span className="pin-mark">●</span>}
+                      <strong className="th-item-title">{topic.title}</strong>
+                      {unread && <span className="unread-dot" title={t('threads.unreadTitle')} />}
                     </div>
                     <div className="th-item-meta">
                       <span>
-                        {t.author} · {formatClock(t.updatedAt)}
+                        {topic.author} · {formatClock(topic.updatedAt)}
                       </span>
-                      <span className="mono">{t.messageCount} 条</span>
+                      <span className="mono">{t('threads.messageCount', { count: topic.messageCount })}</span>
                     </div>
-                    {t.tags.length > 0 && (
+                    {topic.tags.length > 0 && (
                       <div className="th-item-tags">
-                        {t.tags.map((tag) => (
+                        {topic.tags.map((tag) => (
                           <span key={tag} className="chip">
                             {tag}
                           </span>

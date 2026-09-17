@@ -1,3 +1,5 @@
+import { useT, type I18nKey } from '../../lib/i18n';
+
 export type SettingsGroupId = 'project-files' | 'execution' | 'policy' | 'local';
 
 interface SettingsNavProps {
@@ -6,17 +8,18 @@ interface SettingsNavProps {
   onSelect: (group: SettingsGroupId) => void;
 }
 
-const groups: Array<{ id: SettingsGroupId; label: string; hint: string }> = [
-  { id: 'project-files', label: '项目与文件', hint: '项目、简报、评审页' },
-  { id: 'execution', label: '接入方式', hint: '接入方式与运行参数' },
-  { id: 'policy', label: '派出禁令', hint: '规则与限制' },
-  { id: 'local', label: '本机与连接', hint: '检查与用量来源' },
+const groups: Array<{ id: SettingsGroupId; labelKey: I18nKey; hintKey: I18nKey }> = [
+  { id: 'project-files', labelKey: 'settings.group.project', hintKey: 'settingsNav.hint.project' },
+  { id: 'execution', labelKey: 'settings.group.lanes', hintKey: 'settingsNav.hint.lanes' },
+  { id: 'policy', labelKey: 'settings.group.policy', hintKey: 'settingsNav.hint.policy' },
+  { id: 'local', labelKey: 'settings.group.local', hintKey: 'settingsNav.hint.local' },
 ];
 
 export function SettingsNav({ activeGroup, groupErrors, onSelect }: SettingsNavProps) {
+  const t = useT();
   return (
-    <aside className="settings-nav" aria-label="设置分组">
-      <div className="settings-nav-heading">设置分组</div>
+    <aside className="settings-nav" aria-label={t('settingsNav.aria')}>
+      <div className="settings-nav-heading">{t('settingsNav.heading')}</div>
       <nav>
         {groups.map((group) => (
           <button
@@ -27,10 +30,10 @@ export function SettingsNav({ activeGroup, groupErrors, onSelect }: SettingsNavP
             onClick={() => onSelect(group.id)}
           >
             <span className="settings-nav-label">
-              {group.label}
+              {t(group.labelKey)}
               {groupErrors[group.id] ? <span className="settings-nav-error">!</span> : null}
             </span>
-            <span className="settings-nav-hint">{group.hint}</span>
+            <span className="settings-nav-hint">{t(group.hintKey)}</span>
           </button>
         ))}
       </nav>

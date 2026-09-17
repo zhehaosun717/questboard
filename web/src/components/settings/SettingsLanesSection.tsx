@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import type { Card, LaneServerStatus } from '../../api/types';
 import { createLaneFormKey, type LaneDraft } from '../../lib/settingsForm';
+import { t as tStatic, useT } from '../../lib/i18n';
 import { LaneCard } from './LaneCard';
 import type { LaneServerMessage } from './LaneServerPanel';
 
@@ -20,6 +21,7 @@ export function SettingsLanesSection({
   onChange,
   roster,
 }: SettingsLanesSectionProps) {
+  const t = useT();
   // The running board's lanes, by id: the start button acts on the saved, loaded config, not on the draft.
   const [servers, setServers] = useState<Record<string, LaneServerStatus>>({});
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -31,7 +33,7 @@ export function SettingsLanesSection({
   }, []);
 
   useEffect(() => {
-    loadServers().catch((err) => setMessages({ '': { ok: false, text: `读不到服务状态：${errorText(err)}` } }));
+    loadServers().catch((err) => setMessages({ '': { ok: false, text: tStatic('settingsLanes.loadFailed', { error: errorText(err) }) } }));
   }, [loadServers]);
 
   const startServer = async (laneId: string) => {
@@ -42,9 +44,9 @@ export function SettingsLanesSection({
     });
     try {
       const result = await api.startLaneServer(laneId);
-      setMessages((prev) => ({ ...prev, [laneId]: { ok: true, text: result.started ? '已启动，服务在运行' : '服务本来就在运行' } }));
+      setMessages((prev) => ({ ...prev, [laneId]: { ok: true, text: result.started ? tStatic('settingsLanes.started') : tStatic('settingsLanes.alreadyUp') } }));
     } catch (err) {
-      setMessages((prev) => ({ ...prev, [laneId]: { ok: false, text: `没启动成功：${errorText(err)}` } }));
+      setMessages((prev) => ({ ...prev, [laneId]: { ok: false, text: tStatic('settingsLanes.startFailed', { error: errorText(err) }) } }));
     } finally {
       setStartingId(null);
       await loadServers().catch(() => undefined);
@@ -94,7 +96,7 @@ export function SettingsLanesSection({
 
   return (
     <section className="settings-section">
-      <h3 className="settings-sec-title">接入方式 (Lanes)</h3>
+      <h3 className="settings-sec-title">{t('settingsLanes.title')}</h3>
       {errors.lanes ? (
         <div className="warn-tape settings-error-banner">{errors.lanes}</div>
       ) : null}
@@ -120,7 +122,7 @@ export function SettingsLanesSection({
 
       <div className="settings-add-lane-wrap">
         <button type="button" className="btn secondary" onClick={addLane}>
-          + 添加接入方式
+          {t('settingsLanes.add')}
         </button>
       </div>
     </section>

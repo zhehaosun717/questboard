@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { useT } from '../lib/i18n';
 import type { Card, SettingsReport } from '../api/types';
 import {
   type BriefsDraft,
@@ -28,7 +29,6 @@ import { SettingsUsageProvidersSection } from './settings/SettingsUsageProviders
 // promised nothing in this group is written, which is false for that section — and it sits directly above
 // its controls. The read-only promise is scoped to the checking sections below; the writing section says
 // the write itself (SettingsUsageProvidersSection), and the save bar keeps the restart notice.
-const LOCAL_GROUP_READ_ONLY_NOTE = '本机信息与用量密钥只读检查，不会写入项目配置。';
 
 interface SettingsLocalGroupProps {
   home: SettingsReport['home'];
@@ -51,9 +51,10 @@ export function SettingsLocalGroup({
   errors,
   onUsageChange,
 }: SettingsLocalGroupProps) {
+  const t = useT();
   return (
     <>
-      <div className="settings-read-only-note">{LOCAL_GROUP_READ_ONLY_NOTE}</div>
+      <div className="settings-read-only-note">{t('settings.localNote')}</div>
       <SettingsLocalSection home={home} openCodeAuthFile={openCodeAuthFile} omo={omo} />
       <SettingsUsageKeysSection usageKeys={usageKeys} />
       <SettingsUsageProvidersSection draft={usageDraft} errors={errors} onChange={onUsageChange} />
@@ -67,6 +68,7 @@ interface SettingsViewProps {
 }
 
 export function SettingsView({ roster }: SettingsViewProps) {
+  const t = useT();
   const [settings, setSettings] = useState<SettingsReport | null>(null);
   const [drafts, setDrafts] = useState<SettingsDrafts | null>(null);
   const [initialDraft, setInitialDraft] = useState<SettingsDrafts | null>(null);
@@ -136,7 +138,7 @@ export function SettingsView({ roster }: SettingsViewProps) {
     try {
       const rawPayload = toRaw(settings?.raw ?? null, drafts);
       await api.saveSettings(rawPayload);
-      setSaveSuccess('已保存（旧文件已备份）· 重启看板后生效');
+      setSaveSuccess(t('settings.saveSuccess'));
 
       const refreshed = await api.settings();
       setSettings(refreshed);
@@ -151,15 +153,15 @@ export function SettingsView({ roster }: SettingsViewProps) {
   };
 
   if (loading && !settings) {
-    return <div className="hint settings-loading">正在读取系统配置…</div>;
+    return <div className="hint settings-loading">{t('settings.loading')}</div>;
   }
 
   if (error && !settings) {
-    return <div className="warn-tape settings-error">读取系统设置失败：{error}</div>;
+    return <div className="warn-tape settings-error">{t('settings.loadFailed', { error })}</div>;
   }
 
   if (!settings || !drafts) {
-    return <div className="empty">未能获取系统配置</div>;
+    return <div className="empty">{t('settings.empty')}</div>;
   }
 
   const { project, home, usageKeys, openCodeAuthFile, omo } = settings;
@@ -278,33 +280,33 @@ export function SettingsView({ roster }: SettingsViewProps) {
       <main className="settings-main">
         <header className="settings-view-header">
           <div>
-            <span className="eyebrow">SYSTEM CONFIGURATION</span>
-            <h2>系统设置</h2>
+            <span className="eyebrow">{t('settings.eyebrow')}</span>
+            <h2>{t('settings.title')}</h2>
             <p className="settings-group-caption">
-              {activeGroup === 'project-files' ? '项目与文件' : null}
-              {activeGroup === 'execution' ? '接入方式' : null}
-              {activeGroup === 'policy' ? '派出禁令' : null}
-              {activeGroup === 'local' ? '本机与连接' : null}
+              {activeGroup === 'project-files' ? t('settings.group.project') : null}
+              {activeGroup === 'execution' ? t('settings.group.lanes') : null}
+              {activeGroup === 'policy' ? t('settings.group.policy') : null}
+              {activeGroup === 'local' ? t('settings.group.local') : null}
             </p>
           </div>
         </header>
 
         {saveSuccess ? <div className="omo-save-msg ok settings-alert-msg">{saveSuccess}</div> : null}
-        {serverError ? <div className="warn-tape settings-alert-msg">保存失败：{serverError}</div> : null}
+        {serverError ? <div className="warn-tape settings-alert-msg">{t('settings.saveFailed', { error: serverError })}</div> : null}
 
         <div className="settings-group-content">{activeContent}</div>
 
         <div className="settings-save-bar">
           <div className="settings-save-copy">
-            <strong>{isDirty ? '存在未保存的修改' : '设置已同步'}</strong>
-            <span>需重启看板后生效</span>
+            <strong>{isDirty ? t('settings.dirty') : t('settings.synced')}</strong>
+            <span>{t('settings.restartHint')}</span>
           </div>
           <div className="settings-save-actions">
             <button type="button" className="btn ghost" disabled={saving || !isDirty} onClick={handleReset}>
-              放弃未保存修改
+              {t('settings.discard')}
             </button>
             <button type="button" className="btn primary" disabled={saving || !isDirty} onClick={handleSave}>
-              {saving ? '正在保存…' : '保存项目设置'}
+              {saving ? t('common.saving') : t('settings.save')}
             </button>
           </div>
         </div>

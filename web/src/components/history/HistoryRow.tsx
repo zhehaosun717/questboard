@@ -1,6 +1,7 @@
 import type { LanePackage } from '../../api/types';
 import { formatClock } from '../../lib/board';
 import { formatElapsed, formatHistoryEvent, laneLabel } from '../../lib/history';
+import { useT } from '../../lib/i18n';
 
 interface HistoryRowProps {
   pkg: LanePackage;
@@ -9,9 +10,10 @@ interface HistoryRowProps {
 }
 
 export function HistoryRow({ pkg, isExpanded, onToggle }: HistoryRowProps) {
+  const t = useT();
   const modelText =
     pkg.model === 'unknown' ? (
-      <span className="muted">未记录</span>
+      <span className="muted">{t('historyRow.noModel')}</span>
     ) : (
       <span>
         {pkg.model}
@@ -21,8 +23,8 @@ export function HistoryRow({ pkg, isExpanded, onToggle }: HistoryRowProps) {
 
   const modelSourceText = pkg.modelSource
     ? pkg.modelSource === 'inferred'
-      ? '（推断）'
-      : '（从会话恢复）'
+      ? t('historyRow.sourceInferred')
+      : t('historyRow.sourceSession')
     : '';
 
   const stateClass =
@@ -70,27 +72,28 @@ export function HistoryRow({ pkg, isExpanded, onToggle }: HistoryRowProps) {
         <tr className="history-detail-row">
           <td colSpan={8}>
             <div className="history-detail-pane">
-              <strong>完整输出</strong>
-              <pre>{pkg.lastText || '（无输出）'}</pre>
+              <strong>{t('historyRow.fullOutput')}</strong>
+              <pre>{pkg.lastText || t('historyRow.noOutput')}</pre>
 
               {pkg.tokens && (
                 <div className="hist-meta-line">
-                  Tokens: 输入 {pkg.tokens.input} / 输出 {pkg.tokens.output}
+                  {t('historyRow.tokens', { input: pkg.tokens.input, output: pkg.tokens.output })}
                 </div>
               )}
 
               {pkg.toolCounts && Object.keys(pkg.toolCounts).length > 0 && (
                 <div className="hist-meta-line">
-                  工具:{' '}
-                  {Object.entries(pkg.toolCounts)
-                    .map(([k, v]) => `${k}: ${v}`)
-                    .join(', ')}
+                  {t('historyRow.tools', {
+                    list: Object.entries(pkg.toolCounts)
+                      .map(([k, v]) => `${k}: ${v}`)
+                      .join(', '),
+                  })}
                 </div>
               )}
 
               {pkg.history && pkg.history.length > 0 && (
                 <div className="hist-sub-history">
-                  <strong>派出历史</strong>
+                  <strong>{t('historyRow.dispatchHistory')}</strong>
                   <div className="hist-events-list">
                     {pkg.history.map((ev, i) => (
                       <div key={i} className="hist-event-item">

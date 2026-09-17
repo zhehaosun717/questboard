@@ -1,5 +1,6 @@
 import type { UsageProvider } from '../../api/types';
 import { USAGE_TARGETED_REFRESH_SUPPORTED } from '../../lib/usageCache';
+import { useT } from '../../lib/i18n';
 import {
   formatAccessLabel,
   formatAsOfLine,
@@ -36,6 +37,7 @@ function httpsDocsUrl(raw: string | undefined): string | null {
 }
 
 export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh }: UsageProviderCardProps) {
+  const t = useT();
   const info = usageStateInfo(provider);
   // Manual-only cards never show numbers or bars: there is no reading to show yet (feedback 36) — the
   // note and the console link are the whole card, whatever cache state the backend attached.
@@ -57,10 +59,10 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
 
   const canRefresh = !refreshing && cooldownMs <= 0 && info.state !== 'unavailable';
   const refreshLabel = refreshing
-    ? '正在读取…'
+    ? t('common.reading')
     : cooldownMs > 0
-      ? `冷却中 ${Math.ceil(cooldownMs / 1000)}s`
-      : '刷新';
+      ? t('common.cooldown', { seconds: Math.ceil(cooldownMs / 1000) })
+      : t('usageCard.refresh');
 
   // Three intentionally separate labels (feedback 36): providerState (正常/未订阅/未知/手动查看) is the
   // provider fact; the cache-state tag below the title is freshness; access (官方接口/...) says how the
@@ -73,14 +75,14 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
   const docsLine = docsUrl ? (
     <p className="usage-dim-line">
       <a className="usage-docs-link" href={docsUrl} target="_blank" rel="noopener noreferrer">
-        打开控制台
+        {t('usageCard.console')}
       </a>
     </p>
   ) : null;
   // Shown as plain, selectable code text — never executed, and never turned into a button that runs it.
   const setupLine = provider.setupCommand ? (
     <p className="usage-dim-line">
-      手动运行：<code className="usage-setup-command">{provider.setupCommand}</code>
+      {t('usageCard.manualRun')}<code className="usage-setup-command">{provider.setupCommand}</code>
     </p>
   ) : null;
 
@@ -107,7 +109,7 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
                 onClick={() => {
                   if (canRefresh) onRefresh();
                 }}
-                aria-label={`刷新 ${provider.name} 的用量`}
+                aria-label={t('usageCard.refreshAria', { name: provider.name })}
                 title={USAGE_TARGETED_REFRESH_SUPPORTED ? undefined : USAGE_TARGETED_REFRESH_UNSUPPORTED_HINT}
               >
                 {refreshLabel}
@@ -173,7 +175,7 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
 
             {provider.balances.length > 0 ? (
               <div className="usage-balances-row">
-                <span className="balance-title">余额：</span>
+                <span className="balance-title">{t('usageCard.balance')}</span>
                 {provider.balances.map((b, idx) => {
                   // Availability may sit on the balance itself or (DeepSeek) once for the whole provider;
                   // an explicit null still means "not known" and is rendered as such, never as 不可用.
@@ -181,8 +183,12 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
                     b.isAvailable !== undefined ? b.isAvailable : provider.isAvailable,
                   );
                   const split = [
-                    b.granted !== undefined ? `赠送 ${formatBalance(b.granted, b.currency)}` : null,
-                    b.toppedUp !== undefined ? `充值 ${formatBalance(b.toppedUp, b.currency)}` : null,
+                    b.granted !== undefined
+                      ? t('usageCard.granted', { amount: formatBalance(b.granted, b.currency) })
+                      : null,
+                    b.toppedUp !== undefined
+                      ? t('usageCard.toppedUp', { amount: formatBalance(b.toppedUp, b.currency) })
+                      : null,
                   ]
                     .filter(Boolean)
                     .join(' · ');
@@ -202,7 +208,7 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
               {provider.note ? <p className="usage-dim-line">{provider.note}</p> : null}
               {asOfLine ? <p className="usage-dim-line">{asOfLine}</p> : null}
               {provider.lastSuccessAt ? (
-                <p className="usage-dim-line">上次成功 {formatUsageDate(provider.lastSuccessAt)}</p>
+                <p className="usage-dim-line">{t('usageCard.lastSuccess', { time: formatUsageDate(provider.lastSuccessAt) })}</p>
               ) : null}
               {docsLine}
               {setupLine}

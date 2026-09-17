@@ -14,6 +14,7 @@ import {
   toggleGroupFold,
   type RosterFilterState,
 } from '../../lib/rosterFilter';
+import { useT } from '../../lib/i18n';
 import { RosterCardRow } from './RosterCardRow';
 
 interface RosterCardTableProps {
@@ -35,6 +36,7 @@ const groupAnchor = (index: number) => `roster-provider-${index}`;
 // the section header folds its rows away, and the fold choice is remembered per project (QB-FB-B). While a
 // filter is up, toggling is a temporary display change only — the remembered list survives the search.
 export function RosterCardTable({ cards, filter, projectId, onOpenStatus, onEdit, onDuplicate, onDelete }: RosterCardTableProps) {
+  const t = useT();
   const [folded, setFolded] = useState<string[]>(() => loadFoldedProviders(foldStorage(), projectId));
   const [tempFolded, setTempFolded] = useState<string[]>([]);
 
@@ -51,10 +53,10 @@ export function RosterCardTable({ cards, filter, projectId, onOpenStatus, onEdit
   const shownOpen = useMemo(() => openRevealedGroups(revealed, tempFolded), [revealed, tempFolded]);
 
   if (cards.length === 0) {
-    return <div className="empty">名册中暂无冒险者</div>;
+    return <div className="empty">{t('rosterTable.empty')}</div>;
   }
   if (visible.length === 0) {
-    return <div className="empty">没有符合条件的冒险者（共 {cards.length} 位），换个搜索词或清除筛选试试。</div>;
+    return <div className="empty">{t('rosterTable.noMatch', { count: cards.length })}</div>;
   }
 
   const groups = groupByProvider(visible);
@@ -82,13 +84,17 @@ export function RosterCardTable({ cards, filter, projectId, onOpenStatus, onEdit
 
   return (
     <>
-      <nav className="provider-jump" aria-label="按服务商跳转">
+      <nav className="provider-jump" aria-label={t('rosterTable.jumpLabel')}>
         {groups.map((group, index) => (
           <button
             key={group.provider}
             type="button"
             className={group.available === 0 ? 'provider-chip none-free' : 'provider-chip'}
-            title={`跳到 ${group.provider}：${group.cards.length} 张，空闲 ${group.available}`}
+            title={t('rosterTable.chipTitle', {
+              provider: group.provider,
+              count: group.cards.length,
+              available: group.available,
+            })}
             onClick={() => jump(group.provider, index)}
           >
             {group.provider}
@@ -101,14 +107,14 @@ export function RosterCardTable({ cards, filter, projectId, onOpenStatus, onEdit
         <table className="roster-table">
           <thead>
             <tr>
-              <th>冒险者</th>
-              <th>接入方式</th>
-              <th>模型 / 代理</th>
-              <th>计费</th>
-              <th>并发</th>
-              <th>专长</th>
-              <th>状态</th>
-              <th>操作</th>
+              <th>{t('rosterTable.colName')}</th>
+              <th>{t('rosterTable.colLane')}</th>
+              <th>{t('rosterTable.colModel')}</th>
+              <th>{t('rosterTable.colBilling')}</th>
+              <th>{t('rosterTable.colParallel')}</th>
+              <th>{t('rosterTable.colStrengths')}</th>
+              <th>{t('rosterTable.colStatus')}</th>
+              <th>{t('rosterTable.colActions')}</th>
             </tr>
           </thead>
           {groups.map((group, index) => {
@@ -138,8 +144,8 @@ export function RosterCardTable({ cards, filter, projectId, onOpenStatus, onEdit
                       </span>
                       <span className="provider-name">{group.provider}</span>
                       <span className="provider-count">
-                        {active && group.cards.length !== cards.length ? '筛出 ' : ''}
-                        {group.cards.length} 张 · 空闲 {group.available}
+                        {active && group.cards.length !== cards.length ? t('rosterTable.matchedPrefix') : ''}
+                        {t('rosterTable.providerCount', { count: group.cards.length, available: group.available })}
                       </span>
                       <span className="provider-lanes">
                         {group.lanes.map((lane) => (

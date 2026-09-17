@@ -1,5 +1,6 @@
 import type { Verification } from '../../api/types';
 import { summarizeProjectTests } from '../../lib/history';
+import { useT, type I18nKey } from '../../lib/i18n';
 import '../../styles/history.css';
 
 /**
@@ -17,16 +18,16 @@ export interface ProjectTestsProps {
   lanesState: 'loading' | 'failed' | 'ok';
 }
 
-const OVERALL_LABEL: Record<'pass' | 'fail' | 'running', string> = {
-  pass: '通过',
-  fail: '有失败项',
-  running: '进行中',
+const OVERALL_LABEL_KEYS: Record<'pass' | 'fail' | 'running', I18nKey> = {
+  pass: 'projectTests.overallPass',
+  fail: 'projectTests.overallFail',
+  running: 'projectTests.overallRunning',
 };
 
-const LINE_LABEL: Record<'pass' | 'fail' | 'done', string> = {
-  pass: '通过',
-  fail: '失败',
-  done: '跑完',
+const LINE_LABEL_KEYS: Record<'pass' | 'fail' | 'done', I18nKey> = {
+  pass: 'projectTests.linePass',
+  fail: 'projectTests.lineFail',
+  done: 'projectTests.lineDone',
 };
 
 function stamp(iso: string | null): string {
@@ -42,18 +43,19 @@ function stamp(iso: string | null): string {
 }
 
 export function ProjectTests({ verification, asOf, lanesState }: ProjectTestsProps) {
+  const t = useT();
   if (!verification) {
     const note =
       lanesState === 'loading'
-        ? '正在读取…'
+        ? t('common.reading')
         : lanesState === 'failed'
-          ? '读取失败，暂时无法显示。'
-          : '这个项目没有配置验证进度文件，暂无可展示的测试结果。';
+          ? t('projectTests.readFailed')
+          : t('projectTests.notConfigured');
     return (
-      <section className="hist-project-tests" aria-label="项目测试">
+      <section className="hist-project-tests" aria-label={t('projectTests.title')}>
         <header className="hist-pt-head">
-          <span className="eyebrow">PROJECT TESTS</span>
-          <h3>项目测试</h3>
+          <span className="eyebrow">{t('projectTests.eyebrow')}</span>
+          <h3>{t('projectTests.title')}</h3>
         </header>
         <p className="hist-pt-note">{note}</p>
       </section>
@@ -61,15 +63,15 @@ export function ProjectTests({ verification, asOf, lanesState }: ProjectTestsPro
   }
   const summary = summarizeProjectTests(verification);
   return (
-    <section className="hist-project-tests" aria-label="项目测试">
+    <section className="hist-project-tests" aria-label={t('projectTests.title')}>
       <header className="hist-pt-head">
         <div>
-          <span className="eyebrow">PROJECT TESTS</span>
-          <h3>项目测试 · 最新全量结果</h3>
+          <span className="eyebrow">{t('projectTests.eyebrow')}</span>
+          <h3>{t('projectTests.titleLatest')}</h3>
         </div>
         <div className="hist-pt-meta">
-          <span className={`hist-pt-overall ${summary.overall}`}>{OVERALL_LABEL[summary.overall]}</span>
-          {asOf && <span className="hist-pt-asof">截至 {stamp(asOf)}</span>}
+          <span className={`hist-pt-overall ${summary.overall}`}>{t(OVERALL_LABEL_KEYS[summary.overall])}</span>
+          {asOf && <span className="hist-pt-asof">{t('projectTests.asOf', { time: stamp(asOf) })}</span>}
         </div>
       </header>
       <ul className="hist-pt-lines">
@@ -77,7 +79,7 @@ export function ProjectTests({ verification, asOf, lanesState }: ProjectTestsPro
           <li key={line.name}>
             <span className={`hist-pt-led ${line.verdict}`} aria-hidden="true" />
             <code>{line.name}</code>
-            <span className="hist-pt-verdict">{LINE_LABEL[line.verdict]}</span>
+            <span className="hist-pt-verdict">{t(LINE_LABEL_KEYS[line.verdict])}</span>
             <span className="hist-pt-value">{line.value}</span>
           </li>
         ))}
@@ -89,14 +91,12 @@ export function ProjectTests({ verification, asOf, lanesState }: ProjectTestsPro
             />
             <code>{suite.label}</code>
             <span className="hist-pt-value">
-              {suite.passed}/{suite.total} 通过
+              {t('projectTests.passedCount', { passed: suite.passed, total: suite.total })}
             </span>
           </li>
         ))}
       </ul>
-      <p className="hist-pt-note">
-        这是整个项目最近一次验证的结果，只能说明项目当前的状态，不能作为任何一个委托完成的证明。
-      </p>
+      <p className="hist-pt-note">{t('projectTests.note')}</p>
     </section>
   );
 }

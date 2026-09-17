@@ -13,8 +13,9 @@ import type { createGenerationTracker, ListScope } from './threadAsyncGuards';
 import { isSameListScope } from './threadAsyncGuards';
 import { createOperationSlot, paneGeneration, projectGeneration } from './threadOperationController';
 import { useBulkFocusRestore } from './useBulkFocusRestore';
+import { t as tStatic, type I18nKey } from '../../lib/i18n';
 
-export const MISSING_AUTHOR_REFUSAL = '请先填写你的名字';
+export const MISSING_AUTHOR_REFUSAL_KEY: I18nKey = 'threadsWrite.missingAuthor';
 
 type GenerationTracker = ReturnType<typeof createGenerationTracker>;
 
@@ -145,7 +146,7 @@ export function useThreadWriteOperations({
     const trimmedAuthor = author.trim();
     if (!trimmedAuthor) {
       replySlot.release(token);
-      setRefusalMessage(MISSING_AUTHOR_REFUSAL);
+      setRefusalMessage(tStatic(MISSING_AUTHOR_REFUSAL_KEY));
       return;
     }
     const trimmedBody = replyBody.trim();
@@ -259,11 +260,11 @@ export function useThreadWriteOperations({
   const runBulk = useCallback(
     async (action: ThreadBulkAction, ids: string[]) => {
       if (ids.length === 0) {
-        setBulkStatus('请先勾选要操作的主题');
+        setBulkStatus(tStatic('threadsWrite.pickSome'));
         return;
       }
       if (ids.length > MAX_THREAD_BULK_IDS) {
-        setBulkStatus(`一次最多处理 ${MAX_THREAD_BULK_IDS} 个主题，请减少选择`);
+        setBulkStatus(tStatic('threadsWrite.tooMany', { max: MAX_THREAD_BULK_IDS }));
         return;
       }
       const gen = projectGeneration(genRef.current.current());

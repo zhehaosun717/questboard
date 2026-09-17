@@ -20,6 +20,7 @@ import {
   type ScanOp,
 } from '../lib/historyScan';
 import { formatClock } from '../lib/board';
+import { t as tStatic, useT, type I18nKey } from '../lib/i18n';
 import { HistoryEvents } from './history/HistoryEvents';
 import { HistoryFilterBar } from './history/HistoryFilterBar';
 import { HistoryRow } from './history/HistoryRow';
@@ -35,15 +36,15 @@ const LANES_POLL_TIMEOUT_MS = 8000;
 // N16: `cleared` is timing-dependent, not proof of an owner click — word it neutrally. GET /api/lanes only
 // ever sends the raw collector laneEvidence (N17), so most entries here simply have no `cleared` at all
 // (their own known reset passed); that case reads as an honest "expired or unattributable" too.
-const CLEARED_LABEL: Record<string, string> = {
-  owner: '该卡片已不再限额',
-  status: '该卡片状态已改变',
-  no_card: '名册里已经找不到这张卡片',
+const CLEARED_LABEL_KEYS: Record<string, I18nKey> = {
+  owner: 'history.clearedOwner',
+  status: 'history.clearedStatus',
+  no_card: 'history.clearedNoCard',
 };
 
 export function evidenceReason(cleared: string | undefined): string {
-  if (cleared && CLEARED_LABEL[cleared]) return CLEARED_LABEL[cleared];
-  return '已过期或无法归因的证据';
+  const key = cleared ? CLEARED_LABEL_KEYS[cleared] : undefined;
+  return key ? tStatic(key) : tStatic('history.evidenceExpired');
 }
 
 export interface LaneEvidenceRow {
@@ -68,7 +69,7 @@ export function buildLaneEvidenceRows(laneEvidence: LanesReport['laneEvidence'])
     ...(evidence.unidentified || []).map((entry, i) => ({
       key: `${lane}-unid-${i}`,
       lane,
-      name: entry.name || '未知来源',
+      name: entry.name || tStatic('history.unknownSource'),
       reason: evidenceReason(undefined),
     })),
   ]);
@@ -81,7 +82,7 @@ export function laneLimitUntilLabel(limit: Pick<LaneLimit, 'until' | 'resetsAt'>
   if (!limit.until || !limit.resetsAt) return '';
   const t = Date.parse(limit.resetsAt);
   if (!Number.isFinite(t) || t <= Date.now()) return '';
-  return `，${limit.until} 恢复`;
+  return tStatic('history.limitUntil', { until: limit.until });
 }
 
 /**
@@ -94,6 +95,7 @@ export function laneLimitUntilLabel(limit: Pick<LaneLimit, 'until' | 'resetsAt'>
  * running one, and a full reread is a genuinely fresh scan, never a union with what was held before.
  */
 export function HistoryView() {
+  const t = useT();
   const [report, setReport] = useState<LanesReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>('');
@@ -115,7 +117,7 @@ export function HistoryView() {
           setLastUpdated(stamp);
         },
         onError: (message) => setError(message),
-        onTimeout: () => setError('联络接入方式超时'),
+        onTimeout: () => setError(tStatic('history.lanesTimeout')),
       },
       { intervalMs: 5000, timeoutMs: LANES_POLL_TIMEOUT_MS },
     );
@@ -226,7 +228,7 @@ export function HistoryView() {
    * not having one yet (revision 6 F2): `report` only ever holds the last SUCCESSFUL read, so its
    * presence alone — never `error` — proves "known empty" is real and not just "haven't read it". */
   const lanesState: 'loading' | 'failed' | 'ok' = report ? 'ok' : error ? 'failed' : 'loading';
-  const lanesPendingNote = lanesState === 'loading' ? '正在读取…' : '读取失败，暂时无法显示';
+  const lanesPendingNote = lanesState === 'loading' ? t('common.reading') : t('history.lanesFailed');
 
   const handleToggleRow = (pkgId: string) => {
     setExpandedPkg((curr) => (curr === pkgId ? null : pkgId));
@@ -240,18 +242,17 @@ export function HistoryView() {
     <div className="history-tab-view">
       <header className="history-head">
         <div>
-          <span className="eyebrow">DISPATCH LOG</span>
-          <h2>派出记录</h2>
+          <span className="eyebrow">{t('history.eyebrow')}</span>
+          <h2>{t('history.title')}</h2>
         </div>
         <div className="history-timestamp">
           {/* A failure before any success ever landed must not say "加载中" (it already failed) nor
               claim "仍显示上一次的结果" (there is no previous result to fall back to) — revision 5 note 2. */}
-          <span>更新于 {lastUpdated || (error ? '尚无成功结果' : '加载中…')}</span>
+          <span>{t('history.updatedAt', { time: lastUpdated || (error ? t('history.noSuccessYet') : t('history.loading')) })}</span>
           {error && (
             <span className="error-text">
-              {' '}
-              · 刷新失败：{error}
-              {lastUpdated ? '，仍显示上一次的结果' : '（派出详情和项目测试还没有读到）'}
+              {t('history.refreshFailed', { error })}
+              {lastUpdated ? t('history.stillPrevious') : t('history.notReadYet')}
             </span>
           )}
         </div>
@@ -261,19 +262,19 @@ export function HistoryView() {
         <div className="history-chips-strip">
           <span className="chip warn">
             <i className="led warn" />
-            待答问题 {openQuestions}
+            {t('history.openQuestions', { count: openQuestions })}
           </span>
           {laneLimitEntries.map(([lane, lim]) => (
             <span key={lane} className="chip warn">
               <i className="led warn" />
-              {laneLabel(lane)} 限额中（{formatClock(lim.since)} 起{laneLimitUntilLabel(lim)}）
+              {t('history.laneLimited', { lane: laneLabel(lane), since: formatClock(lim.since), until: laneLimitUntilLabel(lim) })}
             </span>
           ))}
         </div>
       )}
 
       {laneEvidenceRows.length > 0 && (
-        <div className="history-chips-strip" aria-label="已过期或无法归因的限额证据">
+        <div className="history-chips-strip" aria-label={t('history.clearedEvidenceAria')}>
           {laneEvidenceRows.map((row) => (
             <span key={row.key} className="chip">
               <i className="led" />
@@ -283,11 +284,11 @@ export function HistoryView() {
         </div>
       )}
 
-      <section className="hist-events-section" aria-label="事件时间线">
+      <section className="hist-events-section" aria-label={t('history.eventsTitle')}>
         <header className="sec-head hist-events-head">
           <div>
-            <span className="eyebrow">EVENT TIMELINE</span>
-            <h3>事件时间线</h3>
+            <span className="eyebrow">{t('history.eventsEyebrow')}</span>
+            <h3>{t('history.eventsTitle')}</h3>
           </div>
           <div className="hist-events-tools" ref={toolsRef}>
             <span className="hist-coverage" aria-live="polite">{historyCoverageLabel(hist)}</span>
@@ -301,7 +302,7 @@ export function HistoryView() {
                 className="hist-load-more"
                 onClick={() => startScanFromToolbar(hist.nextAfter, 'continue', 'hist-load-more')}
               >
-                继续加载
+                {t('history.loadMore')}
               </button>
             )}
             {!hist.error && hist.atEnd && !hist.loading && (
@@ -310,7 +311,7 @@ export function HistoryView() {
                 className="hist-refresh"
                 onClick={() => startScanFromToolbar(hist.nextAfter, 'refresh', 'hist-refresh')}
               >
-                刷新新事件
+                {t('history.refreshNew')}
               </button>
             )}
             {!hist.error && !hist.loading && (
@@ -321,10 +322,10 @@ export function HistoryView() {
                   aria-describedby="hist-reread-explain"
                   onClick={() => startScanFromToolbar(0, 'reread', 'hist-reset-secondary')}
                 >
-                  全部重新读取
+                  {t('history.rereadAll')}
                 </button>
                 <span id="hist-reread-explain" className="hist-sr-only">
-                  从头重新读取整个事件日志：已经加载的部分也会重新请求一次，比继续加载或刷新新事件慢
+                  {t('history.rereadExplain')}
                 </span>
               </>
             )}
@@ -348,21 +349,21 @@ export function HistoryView() {
         )}
         {hist.error && (
           <div className="hist-load-error" role="alert">
-            事件读取失败：{hist.error}
+            {t('history.eventsFailed', { error: hist.error })}
             <button type="button" className="hist-retry" onClick={handleRetry}>
-              {hist.errorKind === 'protocol' ? '从头重新读取' : '重试'}
+              {hist.errorKind === 'protocol' ? t('history.rereadFromStart') : t('history.retry')}
             </button>
           </div>
         )}
         {!hist.loading && !hist.error && hist.events.length === 0 && (
-          <div className="hist-empty">事件文件还没有任何记录。</div>
+          <div className="hist-empty">{t('history.eventsEmpty')}</div>
         )}
         {!hist.loading && matched.length === 0 && hist.events.length > 0 && !hist.error && (
           <div className="hist-no-match">
-            没有符合条件的记录（在已读取的 {hist.events.length} 条里）。
+            {t('history.noMatch', { count: hist.events.length })}
             {filtersDirty && (
               <button type="button" className="hist-filter-clear" onClick={handleClear}>
-                清除筛选
+                {t('history.clearFilters')}
               </button>
             )}
           </div>
@@ -376,32 +377,32 @@ export function HistoryView() {
         lanesState={lanesState}
       />
 
-      <section className="hist-workers-section" aria-label="派出详情">
+      <section className="hist-workers-section" aria-label={t('history.workersAria')}>
         <header className="sec-head">
           <div>
-            <span className="eyebrow">WORKER SUMMARY</span>
-            <h3>派出详情（每个工人的近况）</h3>
+            <span className="eyebrow">{t('history.workersEyebrow')}</span>
+            <h3>{t('history.workersTitle')}</h3>
           </div>
         </header>
         <div className="history-table-container">
           <table className="history-table">
             <thead>
               <tr>
-                <th>委托</th>
-                <th>接入方式</th>
-                <th>模型</th>
-                <th>状态</th>
-                <th>运行时长</th>
-                <th>编辑次数</th>
-                <th>最近一句话</th>
-                <th>编号</th>
+                <th>{t('history.colQuest')}</th>
+                <th>{t('history.colLane')}</th>
+                <th>{t('history.colModel')}</th>
+                <th>{t('history.colState')}</th>
+                <th>{t('history.colElapsed')}</th>
+                <th>{t('history.colEdits')}</th>
+                <th>{t('history.colLastText')}</th>
+                <th>{t('history.colId')}</th>
               </tr>
             </thead>
             <tbody>
               {packages.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="empty">
-                    {lanesState === 'ok' ? '暂无派出记录' : lanesPendingNote}
+                    {lanesState === 'ok' ? t('history.noPackages') : lanesPendingNote}
                   </td>
                 </tr>
               ) : (
@@ -417,7 +418,7 @@ export function HistoryView() {
                   {stale.length > 0 && (
                     <tr className="stale-toggle-row" onClick={() => setShowStale((prev) => !prev)}>
                       <td colSpan={8}>
-                        {showStale ? '▲' : '▼'} 三天前的记录 ({stale.length})
+                        {showStale ? '▲' : '▼'}{t('history.staleRows', { count: stale.length })}
                       </td>
                     </tr>
                   )}

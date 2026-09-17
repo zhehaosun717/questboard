@@ -4,6 +4,7 @@ import { ApiError, api } from '../../api/client';
 import { UNKNOWN_ERROR_ZH, bulkErrorLabel, describeFieldErrors } from '../../api/threadBatch';
 import type { ThreadDetail } from '../../api/types';
 import { canReceiveFocus, isFocusStillParked } from './threadAsyncGuards';
+import { useT } from '../../lib/i18n';
 
 interface NewThreadModalProps {
   author: string;
@@ -32,6 +33,7 @@ export function NewThreadModal({
   onCreated,
   restoreFocusRef,
 }: NewThreadModalProps) {
+  const t = useT();
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [tags, setTags] = useState('');
@@ -150,7 +152,7 @@ export function NewThreadModal({
 
     const trimmedAuthor = author.trim();
     if (!trimmedAuthor) {
-      setFieldErrors({ author: '请填写你的名字' });
+      setFieldErrors({ author: t('threadsForm.authorRequired') });
       return;
     }
 
@@ -166,7 +168,7 @@ export function NewThreadModal({
     try {
       const tagList = tags
         .split(',')
-        .map((t) => t.trim())
+        .map((tag) => tag.trim())
         .filter(Boolean);
       const res = await api.createThread({
         title: title.trim(),
@@ -210,26 +212,26 @@ export function NewThreadModal({
       }}
     >
       <form className="order" onSubmit={handleSubmit}>
-        <p className="eyebrow">NEW THREAD · 新主题</p>
-        <h2>发起新讨论</h2>
+        <p className="eyebrow">{t('threadsForm.eyebrow')}</p>
+        <h2>{t('threadsForm.title')}</h2>
 
         {generalError && <div className="warn-tape">{generalError}</div>}
 
-        <label htmlFor="nt-author">你的名字</label>
+        <label htmlFor="nt-author">{t('threadsForm.authorLabel')}</label>
         <input
           id="nt-author"
           type="text"
           value={author}
           maxLength={60}
           onChange={(e) => onAuthorChange(e.target.value)}
-          placeholder="你的昵称"
+          placeholder={t('threads.namePlaceholder')}
           required
         />
         {fieldErrors.author && (
           <div className="field-error-msg">{fieldErrors.author}</div>
         )}
 
-        <label htmlFor="nt-title">标题</label>
+        <label htmlFor="nt-title">{t('threadsForm.titleLabel')}</label>
         <input
           id="nt-title"
           ref={titleInputRef}
@@ -237,21 +239,21 @@ export function NewThreadModal({
           value={title}
           maxLength={120}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="讨论主题标题"
+          placeholder={t('threadsForm.titlePlaceholder')}
           required
         />
         {fieldErrors.title && (
           <div className="field-error-msg">{fieldErrors.title}</div>
         )}
 
-        <label htmlFor="nt-body">第一条消息</label>
+        <label htmlFor="nt-body">{t('threadsForm.firstMessage')}</label>
         <textarea
           id="nt-body"
           rows={5}
           value={body}
           maxLength={20000}
           onChange={(e) => setBody(e.target.value)}
-          placeholder="输入消息内容..."
+          placeholder={t('threadsForm.bodyPlaceholder')}
           required
         />
         {fieldErrors.body && (
@@ -259,14 +261,14 @@ export function NewThreadModal({
         )}
 
         <label htmlFor="nt-tags">
-          标签 <span className="hint">（逗号分隔）</span>
+          {t('threadsForm.tagsLabel')} <span className="hint">{t('threadsForm.tagsHint')}</span>
         </label>
         <input
           id="nt-tags"
           type="text"
           value={tags}
           onChange={(e) => setTags(e.target.value)}
-          placeholder="如：research, playtest"
+          placeholder={t('threadsForm.tagsPlaceholder')}
         />
         {fieldErrors.tag && (
           <div className="field-error-msg">{fieldErrors.tag}</div>
@@ -279,14 +281,14 @@ export function NewThreadModal({
             onClick={onClose}
             disabled={submitting}
           >
-            取消
+            {t('threadsForm.cancel')}
           </button>
           <button
             className="btn primary"
             type="submit"
             disabled={submitting}
           >
-            {submitting ? '发布中…' : '发布主题'}
+            {submitting ? t('threadsForm.publishing') : t('threadsForm.publish')}
           </button>
         </div>
       </form>

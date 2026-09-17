@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Card, LaneServerStatus } from '../../api/types';
 import { describeMalformedHealth, OPENCODE_HEALTH_PRESET, type LaneDraft } from '../../lib/settingsForm';
+import { useT } from '../../lib/i18n';
 import { LaneServerPanel, type LaneServerMessage } from './LaneServerPanel';
 import { OptionalArgsEditor } from './OptionalArgsEditor';
 import { ArgvPreview } from './ArgvPreview';
@@ -30,6 +31,7 @@ export function LaneCard({
   onRemove,
   roster,
 }: LaneCardProps) {
+  const t = useT();
   const serveErr = errors[`lanes.${index}.serve`] || errors[`lanes.${lane.id}.serve`];
   const idErr = errors[`lanes.${index}.id`] || errors[`lanes.${lane.id}.id`];
   const runErr = errors[`lanes.${index}.run`] || errors[`lanes.${lane.id}.run`];
@@ -108,29 +110,29 @@ export function LaneCard({
       <div className="settings-lane-header">
         <div className="form-field flex-grow">
           <label htmlFor={`cfg-lane-id-${index}`}>
-            接入方式 ID
+            {t('laneCard.idLabel')}
             {idErr ? <span className="field-error"> · {idErr}</span> : null}
           </label>
           <input
             id={`cfg-lane-id-${index}`}
             value={lane.id}
-            placeholder="例如 codex"
+            placeholder={t('laneCard.idPlaceholder')}
             className="lane-id-input"
             onChange={(e) => onUpdate({ id: e.target.value })}
           />
         </div>
         <button type="button" className="btn ghost danger-text" onClick={onRemove}>
-          删除这种接入方式
+          {t('laneCard.removeLane')}
         </button>
       </div>
 
       <div className="form-field">
         <label>
-          执行命令参数 (Run Arguments)
+          {t('laneCard.runLabel')}
           {runErr ? <span className="field-error"> · {runErr}</span> : null}
         </label>
         <div className="lane-placeholders-hint">
-          可用占位符：<code>{'{name}'}</code> <code>{'{brief}'}</code> <code>{'{model}'}</code>{' '}
+          {t('laneCard.placeholdersHint')}<code>{'{name}'}</code> <code>{'{brief}'}</code> <code>{'{model}'}</code>{' '}
           <code>{'{variant}'}</code> <code>{'{agent}'}</code> <code>{'{package}'}</code>
         </div>
         <div className="lane-args-list">
@@ -140,17 +142,17 @@ export function LaneCard({
               <input
                 className="mono-input flex-grow"
                 value={arg}
-                placeholder="参数内容"
+                placeholder={t('laneCard.argPlaceholder')}
                 onChange={(e) => updateRunArg(argIdx, e.target.value)}
               />
               <button type="button" className="btn ghost sm-btn" onClick={() => removeRunArg(argIdx)}>
-                删除
+                {t('laneCard.remove')}
               </button>
             </div>
           ))}
           <div>
             <button type="button" className="btn ghost sm-btn" onClick={addRunArg}>
-              + 添加参数
+              {t('laneCard.addArg')}
             </button>
           </div>
         </div>
@@ -161,11 +163,11 @@ export function LaneCard({
         open={hasOptionalArgsErr ? true : undefined}
       >
         <summary className="lane-optional-args-summary">
-          <span className="optional-args-summary-title">可选参数 (Optional Arguments)</span>
+          <span className="optional-args-summary-title">{t('laneCard.optionalTitle')}</span>
           {lane.optionalArgs && lane.optionalArgs.length > 0 ? (
-            <span className="optional-args-count-badge">已配置 {lane.optionalArgs.length} 组</span>
+            <span className="optional-args-count-badge">{t('laneCard.optionalCount', { count: lane.optionalArgs.length })}</span>
           ) : (
-            <span className="optional-args-empty-badge">未配置</span>
+            <span className="optional-args-empty-badge">{t('laneCard.optionalNone')}</span>
           )}
         </summary>
         <div className="lane-optional-args-content">
@@ -184,7 +186,7 @@ export function LaneCard({
 
       <div className="form-grid-2">
         <div className="form-field">
-          <label htmlFor={`cfg-lane-out-${index}`}>输出目录 (outputDir)</label>
+          <label htmlFor={`cfg-lane-out-${index}`}>{t('laneCard.outputLabel')}</label>
           <input
             id={`cfg-lane-out-${index}`}
             value={lane.outputDir}
@@ -194,13 +196,13 @@ export function LaneCard({
         </div>
         <div className="form-field">
           <label htmlFor={`cfg-lane-api-${index}`}>
-            接口服务 (api)
+            {t('laneCard.apiLabel')}
             {apiErr ? <span className="field-error"> · {apiErr}</span> : null}
           </label>
           <input
             id={`cfg-lane-api-${index}`}
             value={lane.api}
-            placeholder="例如 http://localhost:8000"
+            placeholder={t('laneCard.apiPlaceholder')}
             onChange={(e) => onUpdate({ api: e.target.value })}
           />
         </div>
@@ -210,11 +212,11 @@ export function LaneCard({
         <div className="form-field">
           <LaneServerPanel server={server} starting={serverStarting} message={serverMessage} onStart={onStartServer} />
           <label>
-            启动服务的命令 (serve - 可选)
+            {t('laneCard.serveLabel')}
             {serveErr ? <span className="field-error"> · {serveErr}</span> : null}
           </label>
           <div className="lane-placeholders-hint">
-            例如 <code>opencode</code> <code>serve</code> <code>--port</code> <code>6096</code>，每格一个参数；整个接入方式只跑一次，不能用占位符
+            {t('laneCard.serveHintPrefix')}<code>opencode</code> <code>serve</code> <code>--port</code> <code>6096</code>{t('laneCard.serveHintSuffix')}
           </div>
           <div className="lane-args-list">
             {lane.serve.map((arg, argIdx) => (
@@ -223,17 +225,17 @@ export function LaneCard({
                 <input
                   className="mono-input flex-grow"
                   value={arg}
-                  placeholder="参数内容"
+                  placeholder={t('laneCard.argPlaceholder')}
                   onChange={(e) => onUpdate({ serve: lane.serve.map((old, i) => (i === argIdx ? e.target.value : old)) })}
                 />
                 <button type="button" className="btn ghost sm-btn" onClick={() => onUpdate({ serve: lane.serve.filter((_, i) => i !== argIdx) })}>
-                  删除
+                  {t('laneCard.remove')}
                 </button>
               </div>
             ))}
             <div>
               <button type="button" className="btn ghost sm-btn" onClick={() => onUpdate({ serve: [...lane.serve, ''] })}>
-                + 添加参数
+                {t('laneCard.addArg')}
               </button>
             </div>
           </div>
@@ -248,19 +250,19 @@ export function LaneCard({
               checked={showHealthFields}
               onChange={(e) => toggleHealth(e.target.checked)}
             />
-            <span>健康检查 (health - 可选，不开启就沿用旧规则：接口有响应即算正常)</span>
+            <span>{t('laneCard.healthCheck')}</span>
           </label>
 
           {showHealthFields ? (
             <div className="lane-health-fields">
               {showMalformedBanner ? (
                 <div className="lane-health-hint lane-health-malformed">
-                  从文件读到的健康检查写法不对：{describeMalformedHealth(lane.healthMalformed)}。填一个有效路径可以修复，或者取消勾选来关闭健康检查（关闭前不会丢掉原来的写法）。
+                  {t('laneCard.healthMalformedPrefix')}{describeMalformedHealth(lane.healthMalformed)}{t('laneCard.healthMalformedSuffix')}
                 </div>
               ) : null}
               <div className="form-field">
                 <label htmlFor={`cfg-lane-health-path-${index}`}>
-                  检查路径（相对于上面的 api，例如 /global/health）
+                  {t('laneCard.healthPathLabel')}
                   {healthPathErr && !showMalformedBanner ? <span className="field-error"> · {healthPathErr}</span> : null}
                 </label>
                 <div className="lane-health-path-row">
@@ -268,20 +270,20 @@ export function LaneCard({
                     id={`cfg-lane-health-path-${index}`}
                     className="mono-input flex-grow"
                     value={lane.healthPath}
-                    placeholder="/global/health"
+                    placeholder={t('laneCard.healthPathPlaceholder')}
                     onChange={(e) => onUpdate({ healthPath: e.target.value })}
                   />
                   <button type="button" className="btn ghost sm-btn" onClick={applyOpenCodeHealthPreset}>
-                    套用 OpenCode 预设
+                    {t('laneCard.healthPreset')}
                   </button>
                 </div>
                 {!lane.healthPath.trim() && !lane.healthJson.trim() && !healthPathErr && !healthJsonErr && lane.healthMalformed === undefined ? (
-                  <div className="lane-health-hint">路径留空保存 = 不做健康检查</div>
+                  <div className="lane-health-hint">{t('laneCard.healthPathHint')}</div>
                 ) : null}
               </div>
               <div className="form-field">
                 <label htmlFor={`cfg-lane-health-json-${index}`}>
-                  期望字段（可选，JSON 对象，例如 {'{"healthy":true}'}；不填就只看有没有响应）
+                  {t('laneCard.healthJsonLabel')}
                   {healthJsonErr ? <span className="field-error"> · {healthJsonErr}</span> : null}
                 </label>
                 <textarea
@@ -289,7 +291,7 @@ export function LaneCard({
                   rows={2}
                   className="mono-input"
                   value={lane.healthJson}
-                  placeholder='{"healthy":true}'
+                  placeholder={t('laneCard.healthJsonPlaceholder')}
                   onChange={(e) => onUpdate({ healthJson: e.target.value })}
                 />
               </div>
@@ -300,20 +302,20 @@ export function LaneCard({
 
       <div className="form-grid-2">
         <div className="form-field">
-          <label htmlFor={`cfg-lane-deliv-${index}`}>交差目录 (deliveryDir - 可选)</label>
+          <label htmlFor={`cfg-lane-deliv-${index}`}>{t('laneCard.deliveryLabel')}</label>
           <input
             id={`cfg-lane-deliv-${index}`}
             value={lane.deliveryDir}
-            placeholder="例如 delivery/..."
+            placeholder={t('laneCard.deliveryPlaceholder')}
             onChange={(e) => onUpdate({ deliveryDir: e.target.value })}
           />
         </div>
         <div className="form-field">
-          <label htmlFor={`cfg-lane-model-${index}`}>默认模型 (defaultModel - 可选)</label>
+          <label htmlFor={`cfg-lane-model-${index}`}>{t('laneCard.modelLabel')}</label>
           <input
             id={`cfg-lane-model-${index}`}
             value={lane.defaultModel}
-            placeholder="例如 claude-3-5-sonnet"
+            placeholder={t('laneCard.modelPlaceholder')}
             onChange={(e) => onUpdate({ defaultModel: e.target.value })}
           />
         </div>
@@ -322,7 +324,7 @@ export function LaneCard({
       <div className="form-grid-3">
         <div className="form-field">
           <label htmlFor={`cfg-lane-counter-${index}`}>
-            编辑计数器 (editCounter)
+            {t('laneCard.counterLabel')}
             {counterErr ? <span className="field-error"> · {counterErr}</span> : null}
           </label>
           <select
@@ -330,7 +332,7 @@ export function LaneCard({
             value={lane.editCounter}
             onChange={(e) => onUpdate({ editCounter: e.target.value })}
           >
-            <option value="">默认 (patch)</option>
+            <option value="">{t('laneCard.counterDefault')}</option>
             <option value="patch">patch</option>
             <option value="stream-json">stream-json</option>
           </select>
@@ -338,7 +340,7 @@ export function LaneCard({
 
         <div className="form-field">
           <label htmlFor={`cfg-lane-spacing-${index}`}>
-            间隔时间 (spacingMs - 毫秒)
+            {t('laneCard.spacingLabel')}
             {spacingErr ? <span className="field-error"> · {spacingErr}</span> : null}
           </label>
           <input
@@ -358,14 +360,14 @@ export function LaneCard({
               checked={lane.serialize}
               onChange={(e) => onUpdate({ serialize: e.target.checked })}
             />
-            <span>并发策略：排队执行</span>
+            <span>{t('laneCard.serialize')}</span>
           </label>
         </div>
       </div>
 
       <div className="form-field">
         <label htmlFor={`cfg-lane-env-${index}`}>
-          环境变量（可选，每行 NAME=值；不要放密钥）
+          {t('laneCard.envLabel')}
           {envErr ? <span className="field-error"> · {envErr}</span> : null}
         </label>
         <textarea
@@ -378,18 +380,18 @@ export function LaneCard({
       </div>
 
       <div className="lane-session-block">
-        <h4 className="lane-sub-title">会话记录步骤 (Session - 可选)</h4>
+        <h4 className="lane-sub-title">{t('laneCard.sessionTitle')}</h4>
         <div className="form-field">
-          <label htmlFor={`cfg-lane-sess-save-${index}`}>会话保存路径 (saveTo)</label>
+          <label htmlFor={`cfg-lane-sess-save-${index}`}>{t('laneCard.sessionSaveLabel')}</label>
           <input
             id={`cfg-lane-sess-save-${index}`}
             value={lane.sessionSaveTo}
-            placeholder=".questboard-data/sessions/{package}.json"
+            placeholder={t('laneCard.sessionSavePlaceholder')}
             onChange={(e) => onUpdate({ sessionSaveTo: e.target.value })}
           />
         </div>
         <div className="form-field">
-          <label>会话执行参数 (Session Run Arguments)</label>
+          <label>{t('laneCard.sessionRunLabel')}</label>
           <div className="lane-args-list">
             {lane.sessionRun.map((arg, sIdx) => (
               <div key={sIdx} className="lane-arg-row">
@@ -397,17 +399,17 @@ export function LaneCard({
                 <input
                   className="mono-input flex-grow"
                   value={arg}
-                  placeholder="会话参数"
+                  placeholder={t('laneCard.sessionArgPlaceholder')}
                   onChange={(e) => updateSessionArg(sIdx, e.target.value)}
                 />
                 <button type="button" className="btn ghost sm-btn" onClick={() => removeSessionArg(sIdx)}>
-                  删除
+                  {t('laneCard.remove')}
                 </button>
               </div>
             ))}
             <div>
               <button type="button" className="btn ghost sm-btn" onClick={addSessionArg}>
-                + 添加会话参数
+                {t('laneCard.addSessionArg')}
               </button>
             </div>
           </div>

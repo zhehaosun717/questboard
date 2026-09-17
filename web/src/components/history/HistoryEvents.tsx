@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { eventKindLabel, formatEventClock, hasInvalidAt, laneLabel, type TaskGroup } from '../../lib/history';
+import { useT } from '../../lib/i18n';
 import '../../styles/history.css';
 
 export interface HistoryEventsProps {
@@ -34,6 +35,7 @@ function whoParts(ev: TaskGroup['events'][number]): string[] {
 const DETAIL_EXPAND_THRESHOLD = 80;
 
 function EventDetail({ id, detail }: { id: string; detail: string }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   if (!detail) return null;
   const canClip = detail.length > DETAIL_EXPAND_THRESHOLD;
@@ -50,7 +52,7 @@ function EventDetail({ id, detail }: { id: string; detail: string }) {
           aria-controls={id}
           onClick={() => setExpanded((v) => !v)}
         >
-          {expanded ? '收起' : '展开全文'}
+          {expanded ? t('historyEvents.collapse') : t('historyEvents.expand')}
         </button>
       )}
     </span>
@@ -58,13 +60,14 @@ function EventDetail({ id, detail }: { id: string; detail: string }) {
 }
 
 function EventLine({ ev }: { ev: TaskGroup['events'][number] }) {
+  const t = useT();
   const who = whoParts(ev);
   return (
     <div className="hist-event-line">
       <span className="hist-ev-time">{formatEventClock(ev.at)}</span>
       {hasInvalidAt(ev) && (
-        <span className="hist-ev-badtime" title="这条记录自身的时间无法识别">
-          ⚠ 时间未识别
+        <span className="hist-ev-badtime" title={t('historyEvents.badTimeTitle')}>
+          {t('historyEvents.badTime')}
         </span>
       )}
       <span className={`hist-ev-kind ${verdictClass(ev.event)}`}>{eventKindLabel(ev.event)}</span>
@@ -72,7 +75,7 @@ function EventLine({ ev }: { ev: TaskGroup['events'][number] }) {
           says the complete thing (lane · model/variant · name) — a label would only be invalid AND
           redundant (revision 5 note 5). */}
       {who.length > 0 ? <span className="hist-ev-who">{who.join(' · ')}</span> : null}
-      {ev.by ? <span className="hist-ev-by">由 {ev.by}</span> : null}
+      {ev.by ? <span className="hist-ev-by">{t('historyEvents.byAuthor', { author: ev.by })}</span> : null}
       <EventDetail id={`hist-ev-detail-${ev.seq}`} detail={ev.detail} />
     </div>
   );
@@ -84,6 +87,7 @@ function EventLine({ ev }: { ev: TaskGroup['events'][number] }) {
  * up to 162 characters, a repeated id is what overflowed the page at 1024/1440 (review 25756a14 B4).
  */
 export function HistoryEvents({ groups }: HistoryEventsProps) {
+  const t = useT();
   return (
     <div className="hist-timeline">
       {groups.map((group) => {
@@ -93,12 +97,12 @@ export function HistoryEvents({ groups }: HistoryEventsProps) {
         const last = group.events.at(-1);
         if (!first || !last) throw new Error(`task group ${group.key} has no events`);
         return (
-          <article key={group.key} className="hist-group" aria-label={`任务 ${group.key}`}>
+          <article key={group.key} className="hist-group" aria-label={t('historyEvents.taskAria', { key: group.key })}>
             <header className="hist-group-head">
               <code className="hist-group-pkg">{group.key}</code>
-              <span className="hist-group-count">{group.events.length} 条记录</span>
+              <span className="hist-group-count">{t('historyEvents.recordCount', { count: group.events.length })}</span>
               <span className="hist-group-span">
-                {formatEventClock(first.at)} 起 → {formatEventClock(last.at)}
+                {t('historyEvents.span', { start: formatEventClock(first.at), end: formatEventClock(last.at) })}
               </span>
             </header>
             {group.events.map((ev) => (

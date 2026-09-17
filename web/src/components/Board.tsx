@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Quest, QuestStatus, Snapshot } from '../api/types';
 import { filterQuests, paginate, projectScopedKey, questsInColumn } from '../lib/board';
 import { COLUMNS, type Column } from '../lib/labels';
+import { useT } from '../lib/i18n';
 import { QuestCard } from './QuestCard';
 import '../styles/responsibility.css';
 import '../styles/archive.css';
@@ -40,13 +41,14 @@ function writeFoldOpen(key: string, open: boolean): void {
 // The folded strip for either column: it always shows the column's true, uncapped count — folding is a
 // view choice, never a way to make pending or archived work look smaller than it is.
 function FoldedStrip({ col, count, onOpen }: { col: Column; count: number; onOpen: () => void }) {
+  const t = useT();
   return (
     <section className={`col c-${col.key} collapsed`}>
-      <button className="col-toggle" type="button" title={`展开${col.title}`} onClick={onOpen}>
+      <button className="col-toggle" type="button" title={t('board.expandTitle', { title: col.title })} onClick={onOpen}>
         <span className="col-num">{col.num}</span>
         <span className="count">{count}</span>
         <span className="v-title">{col.title}</span>
-        <span className="v-hint">展开</span>
+        <span className="v-hint">{t('board.expand')}</span>
       </button>
     </section>
   );
@@ -69,6 +71,7 @@ function ArchiveColumn({
 }) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
+  const t = useT();
 
   // A query or page number left over from a previous project would otherwise silently filter the next
   // one's archive, since this component stays mounted across a project switch on a live board.
@@ -92,15 +95,15 @@ function ArchiveColumn({
           <h2>{col.title}</h2>
           <span>{col.sub}</span>
         </div>
-        <span className="count" title="全部完成、取代和取消的委托，不受当前搜索影响">{items.length}</span>
-        <button className="col-fold" type="button" title={`收起${col.title}`} onClick={() => onToggle(false)}>
-          收起
+        <span className="count" title={t('board.archiveCountTitle')}>{items.length}</span>
+        <button className="col-fold" type="button" title={t('board.collapseTitle', { title: col.title })} onClick={() => onToggle(false)}>
+          {t('board.collapse')}
         </button>
       </header>
       <div className="archive-search">
         <input
           type="search"
-          placeholder="搜索编号或标题"
+          placeholder={t('board.searchPlaceholder')}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -109,7 +112,7 @@ function ArchiveColumn({
         />
         {searching && (
           <span className="archive-match">
-            匹配 {total} / 共 {items.length}
+            {t('board.matchCount', { matched: total, total: items.length })}
           </span>
         )}
       </div>
@@ -122,15 +125,15 @@ function ArchiveColumn({
             </button>
           ))
         ) : (
-          <div className="empty">{query ? '没有匹配的委托' : '— 空 —'}</div>
+          <div className="empty">{query ? t('board.noMatch') : t('board.empty')}</div>
         )}
-        <a className="done-more" href="#/history">全部历史在「派出记录」</a>
+        <a className="done-more" href="#/history">{t('board.archiveLink')}</a>
       </div>
       {total > ARCHIVE_PAGE_SIZE && (
         <div className="archive-pager">
-          <button type="button" disabled={shownPage <= 1} onClick={() => setPage(shownPage - 1)}>‹ 上一页</button>
-          <span>第 {shownPage}/{totalPages} 页，共 {total} 条</span>
-          <button type="button" disabled={shownPage >= totalPages} onClick={() => setPage(shownPage + 1)}>下一页 ›</button>
+          <button type="button" disabled={shownPage <= 1} onClick={() => setPage(shownPage - 1)}>{t('board.prevPage')}</button>
+          <span>{t('board.page', { page: shownPage, total: totalPages, count: total })}</span>
+          <button type="button" disabled={shownPage >= totalPages} onClick={() => setPage(shownPage + 1)}>{t('board.nextPage')}</button>
         </div>
       )}
     </section>
@@ -150,6 +153,7 @@ function OwnerColumn({
   onToggle: (open: boolean) => void;
   renderQuestList: (items: Quest[]) => React.ReactNode;
 }) {
+  const t = useT();
   if (!open) {
     return <FoldedStrip col={col} count={items.length} onOpen={() => onToggle(true)} />;
   }
@@ -162,8 +166,8 @@ function OwnerColumn({
           <span>{col.sub}</span>
         </div>
         <span className="count">{items.length}</span>
-        <button className="col-fold" type="button" title={`收起${col.title}`} onClick={() => onToggle(false)}>
-          收起
+        <button className="col-fold" type="button" title={t('board.collapseTitle', { title: col.title })} onClick={() => onToggle(false)}>
+          {t('board.collapse')}
         </button>
       </header>
       <div className="list">{renderQuestList(items)}</div>
@@ -172,6 +176,7 @@ function OwnerColumn({
 }
 
 export function Board({ snap, pickingCardId, onSelectQuest, onDropCard }: BoardProps) {
+  const t = useT();
   const seenRef = useRef<Set<string>>(new Set());
   const lastStatusRef = useRef<Map<string, QuestStatus>>(new Map());
   const doneKey = projectScopedKey(DONE_OPEN_KEY, snap);
@@ -225,10 +230,10 @@ export function Board({ snap, pickingCardId, onSelectQuest, onDropCard }: BoardP
       return (
         <div className="empty">
           {snap.quests.length > 0 ? (
-            '— 空 —'
+            t('board.empty')
           ) : (
             <>
-              暂无委托<code>questboard post</code>
+              {t('board.noQuests')}<code>questboard post</code>
             </>
           )}
         </div>

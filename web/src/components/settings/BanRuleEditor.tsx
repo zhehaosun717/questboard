@@ -7,6 +7,7 @@ import {
   type BanRuleCard,
   type BanRuleMode,
 } from "../../lib/banRules";
+import { t as tStatic, useT, type I18nKey } from "../../lib/i18n";
 
 type RuleField = "bannedModelPatterns" | "bannedAgents";
 
@@ -19,25 +20,27 @@ type Props = {
   onPatternsChange: (patterns: string[]) => void;
 };
 
-const MODES: Array<{ value: BanRuleMode; label: string }> = [
-  { value: "exact", label: "名称完全等于" },
-  { value: "contains", label: "名称包含" },
-  { value: "startsWith", label: "名称以……开头" },
-  { value: "regex", label: "高级：正则" },
+const MODES: Array<{ value: BanRuleMode; labelKey: I18nKey }> = [
+  { value: "exact", labelKey: "banRule.modeExact" },
+  { value: "contains", labelKey: "banRule.modeContains" },
+  { value: "startsWith", labelKey: "banRule.modeStartsWith" },
+  { value: "regex", labelKey: "banRule.modeRegex" },
 ];
 
 function cardLabel(card: BanRuleCard): string {
-  const name = card.name ?? card.id ?? "未命名冒险者";
-  const model = card.model ?? "未指定模型";
-  const channel = card.channel ?? "未指定接入方式";
+  const name = card.name ?? card.id ?? tStatic("banRule.nameFallback");
+  const model = card.model ?? tStatic("banRule.modelFallback");
+  const channel = card.channel ?? tStatic("banRule.channelFallback");
   return `${name} · ${model} · ${channel}`;
 }
 
 function displayMode(mode: BanRuleMode): string {
-  return MODES.find((option) => option.value === mode)?.label ?? "高级：正则";
+  const option = MODES.find((item) => item.value === mode);
+  return option ? tStatic(option.labelKey) : tStatic("banRule.modeRegex");
 }
 
 export function BanRuleEditor({ cards, field, label, hint, patterns, onPatternsChange }: Props) {
+  const t = useT();
   const [mode, setMode] = useState<BanRuleMode>("contains");
   const [value, setValue] = useState("");
   const [search, setSearch] = useState("");
@@ -89,22 +92,22 @@ export function BanRuleEditor({ cards, field, label, hint, patterns, onPatternsC
           <h3 id={`${field}-title`}>{label}</h3>
           <p>{hint}</p>
         </div>
-        <span className="config-policy-scope">仅此项目</span>
+        <span className="config-policy-scope">{t("banRule.scope")}</span>
       </div>
 
       <div className="config-policy-add-row">
-        <select aria-label={`${label}匹配方式`} value={mode} onChange={(event) => setMode(event.target.value as BanRuleMode)}>
-          {MODES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        <select aria-label={t("banRule.matchAria", { label })} value={mode} onChange={(event) => setMode(event.target.value as BanRuleMode)}>
+          {MODES.map((option) => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
         </select>
-        <input aria-label={`${label}规则`} value={value} onChange={(event) => setValue(event.target.value)} placeholder={mode === "regex" ? "输入正则表达式" : "输入名称，例如 gpt-4.1"} />
-        <button type="button" className="btn" onClick={addRule} disabled={value.length === 0 || inputError !== undefined}>添加派出禁令</button>
+        <input aria-label={t("banRule.ruleAria", { label })} value={value} onChange={(event) => setValue(event.target.value)} placeholder={mode === "regex" ? t("banRule.regexPlaceholder") : t("banRule.namePlaceholder")} />
+        <button type="button" className="btn" onClick={addRule} disabled={value.length === 0 || inputError !== undefined}>{t("banRule.add")}</button>
       </div>
       {inputError !== undefined && <p className="config-policy-error">{inputError}</p>}
       {field === "bannedModelPatterns" && <div className="config-policy-roster-picker">
-        <label htmlFor={`${field}-search`}>搜索名册里的模型</label>
-        <input id={`${field}-search`} aria-label="搜索名册里的模型" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索已入册模型" />
+        <label htmlFor={`${field}-search`}>{t("banRule.searchLabel")}</label>
+        <input id={`${field}-search`} aria-label={t("banRule.searchLabel")} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("banRule.searchPlaceholder")} />
         <div className="config-policy-model-list">
-          {visibleModelNames.length === 0 ? <span>没有匹配的已入册模型，可以手动输入。</span> : visibleModelNames.map((model) => {
+          {visibleModelNames.length === 0 ? <span>{t("banRule.noMatch")}</span> : visibleModelNames.map((model) => {
             const checked = patterns.some((pattern) => {
               const parsed = parseBanRule(pattern);
               return parsed.valid && parsed.mode === "exact" && parsed.value.toLocaleLowerCase() === model.toLocaleLowerCase();
@@ -115,33 +118,33 @@ export function BanRuleEditor({ cards, field, label, hint, patterns, onPatternsC
       </div>}
 
       <div className="config-policy-rules">
-        {preview.length === 0 && <p className="config-policy-empty">还没有规则。</p>}
+        {preview.length === 0 && <p className="config-policy-empty">{t("banRule.empty")}</p>}
         {preview.map(({ rule, index, cards: affected }) => (
           <div className="config-policy-rule" key={`${field}-${index}-${patterns[index]}`}>
             <div className="config-policy-rule-main">
               {rule.valid && rule.mode !== "regex" ? (
                 <>
-                  <select aria-label={`${label}第${index + 1}条匹配方式`} value={rule.mode} onChange={(event) => updateRule(index, { mode: event.target.value as BanRuleMode, value: rule.value })}>
-                    {MODES.slice(0, 3).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  <select aria-label={t("banRule.ruleMatchAria", { label, index: index + 1 })} value={rule.mode} onChange={(event) => updateRule(index, { mode: event.target.value as BanRuleMode, value: rule.value })}>
+                    {MODES.slice(0, 3).map((option) => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
                   </select>
-                  <input aria-label={`${label}第${index + 1}条内容`} value={rule.value} onChange={(event) => updateRule(index, { mode: rule.mode, value: event.target.value })} />
+                  <input aria-label={t("banRule.ruleValueAria", { label, index: index + 1 })} value={rule.value} onChange={(event) => updateRule(index, { mode: rule.mode, value: event.target.value })} />
                 </>
               ) : (
                 <>
-                  <button type="button" className="config-policy-advanced-toggle" onClick={() => toggleAdvanced(index)} aria-expanded={isAdvancedOpen(index)}>{isAdvancedOpen(index) ? "收起" : "展开"}高级：正则</button>
-                  {isAdvancedOpen(index) ? <input aria-label={`${label}第${index + 1}条正则`} value={patterns[index] ?? ""} onChange={(event) => onPatternsChange(patterns.map((pattern, itemIndex) => itemIndex === index ? event.target.value : pattern))} /> : <code>{patterns[index]}</code>}
+                  <button type="button" className="config-policy-advanced-toggle" onClick={() => toggleAdvanced(index)} aria-expanded={isAdvancedOpen(index)}>{isAdvancedOpen(index) ? t("banRule.collapse") : t("banRule.expand")}{t("banRule.modeRegex")}</button>
+                  {isAdvancedOpen(index) ? <input aria-label={t("banRule.regexAria", { label, index: index + 1 })} value={patterns[index] ?? ""} onChange={(event) => onPatternsChange(patterns.map((pattern, itemIndex) => itemIndex === index ? event.target.value : pattern))} /> : <code>{patterns[index]}</code>}
                 </>
               )}
-              <button type="button" className="config-policy-remove" onClick={() => onPatternsChange(patterns.filter((_, itemIndex) => itemIndex !== index))}>删除</button>
+              <button type="button" className="config-policy-remove" onClick={() => onPatternsChange(patterns.filter((_, itemIndex) => itemIndex !== index))}>{t("banRule.remove")}</button>
             </div>
             {rule.valid ? (
-              <div className="config-policy-preview"><strong>将禁止派出 {affected.length} 个冒险者</strong>{affected.length > 0 ? <span>{affected.map(cardLabel).join("；")}</span> : <span>当前没有冒险者会被影响</span>}</div>
-            ) : <p className="config-policy-error">{rule.error ?? "规则无效"}</p>}
-            {rule.valid && rule.mode === "regex" && isAdvancedOpen(index) && <p className="config-policy-advanced-note">匹配方式：{displayMode(rule.mode)}。保存时仍按原始正则存储。</p>}
+              <div className="config-policy-preview"><strong>{t("banRule.banCount", { count: affected.length })}</strong>{affected.length > 0 ? <span>{affected.map(cardLabel).join("；")}</span> : <span>{t("banRule.noneAffected")}</span>}</div>
+            ) : <p className="config-policy-error">{rule.error ?? t("banRule.invalidRule")}</p>}
+            {rule.valid && rule.mode === "regex" && isAdvancedOpen(index) && <p className="config-policy-advanced-note">{t("banRule.advancedNote", { mode: displayMode(rule.mode) })}</p>}
           </div>
         ))}
       </div>
-      <p className="config-policy-footnote">这里禁止派出的是使用该{field === "bannedModelPatterns" ? "模型" : "执行角色"}的全部冒险者；想暂停单个冒险者，请去公会名册修改它的状态。</p>
+      <p className="config-policy-footnote">{field === "bannedModelPatterns" ? t("banRule.footnoteModel") : t("banRule.footnoteAgent")}</p>
     </section>
   );
 }

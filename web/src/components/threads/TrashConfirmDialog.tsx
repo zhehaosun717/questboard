@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { ThreadWithTrash } from '../../api/threadBatch';
 import { TRASH_EXPLANATION } from '../../api/threadBatch';
 import { canReceiveFocus } from './threadAsyncGuards';
+import { useT } from '../../lib/i18n';
 
 interface TrashConfirmDialogProps {
   // The exact threads the confirm button will act on; the list and its ids are what the owner approves.
@@ -23,6 +24,7 @@ const FOCUSABLE = 'button:not([disabled])';
 // to the list below), and focus returns to the opener when it closes — or to `onFallbackFocus` when the
 // opener was disabled or removed by the mutation the dialog just triggered.
 export function TrashConfirmDialog({ selected, onConfirm, onCancel, onFallbackFocus }: TrashConfirmDialogProps) {
+  const t = useT();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const initialFocusRef = useRef<HTMLButtonElement | null>(null);
   const onFallbackFocusRef = useRef(onFallbackFocus);
@@ -82,16 +84,16 @@ export function TrashConfirmDialog({ selected, onConfirm, onCancel, onFallbackFo
       }}
     >
       <div ref={dialogRef} className="order tb-confirm" role="alertdialog" aria-modal="true" aria-labelledby="tb-trash-title">
-        <p className="eyebrow">CONFIRM · 确认删除</p>
-        <h2 id="tb-trash-title">把这 {selected.length} 个主题放入回收站？</h2>
+        <p className="eyebrow">{t('threadsTrash.eyebrow')}</p>
+        <h2 id="tb-trash-title">{t('threadsTrash.title', { count: selected.length })}</h2>
         <p className="tb-note">{TRASH_EXPLANATION}</p>
-        <ul className="tb-id-list" aria-label="将被放入回收站的主题">
-          {shown.map((t) => (
-            <li key={t.id}>
-              <span className="mono">{t.id}</span> {t.title}
+        <ul className="tb-id-list" aria-label={t('threadsTrash.listAria')}>
+          {shown.map((topic) => (
+            <li key={topic.id}>
+              <span className="mono">{topic.id}</span> {topic.title}
             </li>
           ))}
-          {rest > 0 && <li className="tb-more">…另有 {rest} 个</li>}
+          {rest > 0 && <li className="tb-more">{t('threadsTrash.more', { count: rest })}</li>}
         </ul>
         <div className="row end">
           <button
@@ -100,10 +102,10 @@ export function TrashConfirmDialog({ selected, onConfirm, onCancel, onFallbackFo
             type="button"
             onClick={onCancel}
           >
-            取消
+            {t('threadsTrash.cancel')}
           </button>
           <button className="btn danger" type="button" onClick={onConfirm}>
-            确认放入回收站（{selected.length} 个）
+            {t('threadsTrash.confirm', { count: selected.length })}
           </button>
         </div>
       </div>

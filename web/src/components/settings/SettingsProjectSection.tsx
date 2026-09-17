@@ -1,4 +1,5 @@
 import type { ProjectDraft } from '../../lib/settingsForm';
+import { useT } from '../../lib/i18n';
 
 interface SettingsProjectSectionProps {
   draft: ProjectDraft;
@@ -13,14 +14,15 @@ export function SettingsProjectSection({
   errors,
   onChange,
 }: SettingsProjectSectionProps) {
+  const t = useT();
   return (
     <section className="settings-section">
-      <h3 className="settings-sec-title">项目 (Project)</h3>
+      <h3 className="settings-sec-title">{t('settingsProject.title')}</h3>
       <div className="settings-card">
         <div className="settings-fields-grid">
           <div className="form-field">
             <label htmlFor="cfg-proj-name">
-              项目名称
+              {t('settingsProject.name')}
               {errors['project.name'] ? (
                 <span className="field-error"> · {errors['project.name']}</span>
               ) : null}
@@ -28,14 +30,14 @@ export function SettingsProjectSection({
             <input
               id="cfg-proj-name"
               value={draft.name}
-              placeholder="例如 My Game"
+              placeholder={t('settingsProject.namePlaceholder')}
               onChange={(e) => onChange({ name: e.target.value })}
             />
           </div>
 
           <div className="form-field">
             <label htmlFor="cfg-proj-port">
-              服务端口
+              {t('settingsProject.port')}
               {errors['project.port'] ? (
                 <span className="field-error"> · {errors['project.port']}</span>
               ) : null}
@@ -49,7 +51,7 @@ export function SettingsProjectSection({
           </div>
 
           <div className="form-field">
-            <label htmlFor="cfg-proj-datadir">数据目录 (dataDir)</label>
+            <label htmlFor="cfg-proj-datadir">{t('settingsProject.dataDir')}</label>
             <input
               id="cfg-proj-datadir"
               value={draft.dataDir}
@@ -57,12 +59,12 @@ export function SettingsProjectSection({
               onChange={(e) => onChange({ dataDir: e.target.value })}
             />
             <span className="path-resolved-help">
-              解析绝对路径：<code>{paths.data}</code>
+              {t('settingsProject.resolved')}<code>{paths.data}</code>
             </span>
           </div>
 
           <div className="form-field">
-            <label htmlFor="cfg-proj-events">事件日志 (events)</label>
+            <label htmlFor="cfg-proj-events">{t('settingsProject.events')}</label>
             <input
               id="cfg-proj-events"
               value={draft.events}
@@ -70,12 +72,12 @@ export function SettingsProjectSection({
               onChange={(e) => onChange({ events: e.target.value })}
             />
             <span className="path-resolved-help">
-              解析绝对路径：<code>{paths.events}</code>
+              {t('settingsProject.resolved')}<code>{paths.events}</code>
             </span>
           </div>
 
           <div className="form-field">
-            <label htmlFor="cfg-proj-registry">注册表 (registry)</label>
+            <label htmlFor="cfg-proj-registry">{t('settingsProject.registry')}</label>
             <input
               id="cfg-proj-registry"
               value={draft.registry}
@@ -83,12 +85,12 @@ export function SettingsProjectSection({
               onChange={(e) => onChange({ registry: e.target.value })}
             />
             <span className="path-resolved-help">
-              解析绝对路径：<code>{paths.registry}</code>
+              {t('settingsProject.resolved')}<code>{paths.registry}</code>
             </span>
           </div>
 
           <div className="form-field">
-            <label htmlFor="cfg-proj-lockfile">文件锁 (lockFile)</label>
+            <label htmlFor="cfg-proj-lockfile">{t('settingsProject.lockFile')}</label>
             <input
               id="cfg-proj-lockfile"
               value={draft.lockFile}
@@ -96,16 +98,16 @@ export function SettingsProjectSection({
               onChange={(e) => onChange({ lockFile: e.target.value })}
             />
             <span className="path-resolved-help">
-              解析绝对路径：<code>{paths.lock}</code>
+              {t('settingsProject.resolved')}<code>{paths.lock}</code>
             </span>
           </div>
 
           <div className="form-field">
-            <label htmlFor="cfg-proj-bash">Shell 路径 (bash - 可选)</label>
+            <label htmlFor="cfg-proj-bash">{t('settingsProject.bash')}</label>
             <input
               id="cfg-proj-bash"
               value={draft.bash}
-              placeholder="例如 C:\Program Files\Git\bin\bash.exe 或 /bin/bash"
+              placeholder={t('settingsProject.bashPlaceholder')}
               onChange={(e) => onChange({ bash: e.target.value })}
             />
           </div>

@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { Snapshot } from '../api/types';
-import { inTrayItems, TRAY_KIND_LABEL, TRAY_STAMP_LABEL } from '../lib/inTray';
+import { inTrayItems } from '../lib/inTray';
+import type { TrayKind } from '../lib/inTray';
+import { useT, type I18nKey } from '../lib/i18n';
 import '../styles/intray.css';
 
 export interface InTrayProps {
@@ -8,23 +10,40 @@ export interface InTrayProps {
   onOpenQuest: (questId: string) => void;
 }
 
+// The tray's own words follow the per-browser language switch; the quest title and the step text are
+// user-facing copies shown exactly as they arrive, never translated.
+const TRAY_KIND_KEYS: Record<TrayKind, I18nKey> = {
+  'sign-off': 'inTray.kind.sign-off',
+  decide: 'inTray.kind.decide',
+  release: 'inTray.kind.release',
+  owner: 'inTray.kind.owner',
+};
+
+const TRAY_STAMP_KEYS: Record<TrayKind, I18nKey> = {
+  'sign-off': 'inTray.stamp.sign-off',
+  decide: 'inTray.stamp.decide',
+  release: 'inTray.stamp.release',
+  owner: 'inTray.stamp.owner',
+};
+
 export function InTray({ snap, onOpenQuest }: InTrayProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const items = inTrayItems(snap);
 
   if (items.length === 0) {
-    return <div className="tray-empty">没有等你处理的事</div>;
+    return <div className="tray-empty">{t('inTray.empty')}</div>;
   }
 
   const hasMore = items.length > 4;
   const visibleItems = expanded ? items : items.slice(0, 4);
 
   return (
-    <section className="tray-oak" aria-label="待你处理">
+    <section className="tray-oak" aria-label={t('inTray.heading')}>
       <header className="tray-header">
         <div className="tray-lead">
-          <span className="tray-eyebrow">IN-TRAY</span>
-          <h2 className="tray-heading">待你处理</h2>
+          <span className="tray-eyebrow">{t('inTray.eyebrow')}</span>
+          <h2 className="tray-heading">{t('inTray.heading')}</h2>
         </div>
         <div className="tray-meta">
           {hasMore && (
@@ -33,18 +52,18 @@ export function InTray({ snap, onOpenQuest }: InTrayProps) {
               className="tray-toggle-btn"
               onClick={() => setExpanded((prev) => !prev)}
             >
-              {expanded ? '收起' : `还有 ${items.length - 4} 件`}
+              {expanded ? t('inTray.collapse') : t('inTray.more', { count: items.length - 4 })}
             </button>
           )}
-          <span className="tray-count" aria-label={`共 ${items.length} 件`}>
+          <span className="tray-count" aria-label={t('inTray.countLabel', { count: items.length })}>
             {items.length}
           </span>
         </div>
       </header>
       <div className="tray-grid">
         {visibleItems.map((item) => {
-          const kindLabel = TRAY_KIND_LABEL[item.kind];
-          const stampLabel = TRAY_STAMP_LABEL[item.kind];
+          const kindLabel = t(TRAY_KIND_KEYS[item.kind]);
+          const stampLabel = t(TRAY_STAMP_KEYS[item.kind]);
           const tabText = `${item.quest.id} · ${kindLabel}`;
           return (
             <div

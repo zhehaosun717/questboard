@@ -1,4 +1,5 @@
 import type { BriefsDraft } from '../../lib/settingsForm';
+import { useT } from '../../lib/i18n';
 
 interface SettingsBriefsSectionProps {
   draft: BriefsDraft;
@@ -11,13 +12,14 @@ export function SettingsBriefsSection({
   errors,
   onChange,
 }: SettingsBriefsSectionProps) {
+  const t = useT();
   return (
     <section className="settings-section">
-      <h3 className="settings-sec-title">简报 (Briefs)</h3>
+      <h3 className="settings-sec-title">{t('settingsBriefs.title')}</h3>
       <div className="settings-card">
         <div className="settings-fields-grid">
           <div className="form-field">
-            <label htmlFor="cfg-briefs-dispatch">派出目录（逗号分隔）</label>
+            <label htmlFor="cfg-briefs-dispatch">{t('settingsBriefs.dispatchDirs')}</label>
             <input
               id="cfg-briefs-dispatch"
               value={draft.dispatchDirs}
@@ -27,7 +29,7 @@ export function SettingsBriefsSection({
           </div>
 
           <div className="form-field">
-            <label htmlFor="cfg-briefs-owner">负责人目录（逗号分隔）</label>
+            <label htmlFor="cfg-briefs-owner">{t('settingsBriefs.ownerDirs')}</label>
             <input
               id="cfg-briefs-owner"
               value={draft.ownerDirs}
@@ -37,7 +39,7 @@ export function SettingsBriefsSection({
           </div>
 
           <div className="form-field">
-            <label htmlFor="cfg-briefs-pkg">委托包正则模式 (packagePattern)</label>
+            <label htmlFor="cfg-briefs-pkg">{t('settingsBriefs.packagePattern')}</label>
             <input
               id="cfg-briefs-pkg"
               className="mono-input"
@@ -48,7 +50,7 @@ export function SettingsBriefsSection({
           </div>
 
           <div className="form-field">
-            <label htmlFor="cfg-briefs-heading">文件列表标题正则 (fileListHeading)</label>
+            <label htmlFor="cfg-briefs-heading">{t('settingsBriefs.fileListHeading')}</label>
             <input
               id="cfg-briefs-heading"
               className="mono-input"
@@ -60,7 +62,7 @@ export function SettingsBriefsSection({
 
           <div className="form-field">
             <label htmlFor="cfg-briefs-days">
-              简报窗口天数 (recentDays)
+              {t('settingsBriefs.recentDays')}
               {errors['briefs.recentDays'] ? (
                 <span className="field-error"> · {errors['briefs.recentDays']}</span>
               ) : null}

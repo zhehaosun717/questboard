@@ -1,4 +1,5 @@
 import type { OptionalArgGroupDraft } from '../../lib/settingsForm';
+import { t as tStatic, useT } from '../../lib/i18n';
 import '../../styles/optional-args.css';
 
 export interface OptionalArgsEditorProps {
@@ -26,12 +27,12 @@ export function getUnknownFields(group: OptionalArgGroupDraft): Record<string, u
 export function describeGroup(group: OptionalArgGroupDraft, runLength: number): string {
   const whenLabel = group.when === 'agent' ? 'agent' : 'variant';
   const pos = typeof group.insertAt === 'number' ? group.insertAt + 1 : runLength + 1;
-  const argsStr = group.args.length > 0 ? group.args.join(' ') : '(未填写参数)';
-  let omitStr = '未填写时整组省略';
+  const argsStr = group.args.length > 0 ? group.args.join(' ') : tStatic('optionalArgs.emptyArgs');
+  let omitStr = tStatic('optionalArgs.omitDefault');
   if (group.omitWhen && group.omitWhen.length > 0) {
-    omitStr = `值为 ${group.omitWhen.join('、')} 时整组省略`;
+    omitStr = tStatic('optionalArgs.omitList', { values: group.omitWhen.join(tStatic('common.listSeparator')) });
   }
-  return `当卡片填了 ${whenLabel} 时，在第 ${pos} 个位置插入 ${argsStr}；${omitStr}`;
+  return tStatic('optionalArgs.summary', { when: whenLabel, pos, args: argsStr, omit: omitStr });
 }
 
 export function OptionalArgsEditor({
@@ -43,6 +44,7 @@ export function OptionalArgsEditor({
   onChange,
   errors = {},
 }: OptionalArgsEditorProps) {
+  const t = useT();
   const minInsertAt = run[0] === 'node' ? 2 : 1;
   const maxInsertAt = run.length;
 
@@ -128,15 +130,11 @@ export function OptionalArgsEditor({
   return (
     <div className="optional-args-editor">
       <div className="optional-args-header">
-        <div className="optional-args-intro">
-          配置特定卡片属性（如变体或智能体）存在时才插入的参数组。未填写对应属性或值匹配省略规则时整组自动忽略。
-        </div>
+        <div className="optional-args-intro">{t('optionalArgs.intro')}</div>
       </div>
 
       {optionalArgs.length === 0 ? (
-        <div className="optional-args-empty">
-          暂未配置可选参数组。点击下方按钮添加。
-        </div>
+        <div className="optional-args-empty">{t('optionalArgs.empty')}</div>
       ) : (
         <div className="optional-args-groups-list">
           {optionalArgs.map((group, gIdx) => {
@@ -146,15 +144,15 @@ export function OptionalArgsEditor({
                 <div key={gIdx} className="optional-arg-group-card optional-arg-malformed-card">
                   <div className="group-card-header">
                     <div className="group-card-title">
-                      <span className="group-badge">组 #{gIdx + 1}</span>
-                      <span className="group-summary-plain">无法解析，已原样保留</span>
+                      <span className="group-badge">{t('optionalArgs.groupBadge', { index: gIdx + 1 })}</span>
+                      <span className="group-summary-plain">{t('optionalArgs.malformedKept')}</span>
                     </div>
                     <button
                       type="button"
                       className="btn ghost sm-btn danger-text"
                       onClick={() => removeGroup(gIdx)}
                     >
-                      删除此组
+                      {t('optionalArgs.removeGroupMalformed')}
                     </button>
                   </div>
                   <div className="warn-tape group-error-banner">{group.parseError}</div>
@@ -173,7 +171,7 @@ export function OptionalArgsEditor({
 
             const hasPlaceholder = group.args.some((a) => a.includes(`{${group.when}}`));
             const placeholderWarning = !hasPlaceholder
-              ? `参数中建议包含 {${group.when}} 占位符，否则无法将对应属性值传给命令`
+              ? t('optionalArgs.placeholderWarning', { placeholder: `{${group.when}}` })
               : null;
 
             const isInsertAtOutOfRange =
@@ -184,7 +182,7 @@ export function OptionalArgsEditor({
               <div key={gIdx} className="optional-arg-group-card">
                 <div className="group-card-header">
                   <div className="group-card-title">
-                    <span className="group-badge">组 #{gIdx + 1}</span>
+                    <span className="group-badge">{t('optionalArgs.groupBadge', { index: gIdx + 1 })}</span>
                     <span className="group-summary-plain">{summaryText}</span>
                   </div>
                   <button
@@ -192,7 +190,7 @@ export function OptionalArgsEditor({
                     className="btn ghost sm-btn danger-text"
                     onClick={() => removeGroup(gIdx)}
                   >
-                    删除组
+                    {t('optionalArgs.removeGroup')}
                   </button>
                 </div>
 
@@ -202,7 +200,7 @@ export function OptionalArgsEditor({
 
                 {unknownKeys.length > 0 ? (
                   <div className="group-unknown-fields-badge">
-                    <span className="badge-label">未知字段，已保留：</span>
+                    <span className="badge-label">{t('optionalArgs.unknownFields')}</span>
                     <code>{unknownKeys.join(', ')}</code>
                   </div>
                 ) : null}
@@ -210,7 +208,7 @@ export function OptionalArgsEditor({
                 <div className="form-grid-2 group-controls-row">
                   <div className="form-field">
                     <label htmlFor={`cfg-opt-when-${laneId}-${gIdx}`}>
-                      触发条件 (when)
+                      {t('optionalArgs.whenLabel')}
                       {whenErr ? <span className="field-error"> · {whenErr}</span> : null}
                     </label>
                     <select
@@ -218,15 +216,15 @@ export function OptionalArgsEditor({
                       value={group.when}
                       onChange={(e) => updateGroup(gIdx, { when: e.target.value as 'variant' | 'agent' })}
                     >
-                      <option value="variant">variant（卡片填了变体时）</option>
-                      <option value="agent">agent（卡片填了智能体时）</option>
+                      <option value="variant">{t('optionalArgs.whenVariant')}</option>
+                      <option value="agent">{t('optionalArgs.whenAgent')}</option>
                     </select>
-                    <span className="field-hint">仅当所选卡片属性非空且未匹配省略列表时生效</span>
+                    <span className="field-hint">{t('optionalArgs.whenHint')}</span>
                   </div>
 
                   <div className="form-field">
                     <label htmlFor={`cfg-opt-insert-${laneId}-${gIdx}`}>
-                      插入位置 (insertAt)
+                      {t('optionalArgs.insertLabel')}
                       {insertAtErr ? <span className="field-error"> · {insertAtErr}</span> : null}
                     </label>
                     <input
@@ -238,14 +236,12 @@ export function OptionalArgsEditor({
                       onChange={(e) => updateGroup(gIdx, { insertAt: parseInt(e.target.value, 10) || minInsertAt })}
                     />
                     <span className="field-hint">
-                      允许范围：{minInsertAt} ～ {maxInsertAt}
-                      {run[0] === 'node'
-                        ? '（第 0 位是 node，第 1 位是脚本文件）'
-                        : '（第 0 位是执行程序）'}
+                      {t('optionalArgs.range', { min: minInsertAt, max: maxInsertAt })}
+                      {run[0] === 'node' ? t('optionalArgs.rangeNodeNote') : t('optionalArgs.rangeNote')}
                     </span>
                     {isInsertAtOutOfRange ? (
                       <span className="field-error">
-                        插入位置超出范围（必须在 {minInsertAt} 到 {maxInsertAt} 之间）
+                        {t('optionalArgs.rangeError', { min: minInsertAt, max: maxInsertAt })}
                       </span>
                     ) : null}
                   </div>
@@ -253,7 +249,7 @@ export function OptionalArgsEditor({
 
                 <div className="form-field">
                   <label>
-                    插入参数列表 (args - 每格一个参数，保留空格与引号)
+                    {t('optionalArgs.argsLabel')}
                     {argsErr ? <span className="field-error"> · {argsErr}</span> : null}
                   </label>
                   {placeholderWarning ? (
@@ -269,11 +265,11 @@ export function OptionalArgsEditor({
                             <input
                               className="mono-input full-width"
                               value={arg}
-                              placeholder={`例如 --effort 或 {${group.when}}`}
+                              placeholder={t('optionalArgs.argPlaceholder', { placeholder: `{${group.when}}` })}
                               onChange={(e) => updateArg(gIdx, aIdx, e.target.value)}
                             />
                             {isWhitespaceOnly ? (
-                              <span className="field-error">参数不能仅为空白字符</span>
+                              <span className="field-error">{t('optionalArgs.argWhitespace')}</span>
                             ) : null}
                           </div>
                           <button
@@ -281,7 +277,7 @@ export function OptionalArgsEditor({
                             className="btn ghost sm-btn"
                             onClick={() => removeArg(gIdx, aIdx)}
                           >
-                            删除
+                            {t('optionalArgs.remove')}
                           </button>
                         </div>
                       );
@@ -292,7 +288,7 @@ export function OptionalArgsEditor({
                         className="btn ghost sm-btn"
                         onClick={() => addArg(gIdx)}
                       >
-                        + 添加参数
+                        {t('optionalArgs.addArg')}
                       </button>
                     </div>
                   </div>
@@ -300,11 +296,11 @@ export function OptionalArgsEditor({
 
                 <div className="form-field">
                   <label>
-                    省略值列表 (omitWhen - 值为以下内容时整组忽略)
+                    {t('optionalArgs.omitLabel')}
                     {omitWhenErr ? <span className="field-error"> · {omitWhenErr}</span> : null}
                   </label>
                   <div className="field-hint">
-                    卡片属性未填、null 或空字符串时已默认省略整组；若填写了以下值（如 none、off），也整组省略。
+                    {t('optionalArgs.omitHint')}
                   </div>
                   <div className="group-omit-list">
                     {group.omitWhen.map((omitVal, oIdx) => {
@@ -316,11 +312,11 @@ export function OptionalArgsEditor({
                             <input
                               className="mono-input full-width"
                               value={omitVal}
-                              placeholder="例如 none 或 off"
+                              placeholder={t('optionalArgs.omitPlaceholder')}
                               onChange={(e) => updateOmitWhen(gIdx, oIdx, e.target.value)}
                             />
                             {isOmitWhitespace ? (
-                              <span className="field-error">省略值不能仅为空白字符</span>
+                              <span className="field-error">{t('optionalArgs.omitWhitespace')}</span>
                             ) : null}
                           </div>
                           <button
@@ -328,7 +324,7 @@ export function OptionalArgsEditor({
                             className="btn ghost sm-btn"
                             onClick={() => removeOmitWhen(gIdx, oIdx)}
                           >
-                            删除
+                            {t('optionalArgs.remove')}
                           </button>
                         </div>
                       );
@@ -339,7 +335,7 @@ export function OptionalArgsEditor({
                         className="btn ghost sm-btn"
                         onClick={() => addOmitWhen(gIdx)}
                       >
-                        + 添加省略值
+                        {t('optionalArgs.addOmit')}
                       </button>
                     </div>
                   </div>
@@ -352,10 +348,10 @@ export function OptionalArgsEditor({
 
       {malformed !== undefined ? (
         <div className="optional-arg-malformed-card">
-          <div className="warn-tape group-error-banner">无法解析，已原样保留：可选参数组必须是列表</div>
+          <div className="warn-tape group-error-banner">{t('optionalArgs.malformedList')}</div>
           <pre className="optional-arg-raw-value">{JSON.stringify(malformed)}</pre>
           <button type="button" className="btn ghost sm-btn danger-text" onClick={() => onChange([])}>
-            删除无法解析的配置
+            {t('optionalArgs.removeMalformed')}
           </button>
         </div>
       ) : null}
@@ -366,7 +362,7 @@ export function OptionalArgsEditor({
           className="btn ghost sm-btn"
           onClick={addGroup}
         >
-          + 添加可选参数组
+          {t('optionalArgs.addGroup')}
         </button>
       </div>
     </div>

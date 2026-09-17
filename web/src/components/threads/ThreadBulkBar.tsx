@@ -1,5 +1,6 @@
 import type { ThreadBulkAction } from '../../api/threadBatch';
 import { MAX_THREAD_BULK_IDS } from '../../api/threadBatch';
+import { useT } from '../../lib/i18n';
 
 export interface ThreadBulkBarProps {
   visibleCount: number;
@@ -26,15 +27,16 @@ export function ThreadBulkBar({
   onClear,
   onAction,
 }: ThreadBulkBarProps) {
+  const t = useT();
   const none = selectedCount === 0;
   const disabled = busy || none;
   const limit =
     selectedCount >= MAX_THREAD_BULK_IDS
-      ? `（已达单次上限 ${MAX_THREAD_BULK_IDS} 个）`
+      ? t('threadsBulk.limit', { max: MAX_THREAD_BULK_IDS })
       : '';
 
   return (
-    <div className="tb-bulk-bar" role="group" aria-label="批量操作">
+    <div className="tb-bulk-bar" role="group" aria-label={t('threadsBulk.groupLabel')}>
       <div className="tb-bulk-row">
         <button
           type="button"
@@ -42,7 +44,7 @@ export function ThreadBulkBar({
           onClick={onSelectVisible}
           disabled={busy || visibleCount === 0}
         >
-          选中可见
+          {t('threadsBulk.selectVisible')}
         </button>
         <button
           type="button"
@@ -50,10 +52,10 @@ export function ThreadBulkBar({
           onClick={onClear}
           disabled={busy || none}
         >
-          清除
+          {t('threadsBulk.clear')}
         </button>
         <span className="tb-count" aria-live="polite">
-          已选 {selectedCount} / 可见 {visibleCount}
+          {t('threadsBulk.count', { selected: selectedCount, visible: visibleCount })}
           {limit}
         </span>
       </div>
@@ -65,7 +67,7 @@ export function ThreadBulkBar({
             onClick={() => onAction('restore')}
             disabled={disabled}
           >
-            还原所选
+            {t('threadsBulk.restoreSelected')}
           </button>
         ) : (
           <>
@@ -75,7 +77,7 @@ export function ThreadBulkBar({
               onClick={() => onAction('close')}
               disabled={disabled}
             >
-              关闭
+              {t('threadsBulk.close')}
             </button>
             <button
               type="button"
@@ -83,7 +85,7 @@ export function ThreadBulkBar({
               onClick={() => onAction('reopen')}
               disabled={disabled}
             >
-              重新打开
+              {t('threadsBulk.reopen')}
             </button>
             <button
               type="button"
@@ -91,7 +93,7 @@ export function ThreadBulkBar({
               onClick={() => onAction('pin')}
               disabled={disabled}
             >
-              置顶
+              {t('threadsBulk.pin')}
             </button>
             <button
               type="button"
@@ -99,7 +101,7 @@ export function ThreadBulkBar({
               onClick={() => onAction('unpin')}
               disabled={disabled}
             >
-              取消置顶
+              {t('threadsBulk.unpin')}
             </button>
             <button
               type="button"
@@ -107,7 +109,7 @@ export function ThreadBulkBar({
               onClick={() => onAction('trash')}
               disabled={disabled}
             >
-              删除
+              {t('threadsBulk.delete')}
             </button>
           </>
         )}
@@ -115,7 +117,7 @@ export function ThreadBulkBar({
       {(status || busy) && (
         // While a run is in flight the bar says so — buttons grey out, but the reason is visible too.
         <div className="tb-status" role="status" aria-live="polite">
-          {status ?? '批量操作处理中…'}
+          {status ?? t('threadsBulk.busy')}
         </div>
       )}
     </div>

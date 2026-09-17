@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { Card, LanePreviewRequest, LanePreviewResponse } from '../../api/types';
 import { parseHealthJson, parseLaneEnv, type LaneDraft } from '../../lib/settingsForm';
+import { useT } from '../../lib/i18n';
 
 export interface ArgvPreviewProps {
   lane: LaneDraft;
@@ -85,6 +86,7 @@ export function ArgvPreview({
   initialUnsupported = false,
   initialError = null,
 }: ArgvPreviewProps) {
+  const t = useT();
   const [localRoster, setLocalRoster] = useState<readonly Card[]>(roster || []);
   const [selectedCardId, setSelectedCardId] = useState<string>('');
 
@@ -188,26 +190,26 @@ export function ArgvPreview({
   return (
     <div className="argv-preview-panel">
       <div className="argv-preview-header">
-        <h4 className="argv-preview-title">命令预览 (Argv Preview)</h4>
-        <span className="argv-preview-tag">只读实时预览 · 不会保存配置</span>
+        <h4 className="argv-preview-title">{t('argvPreview.title')}</h4>
+        <span className="argv-preview-tag">{t('argvPreview.tag')}</span>
       </div>
 
       <div className="argv-preview-desc">
-        选择冒险者卡片或自行填写变体/智能体参数，实时观察接入命令在不同卡片条件下的完整展开效果（精确逐行显示参数，不按空格拼接）。
+        {t('argvPreview.desc')}
       </div>
 
       <div className="argv-preview-controls form-grid-3">
         <div className="form-field">
-          <label htmlFor={`cfg-preview-roster-${lane.id}`}>从公会花名册选择卡片</label>
+          <label htmlFor={`cfg-preview-roster-${lane.id}`}>{t('argvPreview.rosterLabel')}</label>
           <select
             id={`cfg-preview-roster-${lane.id}`}
             value={selectedCardId}
             onChange={(e) => handleSelectCard(e.target.value)}
           >
-            <option value="">-- 手动填写参数 --</option>
+            <option value="">{t('argvPreview.manualOption')}</option>
             {localRoster.map((card) => (
               <option key={card.id} value={card.id}>
-                {card.name || card.id} ({card.model || '无模型'}
+                {card.name || card.id} ({card.model || t('argvPreview.noModel')}
                 {card.variant ? ` · ${card.variant}` : ''}
                 {card.agent ? ` · ${card.agent}` : ''})
               </option>
@@ -216,11 +218,11 @@ export function ArgvPreview({
         </div>
 
         <div className="form-field">
-          <label htmlFor={`cfg-preview-model-${lane.id}`}>模型 (model)</label>
+          <label htmlFor={`cfg-preview-model-${lane.id}`}>{t('argvPreview.modelLabel')}</label>
           <input
             id={`cfg-preview-model-${lane.id}`}
             value={model}
-            placeholder="例如 claude-3-7-sonnet"
+            placeholder={t('argvPreview.modelPlaceholder')}
             onChange={(e) => {
               setSelectedCardId('');
               setModel(e.target.value);
@@ -229,11 +231,11 @@ export function ArgvPreview({
         </div>
 
         <div className="form-field">
-          <label htmlFor={`cfg-preview-variant-${lane.id}`}>变体 (variant)</label>
+          <label htmlFor={`cfg-preview-variant-${lane.id}`}>{t('argvPreview.variantLabel')}</label>
           <input
             id={`cfg-preview-variant-${lane.id}`}
             value={variant}
-            placeholder="例如 high、none、空"
+            placeholder={t('argvPreview.variantPlaceholder')}
             onChange={(e) => {
               setSelectedCardId('');
               setVariant(e.target.value);
@@ -244,11 +246,11 @@ export function ArgvPreview({
 
       <div className="argv-preview-controls-sub form-grid-3">
         <div className="form-field">
-          <label htmlFor={`cfg-preview-agent-${lane.id}`}>智能体 (agent)</label>
+          <label htmlFor={`cfg-preview-agent-${lane.id}`}>{t('argvPreview.agentLabel')}</label>
           <input
             id={`cfg-preview-agent-${lane.id}`}
             value={agent}
-            placeholder="例如 coder、oracle"
+            placeholder={t('argvPreview.agentPlaceholder')}
             onChange={(e) => {
               setSelectedCardId('');
               setAgent(e.target.value);
@@ -257,7 +259,7 @@ export function ArgvPreview({
         </div>
 
         <div className="form-field">
-          <label htmlFor={`cfg-preview-pkg-${lane.id}`}>任务包名 (package)</label>
+          <label htmlFor={`cfg-preview-pkg-${lane.id}`}>{t('argvPreview.pkgLabel')}</label>
           <input
             id={`cfg-preview-pkg-${lane.id}`}
             value={samplePackage}
@@ -267,7 +269,7 @@ export function ArgvPreview({
         </div>
 
         <div className="form-field">
-          <label htmlFor={`cfg-preview-brief-${lane.id}`}>简报路径 (brief)</label>
+          <label htmlFor={`cfg-preview-brief-${lane.id}`}>{t('argvPreview.briefLabel')}</label>
           <input
             id={`cfg-preview-brief-${lane.id}`}
             value={sampleBrief}
@@ -279,11 +281,11 @@ export function ArgvPreview({
 
       {unsupported ? (
         <div className="warn-tape argv-unsupported-banner">
-          这个版本的看板还不支持命令预览
+          {t('argvPreview.unsupported')}
         </div>
       ) : error ? (
         <div className="warn-tape argv-error-banner">
-          预览失败：{error}
+          {t('argvPreview.previewFailed', { error })}
         </div>
       ) : (
         <>
@@ -299,10 +301,10 @@ export function ArgvPreview({
 
           {preview?.omitted && preview.omitted.length > 0 ? (
             <div className="argv-omitted-box">
-              <span className="omitted-label">已根据条件整组省略的参数：</span>
+              <span className="omitted-label">{t('argvPreview.omittedLabel')}</span>
               {preview.omitted.map((o, oIdx) => (
                 <span key={oIdx} className="omitted-badge">
-                  {o.when} ({o.reason === 'absent' ? '未填写' : o.reason})
+                  {o.when} ({o.reason === 'absent' ? t('argvPreview.omittedAbsent') : o.reason})
                 </span>
               ))}
             </div>
@@ -311,12 +313,12 @@ export function ArgvPreview({
           <div className="argv-comparison-grid">
             <div className="argv-column">
               <div className="argv-column-title">
-                <span>基础模板 (Run Arguments)</span>
-                <span className="count-badge">{lane.run.length} 项</span>
+                <span>{t('argvPreview.baseTitle')}</span>
+                <span className="count-badge">{t('argvPreview.itemCount', { count: lane.run.length })}</span>
               </div>
               <div className="argv-list-box">
                 {lane.run.length === 0 ? (
-                  <div className="argv-empty-note">未配置基础参数</div>
+                  <div className="argv-empty-note">{t('argvPreview.emptyBase')}</div>
                 ) : (
                   lane.run.map((arg, idx) => (
                     <div key={idx} className="argv-line-item">
@@ -330,11 +332,11 @@ export function ArgvPreview({
 
             <div className="argv-column">
               <div className="argv-column-title">
-                <span>最终执行命令 (展开后 Argv)</span>
+                <span>{t('argvPreview.finalTitle')}</span>
                 {loading ? (
-                  <span className="loading-badge">计算中…</span>
+                  <span className="loading-badge">{t('argvPreview.computing')}</span>
                 ) : preview ? (
-                  <span className="count-badge">{preview.argv.length} 项</span>
+                  <span className="count-badge">{t('argvPreview.itemCount', { count: preview.argv.length })}</span>
                 ) : null}
               </div>
               <div className="argv-list-box final-argv-box">
@@ -347,7 +349,7 @@ export function ArgvPreview({
                   ))
                 ) : (
                   <div className="argv-empty-note">
-                    {loading ? '正在计算命令参数…' : '等待输入计算…'}
+                    {loading ? t('argvPreview.computingLong') : t('argvPreview.awaitInput')}
                   </div>
                 )}
               </div>

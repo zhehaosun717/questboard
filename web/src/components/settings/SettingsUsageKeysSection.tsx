@@ -1,4 +1,5 @@
 import type { SettingsReport } from '../../api/types';
+import { useT } from '../../lib/i18n';
 
 interface SettingsUsageKeysSectionProps {
   usageKeys: SettingsReport['usageKeys'];
@@ -7,10 +8,11 @@ interface SettingsUsageKeysSectionProps {
 export function SettingsUsageKeysSection({
   usageKeys,
 }: SettingsUsageKeysSectionProps) {
+  const t = useT();
   return (
     <section className="settings-section">
-      <h3 className="settings-sec-title">用量密钥 (Usage Keys)</h3>
-      <p className="hint">key 只在服务器内存里用，不会显示也不会保存.</p>
+      <h3 className="settings-sec-title">{t('settingsUsageKeys.title')}</h3>
+      <p className="hint">{t('settingsUsageKeys.note')}</p>
       <div className="settings-card">
         <div className="usage-keys-list">
           {usageKeys.map((item) => (
@@ -23,8 +25,8 @@ export function SettingsUsageKeysSection({
                 {item.sources.map((src, idx) => {
                   const label =
                     src.kind === 'env'
-                      ? `环境变量 ${src.name}`
-                      : `OpenCode 登录 ${src.name}`;
+                      ? t('settingsUsageKeys.envPrefix', { name: src.name })
+                      : t('settingsUsageKeys.authPrefix', { name: src.name });
                   return (
                     <span
                       key={idx}
