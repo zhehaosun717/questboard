@@ -206,7 +206,7 @@ export function formatWindowResetLine(resetsAt: string | null, derived?: boolean
 export function formatAsOfLine(asOf: string | null, derived?: boolean): string {
   const time = formatUsageDate(asOf);
   if (!time) return '';
-  return derived ? `数据截至${ESTIMATED_MARK} ${time}` : `数据截至 ${time}`;
+  return derived ? `数据截至 ${time}${ESTIMATED_MARK}` : `数据截至 ${time}`;
 }
 
 /** Balance availability: undefined = the backend said nothing about it (show nothing); null = the backend

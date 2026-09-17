@@ -177,7 +177,7 @@ describe('feedback 36 labels', () => {
     expect(formatAsOfLine(null)).toBe('');
     expect(formatAsOfLine('invalid-date')).toBe('');
     expect(formatAsOfLine(iso)).toMatch(/^数据截至 \d{2}-\d{2} \d{2}:\d{2}$/);
-    expect(formatAsOfLine(iso, true)).toMatch(/^数据截至（估算） \d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(formatAsOfLine(iso, true)).toMatch(/^数据截至 \d{2}-\d{2} \d{2}:\d{2}（估算）$/);
   });
 
   it('keeps a definite availability apart from an unknown one', () => {

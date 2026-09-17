@@ -216,6 +216,6 @@ describe('UsageProviderCard', () => {
 
   it('marks the as-of line as （估算） when the server derived it', () => {
     const html = render(provider({ state: 'fresh', asOf: '2026-09-15T00:00:00Z', asOfDerived: true }));
-    expect(html).toContain('数据截至（估算）');
+    expect(html).toMatch(/数据截至 \d{2}-\d{2} \d{2}:\d{2}（估算）/);
   });
 });

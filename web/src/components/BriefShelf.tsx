@@ -56,7 +56,7 @@ export function BriefShelf({ unpostedBriefs = [], briefDiscovery, onRescan }: Br
         <h2 id="briefsTitle">还没上板的 brief</h2>
       </header>
       <p className="hint">
-        {windowLabel}写好、还没发布也没派过的 brief。coordinator 发布后才能派出。
+        {windowLabel}写好、还没发布、也没派遣过的简报。coordinator 发布后才能派遣。
         {briefDiscovery && `上次扫描：${formatClock(briefDiscovery.scannedAt)}，看了 ${briefDiscovery.folders.join('、')}。`}
         {onRescan && (
           <button className="plate" type="button" onClick={onRescan} style={{ marginLeft: '8px' }}>
@@ -78,7 +78,7 @@ export function BriefShelf({ unpostedBriefs = [], briefDiscovery, onRescan }: Br
           )}
           {dispatchedCount > 0 && (
             <label>
-              <input type="checkbox" checked={showDispatched} onChange={(e) => setShowDispatched(e.target.checked)} /> 也显示已在别处派出的 {dispatchedCount} 份
+              <input type="checkbox" checked={showDispatched} onChange={(e) => setShowDispatched(e.target.checked)} /> 也显示已在别处派遣过的 {dispatchedCount} 份
             </label>
           )}
         </p>

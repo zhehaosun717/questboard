@@ -81,7 +81,7 @@ describe('CardBadge recent execution failure (real JSX)', () => {
       failure,
     );
     expect(html).toContain('额度限额中');
-    expect(html).toContain('自动判断，限额过去后自动恢复');
+    expect(html).toContain('自动判断：到点后不再算限额，但额度没有核实过');
     expect(html).toContain('最近一次执行失败');
   });
 
@@ -94,7 +94,7 @@ describe('CardBadge recent execution failure (real JSX)', () => {
       null,
     );
     expect(html).toContain('重置时间未知，成功一次或你手动确认后恢复');
-    expect(html).not.toContain('限额过去后自动恢复');
+    expect(html).not.toContain('到点后不再算限额');
   });
 
   it('shows the backend wording verbatim, with no extra clause, once a known reset has passed', () => {

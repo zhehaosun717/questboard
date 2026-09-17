@@ -54,7 +54,7 @@ describe('BriefShelf (real render)', () => {
       }),
     });
     expect(html).toContain('也显示超出时间窗口的 1 份');
-    expect(html).toContain('也显示已在别处派出的 1 份');
+    expect(html).toContain('也显示已在别处派遣过的 1 份');
     expect(html).not.toContain('的 0 份');
   });
 

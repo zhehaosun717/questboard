@@ -112,7 +112,7 @@ export function CardNode({ data }: NodeProps<CardNodeType>) {
           <div className="rf-card-detail-status">
             {CARD_STATUS[card.status] ?? card.status}
             {card.derived && card.baseStatus && card.baseStatus !== card.status
-              ? `（基础状态：${CARD_STATUS[card.baseStatus] ?? card.baseStatus}）`
+              ? `（名册里记的是：${CARD_STATUS[card.baseStatus] ?? card.baseStatus}）`
               : ''}
           </div>
           {card.derived ? (

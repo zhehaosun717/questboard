@@ -8,21 +8,21 @@ import { buildLaneEvidenceRows, evidenceReason, laneLimitUntilLabel } from './Hi
 
 describe('evidenceReason', () => {
   it('words an owner-cleared entry neutrally, never claiming the owner acted (N16)', () => {
-    expect(evidenceReason('owner')).toBe('该卡片已不再限额');
+    expect(evidenceReason('owner')).toBe('这张卡已不算限额');
     expect(evidenceReason('owner')).not.toContain('确认');
   });
 
   it('names a status-cleared and a no_card entry distinctly', () => {
     expect(evidenceReason('status')).toBe('该卡片状态已改变');
-    expect(evidenceReason('no_card')).toBe('名册里已经找不到这张卡片');
+    expect(evidenceReason('no_card')).toBe('名册里已经没有这张卡');
   });
 
   it('falls back to a generic expired/unattributable label with no cleared marker', () => {
-    expect(evidenceReason(undefined)).toBe('已过期或无法归因的证据');
+    expect(evidenceReason(undefined)).toBe('已过期或对不上具体卡的证据');
   });
 
   it('falls back the same way for an unrecognized future cleared value', () => {
-    expect(evidenceReason('something-new')).toBe('已过期或无法归因的证据');
+    expect(evidenceReason('something-new')).toBe('已过期或对不上具体卡的证据');
   });
 });
 
@@ -39,8 +39,8 @@ describe('buildLaneEvidenceRows', () => {
     };
     const rows = buildLaneEvidenceRows(laneEvidence);
     expect(rows).toHaveLength(2);
-    expect(rows).toContainEqual({ key: 'codex-codex-luna', lane: 'codex', name: 'a-old', reason: '该卡片已不再限额' });
-    expect(rows).toContainEqual({ key: 'codex-codex-astra', lane: 'codex', name: 'b-expired', reason: '已过期或无法归因的证据' });
+    expect(rows).toContainEqual({ key: 'codex-codex-luna', lane: 'codex', name: 'a-old', reason: '这张卡已不算限额' });
+    expect(rows).toContainEqual({ key: 'codex-codex-astra', lane: 'codex', name: 'b-expired', reason: '已过期或对不上具体卡的证据' });
   });
 
   it('falls back to the adventurer id when a card carries no name', () => {
@@ -64,7 +64,7 @@ describe('buildLaneEvidenceRows', () => {
       },
     };
     const rows = buildLaneEvidenceRows(laneEvidence);
-    expect(rows).toContainEqual({ key: 'codex-unid-0', lane: 'codex', name: 'x-unid', reason: '已过期或无法归因的证据' });
+    expect(rows).toContainEqual({ key: 'codex-unid-0', lane: 'codex', name: 'x-unid', reason: '已过期或对不上具体卡的证据' });
   });
 
   it('N1: falls back to a generic name when unidentified evidence carries none', () => {

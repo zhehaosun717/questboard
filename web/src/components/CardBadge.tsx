@@ -24,7 +24,7 @@ function derivedNote(derived: NonNullable<Card['derived']>): string {
   const resetsAt = derived.resetsAt;
   if (resetsAt && Date.parse(resetsAt) <= Date.now()) return derived.reason;
   if (!resetsAt) return `${derived.reason}（重置时间未知，成功一次或你手动确认后恢复）`;
-  return `${derived.reason}（自动判断，限额过去后自动恢复）`;
+  return `${derived.reason}（自动判断：到点后不再算限额，但额度没有核实过）`;
 }
 
 const LED: Record<CardStatus, string> = {
