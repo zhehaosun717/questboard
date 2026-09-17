@@ -254,7 +254,7 @@ describe('usage service wiring', () => {
     assert.deepEqual(report.providers.map((entry) => entry.id), ['alibaba-token-plan', 'nvidia']);
     assert.equal(report.providers[0].providerState, 'manual_only');
     assert.equal(report.providers[0].ok, false);
-    assert.match(report.providers[0].plan, /team · cn-beijing/);
+    assert.equal(report.providers[0].plan, '团队版 · 北京');
     assert.equal(fetchCalls, 0);
   });
 
@@ -287,7 +287,7 @@ describe('usage service wiring', () => {
     const report = await service.report();
     assert.equal(report.providers[0].providerState, 'manual_only');
     assert.equal(report.providers[0].ok, false);
-    assert.match(report.providers[0].plan, /cn-beijing/);
+    assert.equal(report.providers[0].plan, '北京');
     assert.ok(!JSON.stringify(report).includes('not-a-real-edition'));
     assert.throws(() => createUsageService({ providers: [], manualProviders: ['not-enabled'] }), /not-enabled/);
   });

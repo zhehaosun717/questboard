@@ -328,12 +328,16 @@ export const TRANSLATIONS = {
   // — usage provider card —
   'usageCard.refresh': { zh: '刷新', en: 'Refresh' },
   'usageCard.refreshAria': { zh: '刷新 {name} 的用量', en: 'Refresh usage for {name}' },
-  'usageCard.console': { zh: '打开控制台', en: 'Open console' },
+  'usageCard.docs': { zh: '打开官方说明', en: 'Open official docs' },
   'usageCard.manualRun': { zh: '手动运行：', en: 'Run manually:' },
   'usageCard.balance': { zh: '余额：', en: 'Balance:' },
   'usageCard.granted': { zh: '赠送 {amount}', en: 'Granted {amount}' },
   'usageCard.toppedUp': { zh: '充值 {amount}', en: 'Topped up {amount}' },
   'usageCard.lastSuccess': { zh: '上次成功 {time}', en: 'Last success {time}' },
+  'usageCard.subscribedNoWindows': {
+    zh: '已订阅，但当前没有可显示的额度窗口',
+    en: 'Subscribed, but there are no quota windows to show right now',
+  },
 
   // — usage provider guidance: the fixed sentences the card shows for a data-layer errorCode (F1) —
   'usageCode.claude_snapshot_unreadable': { zh: '无法读取 Claude 状态栏快照文件，请稍后重试', en: 'Could not read the Claude status-line snapshot file; try again in a moment' },

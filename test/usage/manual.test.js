@@ -21,7 +21,7 @@ import {
 const SECRET_CANARY = 'sk-live-secret-test-canary-0123456789abcdef';
 
 describe('manual-only providers', () => {
-  it('defines Alibaba Token Plan and Coding Plan as two separate entries with optional edition/region', () => {
+  it('defines Alibaba Token Plan and Coding Plan as two separate entries with optional edition/region', async () => {
     assert.notEqual(alibabaTokenPlan.id, alibabaCodingPlan.id);
     assert.equal(alibabaTokenPlan.id, 'alibaba-token-plan');
     assert.equal(alibabaCodingPlan.id, 'alibaba-coding-plan');
@@ -40,6 +40,9 @@ describe('manual-only providers', () => {
     const customCoding = createAlibabaCodingPlan({ edition: 'personal', region: 'cn-shanghai' });
     assert.equal(customCoding.edition, 'personal');
     assert.equal(customCoding.region, 'cn-shanghai');
+    assert.equal((await customToken.fetch()).plan, '企业版 · 北京');
+    assert.equal((await customCoding.fetch()).plan, '个人版 · 上海');
+    assert.doesNotMatch((await customToken.fetch()).plan, /enterprise|cn-beijing/);
 
     // Invalid/arbitrary choices collapse to 'unknown'
     const invalidToken = createAlibabaTokenPlan({ edition: {}, region: 'malicious-string' });

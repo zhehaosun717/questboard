@@ -110,9 +110,14 @@
 .map-view .place {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  /* Row 4 holds the hint and, when present, the warning, one after the other on the one line dagre's own
+     node spacing budgets for (see graphLayout.ts NODE_HEIGHT/nodesep). It is a fixed height, reserved
+     whether or not a warning is rendered, so a drag starting/ending never changes the node's height and
+     never grows it past the next card's position. */
+  grid-template-rows: auto auto auto 14px;
+  row-gap: 1px;
   padding: 5px 8px;
   background: rgba(250, 242, 222, 0.95);
   color: #2b2118;
@@ -197,16 +202,23 @@
 }
 
 /* The pre-drop reason, shown on the quest a card is being dragged over: matches the board wall's q-drop-hint
-   / q-refuse text, so the map never shows only a colour the drop then contradicts. */
-.map-view .place .drop-hint {
+   / q-refuse text, so the map never shows only a colour the drop then contradicts. drop-hint and
+   drop-warning are both inline, sharing the one line: the container below owns the nowrap/ellipsis, so a
+   long combined line truncates from the end (the warning), never from the start (the hint). */
+.map-view .place .drop-line {
   display: block;
+  grid-column: 1;
+  grid-row: 4;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.map-view .place .drop-hint {
   font-size: 10.5px;
   font-weight: 600;
-  white-space: normal;
-  line-height: 1.3;
-  /* Always reserved, even empty: the hint text appearing during a drag must not grow the node and cover
-     whatever sits below it on the map. */
-  min-height: 14px;
 }
 
 .map-view .place .drop-hint.ok {
@@ -222,12 +234,10 @@
 }
 
 .map-view .place .drop-warning {
-  display: block;
   color: #8a6a1a;
   font-size: 10.5px;
   font-weight: 600;
-  line-height: 1.3;
-  white-space: normal;
+  cursor: default;
 }
 
 .map-view .rf-quest-node.focused {

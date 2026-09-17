@@ -1,5 +1,7 @@
+import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { api } from '../api/client';
 import { makeAssignee, makeQuest, makeSnapshot } from '../lib/testFixtures';
 import { cancelActionFor, cancelReasonPromptFor, QuestDrawer } from './QuestDrawer';
 
@@ -22,6 +24,19 @@ function render(quest: ReturnType<typeof makeQuest>, snap: ReturnType<typeof mak
   );
 }
 
+function findButton(node: unknown, label: string): ReactElement<{ onClick?: () => unknown }> | null {
+  if (!isValidElement(node)) return null;
+  const element = node as ReactElement<{ children?: ReactNode; onClick?: () => unknown }>;
+  if (element.type === 'button' && element.props.children === label) {
+    return element;
+  }
+  for (const child of Children.toArray(element.props.children)) {
+    const found = findButton(child, label);
+    if (found) return found;
+  }
+  return null;
+}
+
 describe('QuestDrawer 修改委托 hook-in', () => {
   it('routes only dispatched attempts through the new cancellation request', () => {
     expect(cancelActionFor('dispatched')).toBe('request');
@@ -33,6 +48,44 @@ describe('QuestDrawer 修改委托 hook-in', () => {
     expect(cancelReasonPromptFor('status')).toBeNull();
     for (const status of ['posted', 'needs_owner', 'delivered', 'reviewing'] as const) {
       expect(cancelActionFor(status)).toBe('status');
+    }
+  });
+
+  it('clicking a dispatched cancellation asks for owner text and sends that exact reason', async () => {
+    const quest = makeQuest({ id: 'A-click', status: 'dispatched', assignee: makeAssignee('card-1') });
+    const snap = makeSnapshot({ quests: [quest] });
+    const confirm = vi.fn(() => true);
+    const prompt = vi.fn(() => '  owner text  ');
+    const originalWindow = (globalThis as typeof globalThis & { window?: Window }).window;
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { confirm, prompt },
+    });
+    const cancelQuest = vi.spyOn(api, 'cancelQuest').mockResolvedValue({ quest, result: 'cancel_requested' });
+    try {
+      const drawer = QuestDrawer({
+        quest,
+        snap,
+        draft: '',
+        onDraftChange: noop,
+        onClose: noop,
+        onSelectQuest: noop,
+        onAssignCard: noop,
+        refresh: noop,
+        pushToast: noop,
+        setDragging: noop,
+      });
+      const button = findButton(drawer, '取消这个委托');
+      expect(button).not.toBeNull();
+      await button?.props.onClick?.();
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(prompt).toHaveBeenCalledWith('请写明取消原因');
+      expect(cancelQuest).toHaveBeenCalledWith('A-click', 'owner text');
+      expect(cancelQuest).toHaveBeenCalledTimes(1);
+    } finally {
+      cancelQuest.mockRestore();
+      if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
+      else Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
     }
   });
 

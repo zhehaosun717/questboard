@@ -25,6 +25,24 @@ export const ALIBABA_REGIONS = Object.freeze(new Set([
   'ap-southeast-1',
 ]));
 
+const ALIBABA_EDITION_LABELS = Object.freeze({
+  personal: '个人版',
+  team: '团队版',
+  enterprise: '企业版',
+  free: '免费版',
+  standard: '标准版',
+  pro: '专业版',
+  lite: '轻量版',
+});
+
+const ALIBABA_REGION_LABELS = Object.freeze({
+  'cn-beijing': '北京',
+  'cn-shanghai': '上海',
+  'cn-hangzhou': '杭州',
+  'cn-shenzhen': '深圳',
+  'ap-southeast-1': '新加坡',
+});
+
 function safeChoice(value, allowlist) {
   if (typeof value === 'string') {
     const trimmed = value.trim().toLowerCase();
@@ -49,8 +67,8 @@ export function createAlibabaTokenPlan({ edition = 'unknown', region = 'unknown'
   const validEdition = safeChoice(edition, ALIBABA_EDITIONS);
   const validRegion = safeChoice(region, ALIBABA_REGIONS);
   const parts = [];
-  if (validEdition !== 'unknown') parts.push(validEdition);
-  if (validRegion !== 'unknown') parts.push(validRegion);
+  if (validEdition !== 'unknown') parts.push(ALIBABA_EDITION_LABELS[validEdition]);
+  if (validRegion !== 'unknown') parts.push(ALIBABA_REGION_LABELS[validRegion]);
   const plan = parts.join(' · ');
   return Object.freeze({
     id: 'alibaba-token-plan',
@@ -71,8 +89,8 @@ export function createAlibabaCodingPlan({ edition = 'unknown', region = 'unknown
   const validEdition = safeChoice(edition, ALIBABA_EDITIONS);
   const validRegion = safeChoice(region, ALIBABA_REGIONS);
   const parts = [];
-  if (validEdition !== 'unknown') parts.push(validEdition);
-  if (validRegion !== 'unknown') parts.push(validRegion);
+  if (validEdition !== 'unknown') parts.push(ALIBABA_EDITION_LABELS[validEdition]);
+  if (validRegion !== 'unknown') parts.push(ALIBABA_REGION_LABELS[validRegion]);
   const plan = parts.join(' · ');
   return Object.freeze({
     id: 'alibaba-coding-plan',

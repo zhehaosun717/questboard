@@ -318,7 +318,9 @@ export function createNotificationCenter(deps: NotificationCenterDeps): Notifica
     lastSeq = seq;
     const key = notificationEventKey(event.event);
     if (!key) return;
-    if (!preference.enabled || permission !== 'granted') return;
+    const livePermission = deps.notificationApi ? deps.notificationApi.permission : 'unsupported';
+    if (livePermission !== permission) setPermission(livePermission);
+    if (!preference.enabled || livePermission !== 'granted') return;
     if (!preference.events[key]) return;
     const quest = context.quests.find((item) => item.id === event.package) ?? null;
     const headline = quest ? `${event.package} ${quest.title}` : event.package;

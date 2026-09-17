@@ -89,9 +89,20 @@ export function QuestNode({ id, data }: NodeProps<QuestNodeType>) {
         {/* The same reason text the board wall shows before a drop, so a queue-only or refused drop reads
             the same here as it does there, instead of only a colour the drop then contradicts. Always
             rendered (map.css reserves its line height) so the hint appearing/disappearing during a drag
-            never grows the node and covers whatever sits below it. */}
-        <span className={`drop-hint ${dropClass}`}>{dropHint}</span>
-        {dropWarning ? <span className="drop-warning" role="note">⚠ {dropWarning}</span> : null}
+            never grows the node and covers whatever sits below it. Hint and warning share this one row:
+            the hint comes first so it is never the part CSS ellipsis cuts off, and each keeps its own
+            `title` so the full text is reachable even when the row is truncated. */}
+        <span className="drop-line">
+          <span className={`drop-hint ${dropClass}`} title={dropHint || undefined}>
+            {dropHint}
+          </span>
+          {dropWarning ? (
+            <span className="drop-warning" role="note" title={dropWarning}>
+              {' '}
+              ⚠ {dropWarning}
+            </span>
+          ) : null}
+        </span>
       </div>
       <Handle
         type="source"

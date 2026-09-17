@@ -21,7 +21,7 @@
   margin: 0;
   font: 400 11px var(--display);
   letter-spacing: .2em;
-  color: var(--rust-dk);
+  color: var(--ink);
 }
 
 .order .fail-block .fail-lines {

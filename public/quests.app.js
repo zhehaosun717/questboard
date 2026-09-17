@@ -114,6 +114,17 @@
     $('#guild').innerHTML = ranked.map((group) => `<h4 class="guild-group">${esc(group.provider)}<span>${esc(group.members[0].lane)}</span></h4>${group.members.map(badge).join('')}`).join('');
   }
 
+  // Mirrors CardBadge.tsx's derivedNote (React board): the backend's own reasonFor() already bakes a known
+  // reset time into derived.reason ("…，10:50 AM 恢复"); this only supplies the closing clause, and only
+  // when the backend did not already give one. A passed reset means derived.reason is already the honest
+  // "限额窗口已过，尚未验证可用" — never editorialize on top of that (feedback9 row 4/CardBadge, F3).
+  function derivedNote(derived) {
+    const resetsAt = derived.resetsAt;
+    if (resetsAt && Date.parse(resetsAt) <= Date.now()) return derived.reason;
+    if (!resetsAt) return `${derived.reason}（重置时间未知，成功一次或你手动确认后恢复）`;
+    return `${derived.reason}（自动判断：到点后不再算限额，但额度没有核实过）`;
+  }
+
   function badge(a) {
       const working = busy(a.id);
       const max = a.maxParallel || 1;
@@ -126,7 +137,7 @@
         <div class="a-model">${esc(a.model)}${a.variant ? ` · ${esc(a.variant)}` : ''}</div>
         <div class="a-meta">${esc(a.provider)} · ${esc(a.lane)} · <span class="${a.billing === 'payg' ? 'pay' : ''}">${esc(BILLING[a.billing] || a.billing || '')}</span></div>
         ${working.length ? `<div class="a-work">${working.map((q) => `<span>${esc(q.id)}</span>`).join('')}</div>` : ''}
-        ${a.derived ? `<div class="a-note derived">⟳ ${esc(a.derived.reason)}（自动判断，限额过去后自动恢复）</div>` : ''}
+        ${a.derived ? `<div class="a-note derived">⟳ ${esc(derivedNote(a.derived))}</div>` : ''}
         ${a.status !== 'available' && !a.derived ? `<div class="a-note derived">${esc(ADV[a.status] || a.status)}${a.statusSince ? ` · ${esc(new Date(a.statusSince).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }))} 起` : ''}${a.statusReason ? ` · ${esc(a.statusReason)}` : ''}</div>` : ''}
         ${a.notes ? `<div class="a-note">${esc(a.notes)}</div>` : ''}
       </article>`;

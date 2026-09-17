@@ -48,6 +48,10 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
   // fact about this machine's setup, not a warning — the same visual language as "no quota" would read as
   // an accusation for a source nobody ever meant to hook up.
   const isUrgent = info.state === 'expired' || info.state === 'failed';
+  // Only these three states are something the owner can act on right now: a still-loading ('pending') card
+  // showing setup steps next to "正在读取用量数据，请稍候" reads as if the owner has to do something on
+  // every cold load, when there is simply no reading yet (F4).
+  const showsSetupGuidance = info.state === 'unconfigured' || info.state === 'expired' || info.state === 'failed';
   const cardClasses = [
     'usage-card',
     info.tone === 'neutral' && !isUrgent ? 'unconfigured' : '',
@@ -69,13 +73,18 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
   // reading is obtained; credentialType stays a plain type name.
   const accessLabel = formatAccessLabel(provider.access ?? provider.source);
   const providerStateLabel = provider.providerState ? formatProviderStateLabel(provider.providerState) : null;
+  const showProviderStateLabel = providerStateLabel && providerStateLabel !== accessLabel;
+  const subscribedWithoutPeriods = provider.providerState === 'unknown'
+    && provider.plan.includes('已订阅')
+    && provider.windows.length === 0
+    && provider.balances.length === 0;
   const docsUrl = httpsDocsUrl(provider.docsUrl);
   const asOfLine = formatAsOfLine(provider.asOf, provider.asOfDerived);
 
   const docsLine = docsUrl ? (
     <p className="usage-dim-line">
       <a className="usage-docs-link" href={docsUrl} target="_blank" rel="noopener noreferrer">
-        {t('usageCard.console')}
+        {t('usageCard.docs')}
       </a>
     </p>
   ) : null;
@@ -119,7 +128,7 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
         </div>
         {provider.keyFrom ? <div className="key-from-line">{provider.keyFrom}</div> : null}
         {info.label ? <span className={`usage-state-tag usage-state-${info.state}`}>{info.label}</span> : null}
-        {providerStateLabel ? (
+        {showProviderStateLabel ? (
           <span className={`usage-provider-state-tag usage-provider-state-${provider.providerState}`}>
             {providerStateLabel}
           </span>
@@ -203,6 +212,10 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
               </div>
             ) : null}
 
+            {subscribedWithoutPeriods ? (
+              <div className="usage-neutral-block">{t('usageCard.subscribedNoWindows')}</div>
+            ) : null}
+
             <div className="usage-dim-details">
               {provider.plan ? <p className="usage-dim-line">{provider.plan}</p> : null}
               {provider.note ? <p className="usage-dim-line">{provider.note}</p> : null}
@@ -217,9 +230,13 @@ export function UsageProviderCard({ provider, refreshing, cooldownMs, onRefresh 
             {isStale ? <div className="usage-stale-note">{providerGuidanceText(provider)}</div> : null}
           </>
         ) : (
-          <div className={isUrgent ? 'warn-tape usage-error-tape' : 'usage-neutral-block'}>
-            {providerGuidanceText(provider)}
-          </div>
+          <>
+            <div className={isUrgent ? 'warn-tape usage-error-tape' : 'usage-neutral-block'}>
+              {providerGuidanceText(provider)}
+            </div>
+            {showsSetupGuidance ? docsLine : null}
+            {showsSetupGuidance ? setupLine : null}
+          </>
         )}
       </div>
     </article>

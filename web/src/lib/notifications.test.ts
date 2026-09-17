@@ -209,6 +209,8 @@ describe('nothing runs while off or not allowed', () => {
     expect(h.shown).toHaveLength(0);
     expect(await h.center.requestPermission()).toBe('granted');
     expect(h.center.state().permission).toBe('granted');
+    if (!h.api) throw new Error('这个用例需要 Notification API');
+    h.api.permission = 'granted';
     h.center.ingest(boardEvent({ event: 'delivered', seq: 11 }));
     expect(h.shown).toHaveLength(1);
   });
@@ -240,6 +242,18 @@ describe('nothing runs while off or not allowed', () => {
     api.permission = 'granted';
     h.center.refreshPermission();
     expect(h.center.state().permission).toBe('granted');
+  });
+
+  it('checks the live browser permission when ingesting an event', () => {
+    const h = harness({ permission: 'granted' });
+    const api = h.api;
+    if (!api) throw new Error('这个用例需要 Notification API');
+    h.center.setContext({ scope: { loaded: true, projectId: 'p' }, quests: [{ id: 'Q-1', title: '修按钮' }] });
+    enableEverything(h.center);
+    api.permission = 'denied';
+    h.center.ingest(boardEvent({ event: 'delivered', seq: 12 }));
+    expect(h.center.state().permission).toBe('denied');
+    expect(h.shown).toHaveLength(0);
   });
 });
 

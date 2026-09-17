@@ -114,7 +114,7 @@ describe('UsageProviderCard', () => {
     expect(html).toContain('冷却中 8s');
   });
 
-  it('renders a manual-only card as note + console link only, with no bars or numbers', () => {
+  it('renders a manual-only card as note + official docs link only, with no bars or numbers', () => {
     const html = render(
       provider({
         state: 'fresh',
@@ -130,8 +130,9 @@ describe('UsageProviderCard', () => {
     );
     expect(html).toContain('usage-manual-block');
     expect(html).toContain('暂未确认公开的用量查询接口');
-    expect(html).toContain('打开控制台');
+    expect(html).toContain('打开官方说明');
     expect(html).toContain('手动查看');
+    expect(html.match(/手动查看/g)).toHaveLength(1);
     expect(html).not.toContain('usage-bar-track');
     expect(html).not.toContain('88%');
     expect(html).not.toContain('余额：');
@@ -139,13 +140,78 @@ describe('UsageProviderCard', () => {
 
   it('only turns an https docsUrl into a link, and shows setupCommand as plain copyable text', () => {
     const insecure = render(provider({ docsUrl: 'http://insecure.example/console', setupCommand: 'codex login' }));
-    expect(insecure).not.toContain('打开控制台');
+    expect(insecure).not.toContain('打开官方说明');
     expect(insecure).not.toContain('insecure.example');
     expect(insecure).toContain('手动运行：');
     expect(insecure).toContain('codex login');
 
     const noDocs = render(provider({}));
-    expect(noDocs).not.toContain('打开控制台');
+    expect(noDocs).not.toContain('打开官方说明');
+  });
+
+  it('keeps setup guidance visible for an unconfigured provider', () => {
+    const html = render(provider({
+      state: 'unconfigured',
+      configured: false,
+      docsUrl: 'https://learn.chatgpt.com/docs/app-server',
+      setupCommand: 'codex login',
+    }));
+    expect(html).toContain('未接入 / 未配置');
+    expect(html).toContain('打开官方说明');
+    expect(html).toContain('codex login');
+  });
+
+  it('keeps setup guidance visible for an expired provider', () => {
+    const html = render(provider({
+      state: 'expired',
+      configured: true,
+      docsUrl: 'https://docs.volcengine.com/docs/82379/1925114',
+      setupCommand: 'arkcli auth login',
+    }));
+    expect(html).toContain('登录已过期');
+    expect(html).toContain('打开官方说明');
+    expect(html).toContain('arkcli auth login');
+  });
+
+  it('keeps setup guidance visible for a failed provider', () => {
+    const html = render(provider({
+      state: 'failed',
+      configured: true,
+      ok: false,
+      docsUrl: 'https://learn.chatgpt.com/docs/app-server',
+      setupCommand: 'codex login',
+    }));
+    expect(html).toContain('读取失败，请稍后重试');
+    expect(html).toContain('打开官方说明');
+    expect(html).toContain('codex login');
+  });
+
+  it('never shows setup guidance for a still-pending provider, even if the backend already attached it (F4)', () => {
+    const html = render(provider({
+      state: 'pending',
+      configured: null,
+      docsUrl: 'https://learn.chatgpt.com/docs/app-server',
+      setupCommand: 'codex login',
+    }));
+    expect(html).toContain('正在读取用量数据，请稍候');
+    expect(html).not.toContain('打开官方说明');
+    expect(html).not.toContain('手动运行：');
+    expect(html).not.toContain('codex login');
+  });
+
+  it('describes a subscribed provider with no periods as an honest empty reading', () => {
+    const html = render(provider({
+      id: 'volcano',
+      name: '火山引擎',
+      state: 'fresh',
+      providerState: 'unknown',
+      plan: 'Lite · 已订阅',
+      windows: [],
+      balances: [],
+    }));
+    expect(html).toContain('已订阅，但当前没有可显示的额度窗口');
+    expect(html).not.toContain('usage-error-tape');
+    expect(html).not.toContain('读取失败');
   });
 
   it('shows the reset copy without a bar for a reset window, keeping a （估算） mark on the derived time', () => {

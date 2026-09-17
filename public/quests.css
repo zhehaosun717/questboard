@@ -75,6 +75,7 @@ code, .mono { font-family: var(--mono); }
 
 /* ── layout & columns ───────────────────────────────────── */
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 24px; padding: 20px 30px 48px; }
+.layout > main, .columns { min-width: 0; }
 .columns { display: grid; grid-template-columns: repeat(5, minmax(222px, 1fr)); gap: 14px; overflow-x: auto; padding: 4px 2px 10px; }
 .col {
   --accent: var(--rust); position: relative; min-height: 62vh; border: 1px solid #000; border-radius: 3px;
