@@ -232,6 +232,15 @@ args = ["/路径/questboard/src/cli/questboard.js", "mcp", "--project", "/路径
 就拒绝并返回 `stale_revision`，而不是派到一个你没看过的委托上。它们还接受你自己编的 `requestKey`：用同一个
 key 重试会返回已有的那次派遣（`repeated: true`），绝不会起第二个 worker。
 
+通道的限额证据（`snapshot.laneLimits`/`snapshot.laneEvidence`）按卡片单独跟踪。一张
+卡片一旦不再实际限额，它的条目会从 `laneLimits` 移到 `laneEvidence[通道].cards[卡片id].cleared`，取值用词
+中立、绝不声称有人做了什么：`owner`（该卡片的状态记录晚于这条证据——一次确认）、`success`（该卡片之后又有
+一次成功运行）、`expired`（这条证据自己的恢复时间已经过去，且没有更新的确认）、`status`（该卡片因自己的
+手动原因处于暂停/停用/故障）、`no_card`（名册里已经没有这张卡）。被主人重新手动限额的卡片仍然保留在
+`laneLimits` 里（它确实限额中），但绝不会保留早于那次手动操作的旧 `until`/`resetsAt`。`cleared` 这个字段名
+和读它的人都不会变——认不出某个取值的读者，仍可以把它当成"不再限额，原因未指明"来处理。`GET /api/lanes`
+只对 `laneLimits` 做同样的旧 `until`/`resetsAt` 剔除，不会返回按卡片区分的 `cleared` 证据本身。
+
 ## 安全
 
 服务器只绑 `127.0.0.1`。写操作必须是同源的 JSON、且发往本机主机名——否则你访问的任何网页都可能让你的浏览器

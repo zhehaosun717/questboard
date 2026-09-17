@@ -252,6 +252,19 @@ quest changed since you read that revision, the call is refused with `stale_revi
 onto a quest you have not seen. They also accept a `requestKey` of your choosing: a retry with the same key is
 answered with the existing attempt (`repeated: true`), never a second worker.
 
+A lane's quota-limit evidence (`snapshot.laneLimits`/`snapshot.laneEvidence`) is tracked per card. Once a
+card is no longer effectively limited, its entry moves from `laneLimits` into
+`laneEvidence[lane].cards[<id>].cleared`, worded neutrally rather than claiming an action happened:
+`owner` (a status-log record for that card postdates the evidence — an acknowledgement), `success` (a later
+successful run by that same card), `expired` (the entry's own known reset time has passed with no newer
+acknowledgement), `status` (the card is paused, disabled or broke for its own manual reason), or `no_card`
+(the id is no longer in the roster). A card the owner has limited again keeps its `laneLimits` entry instead
+(it is truthfully limited) but never keeps a stale `until`/`resetsAt` from evidence that predates that
+manual action. The `cleared` field name and its readers never change — a reader that does not recognize a
+value can keep treating it as "no longer limited, reason unspecified". `GET /api/lanes` only carries the
+same stale-`until`/`resetsAt` drop on `laneLimits`; it does not return the per-card `cleared` evidence
+itself.
+
 ## Safety
 
 The server binds to 127.0.0.1. Writes must be same-origin JSON addressed to a local host name, because any

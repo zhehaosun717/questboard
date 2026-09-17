@@ -261,7 +261,7 @@ function identityResolver(options = {}) {
   return () => null;
 }
 
-function limitEntry(bounce) {
+export function limitEntry(bounce) {
   const until = bounce.bounceUntil || null;
   const parsedReset = until ? resetAt(until, bounce.at) : null;
   return {

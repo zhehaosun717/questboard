@@ -8,6 +8,15 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 // machine-shaped timestamp (YYYY-MM-DD…, as a structured API's resetAt field can hand back directly) is
 // reformatted, so the reason never leaks a raw ISO string to the owner.
 const ISO_LIKE_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{1,2}:\d{2}/;
+// F4: mirrors workers.js's FULL_RESET_RE/DATED_RESET_RE. A full date-time or a dated provider reset
+// ("Sep 18, 2026 1:54 PM") already carries its own calendar day, so resetAt parses it without any
+// reference; only a bare clock time ("1:54 PM") is ambiguous without one. Classifying the text this way,
+// before resetFor decides whether a real observation time is required, is what tells the two apart.
+const ABSOLUTE_RESET_RE = /^(?:\d{4}-\d{2}-\d{2}[T ]\d{1,2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})|[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,\s*\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))$/i;
+
+function isAbsoluteReset(text) {
+  return ABSOLUTE_RESET_RE.test(String(text || '').trim());
+}
 
 function timestamp(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -36,32 +45,42 @@ function identity(row) {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
-function observationAt(row, now) {
+// The real, evidence-carried observation time only — never guessed. Used as the calendar reference for a
+// reset; a missing value here means the reset is genuinely unknown, not "assume now".
+function realObservationAt(row) {
   // Collector rows use observedAt; these aliases keep the pure overlay useful for API fixtures and older
-  // snapshots. A bounce without a terminal timestamp was observed by this poll, not at dispatch time.
+  // snapshots.
   for (const field of ['bouncedAt', 'observedAt', 'at', 'finishedAt', 'completedAt', 'endedAt']) {
     const parsed = timestamp(row && row[field]);
     if (parsed !== null) return parsed;
   }
+  return null;
+}
+
+function observationAt(row, now) {
+  // A bounce without a terminal timestamp is still shown as evidence "as of now" (its age), but F1: this
+  // fallback must never reach resetFor — see realObservationAt.
+  const real = realObservationAt(row);
+  if (real !== null) return real;
   return row && row.state === 'bounced' ? now : null;
 }
 
-function resetReference(row, observedAt, now) {
-  for (const field of ['bouncedAt', 'observedAt', 'at', 'finishedAt', 'completedAt', 'endedAt']) {
-    const parsed = timestamp(row && row[field]);
-    if (parsed !== null) return parsed;
-  }
-  // A legacy package row may have only dispatchedAt. It is acceptable as the calendar reference for a
-  // displayed time-only reset, but never as the age of the bounce itself.
-  const dispatched = timestamp(row && row.dispatchedAt);
-  return dispatched === null ? (observedAt === null ? now : observedAt) : dispatched;
-}
-
-function resetFor(row, observedAt, now) {
+// N5/F1: dispatchedAt is when a worker was launched, not when a bounce happened — using it (or the current
+// poll) as the calendar reference for a time-only reset ("1:54 PM") can silently anchor the window to the
+// wrong day, or invent a date that drifts forward with every poll. Without a real observation timestamp
+// there is no trustworthy reference, so the window is reported as unknown (未知, resetsAt: null) instead of
+// guessing one, and nothing gets scheduled from a guess. Callers must pass realObservationAt(row), never
+// observationAt's now-fallback.
+// F4: that anchor requirement only applies to a bare clock time. A full date-time or a dated provider reset
+// (isAbsoluteReset) already carries its own calendar day and needs no anchor — dropping it when there is no
+// real observation time would throw away a known reset the provider itself gave, not an ambiguous one.
+function resetFor(row, realObservedAt) {
   const explicit = timestamp(row && (row.resetsAt || row.resetAt));
   if (explicit !== null) return explicit;
   const text = row && row.bounceUntil;
-  return text ? resetAt(text, resetReference(row, observedAt, now)) : null;
+  if (!text) return null;
+  if (realObservedAt === null && !isAbsoluteReset(text)) return null;
+  return resetAt(text, realObservedAt);
 }
 
 function diagnostic(row, now) {
@@ -77,7 +96,7 @@ function diagnostic(row, now) {
 
 function derivedEvidence(row, now) {
   const at = observationAt(row, now);
-  const resetsAt = resetFor(row, at, now);
+  const resetsAt = resetFor(row, realObservationAt(row));
   return { at: iso(at), resetsAt: iso(resetsAt) };
 }
 
@@ -90,7 +109,9 @@ function laneEntries(lanes) {
 
 function reasonFor(row, resetsAt, expired) {
   if (expired) return UNVERIFIED_REASON;
-  const label = humanResetLabel(row.bounceUntil || '', resetsAt);
+  // F1: resetsAt null means the reset time is genuinely unknown (no real observation to anchor it) — the
+  // reason must not show a time in that case, even if the provider's own bounceUntil text looks like one.
+  const label = resetsAt === null ? '' : humanResetLabel(row.bounceUntil || '', resetsAt);
   const prefix = row._kind === 'lane-limit' ? `${row.lane || '某个通道'} 限额中` : `${row.package || row.lane || '某个通道'} 限额退回`;
   return `${prefix}${label ? `，${label} 恢复` : ''}`;
 }
@@ -105,13 +126,19 @@ function actionableRows(lanes) {
     if (!limit) continue;
     if (limit.cards && typeof limit.cards === 'object') {
       for (const [adventurerId, cardLimit] of Object.entries(limit.cards)) {
-        if (cardLimit && (identity(cardLimit) || adventurerId)) {
+        // N8/F2: a `cleared` entry is the overlay's own inert history (visibleLaneLimits' output fed back
+        // in on a later poll), never live evidence — without this guard, re-reading a snapshot's own
+        // laneEvidence would re-limit an already-acknowledged card and the overlay would not be a fixed
+        // point of its own output. But `expired` can never re-limit a card (its own known reset has
+        // already passed), so it must stay actionable — otherwise the roster loses the card's "过期未验证"
+        // hint on the next pass and the overlay is not a fixed point either way.
+        if (cardLimit && (!cardLimit.cleared || cardLimit.cleared === 'expired') && (identity(cardLimit) || adventurerId)) {
           rows.push({ ...cardLimit, lane, state: 'bounced', bounceUntil: cardLimit.bounceUntil || cardLimit.until || null, adventurerId: identity(cardLimit) || adventurerId, _kind: 'lane-limit' });
         }
       }
       continue;
     }
-    if (identity(limit)) rows.push({ ...limit, lane, state: 'bounced', bounceUntil: limit.bounceUntil || limit.until || null, adventurerId: identity(limit), _kind: 'lane-limit' });
+    if ((!limit.cleared || limit.cleared === 'expired') && identity(limit)) rows.push({ ...limit, lane, state: 'bounced', bounceUntil: limit.bounceUntil || limit.until || null, adventurerId: identity(limit), _kind: 'lane-limit' });
   }
   return rows;
 }
@@ -128,6 +155,20 @@ function unknownRows(lanes) {
     }
   }
   return rows;
+}
+
+// N4: the same ambiguous evidence can surface twice for one worker (once from the live package row, once
+// from a lane's own unidentified list) — collapse duplicates by code+text so a card gets the notice once.
+function dedupeDiagnostics(diagnostics) {
+  const seen = new Set();
+  const result = [];
+  for (const item of diagnostics) {
+    const key = `${item.code}::${item.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
 }
 
 function latestByCard(rows, now) {
@@ -176,9 +217,9 @@ export function effectiveRoster(adventurers, lanes, now = Date.now()) {
   const successes = latestSuccesses(lanes, now);
   const ambiguous = unknownRows(lanes);
   return base.map((adventurer) => {
-    const unknownDiagnostics = ambiguous
+    const unknownDiagnostics = dedupeDiagnostics(ambiguous
       .filter((row) => row.lane === adventurer.lane && (!row.model || row.model === adventurer.model))
-      .map((row) => diagnostic(row, now));
+      .map((row) => diagnostic(row, now)));
     const row = bounces.get(adventurer.id);
     const result = withBase(adventurer);
     if (unknownDiagnostics.length) result.laneDiagnostics = unknownDiagnostics;
@@ -187,7 +228,7 @@ export function effectiveRoster(adventurers, lanes, now = Date.now()) {
 
     const evidenceAt = observationAt(row, now);
     const successAt = successes.has(adventurer.id) ? observationAt(successes.get(adventurer.id), now) : null;
-    const reset = resetFor(row, evidenceAt, now);
+    const reset = resetFor(row, realObservationAt(row));
     if (manualClearAfter(adventurer, evidenceAt) || (successAt !== null && evidenceAt !== null && successAt > evidenceAt)) return result;
 
     const derived = { from: 'lanes', reason: reasonFor(row, reset, reset !== null && reset <= now), ...derivedEvidence(row, now) };
@@ -196,26 +237,79 @@ export function effectiveRoster(adventurers, lanes, now = Date.now()) {
   });
 }
 
+function entryAt(entry) {
+  const at = timestamp(entry && entry.at);
+  return at === null ? -Infinity : at;
+}
+
+// A manual status-log record for this card, only when it was actually set by someone (never a roster card
+// that simply has no status history — statusSince with no statusSetBy proves nothing).
+function manualStatusAt(card) {
+  return card && card.statusSetBy ? timestamp(card.statusSince) : null;
+}
+
+// N16: `cleared` used to collapse every non-limited case into 'owner', which read as a false claim that the
+// owner acted — a later success or a reset that simply passed look identical. Tell the three apart from
+// what the entry and the roster card actually record, so the wording stays true without guessing:
+//   - 'owner': a status-log record for this card postdates the evidence — an explicit acknowledgement.
+//   - 'expired': the entry's own known reset has passed, with no explicit acknowledgement newer than it.
+//   - 'success': neither of the above — the only remaining way effectiveRoster clears a card is a later
+//     successful run by that same card.
+function clearedReasonFor(card, entry, now) {
+  if (!card) return 'no_card';
+  if (card.status !== 'available') return 'status';
+  const manualAt = manualStatusAt(card);
+  if (manualAt !== null && manualAt > entryAt(entry)) return 'owner';
+  const resetsAt = timestamp(entry && entry.resetsAt);
+  if (resetsAt !== null && resetsAt <= now) return 'expired';
+  return 'success';
+}
+
+// N18: a card the owner has manually limited again keeps its lane entry (it is truthfully limited), but a
+// manual action after the evidence supersedes that evidence's own recovery time — keeping `until` would
+// show a bounce's stale recovery time long after the owner's own reason replaced it.
+function dropStaleUntil(card, entry) {
+  const manualAt = manualStatusAt(card);
+  if (manualAt === null || manualAt <= entryAt(entry)) return entry;
+  const { until: _until, resetsAt: _resetsAt, ...rest } = entry;
+  return { ...rest, until: null, resetsAt: null, reason: '该卡片已被手动设为限额，先前限额记录的恢复时间已不再适用' };
+}
+
+// N19: a legacy top-level lane-limit entry with neither a `cards` map nor its own card id cannot be matched
+// to any card. It must not vanish — record it as advisory, named evidence instead of silently discarding it.
+function recordUnidentifiedLegacyLimit(evidence, lane, limit) {
+  const prior = evidence[lane] && typeof evidence[lane] === 'object' ? evidence[lane] : {};
+  const note = {
+    since: limit.since || null, at: limit.at || null, until: limit.until || null, resetsAt: limit.resetsAt || null,
+    name: limit.name || null,
+    note: `旧格式限额记录无法对应到具体卡片（通道 ${lane}），已保留在证据中`,
+  };
+  evidence[lane] = { cards: {}, ...prior, unidentified: [...(prior.unidentified || []), note] };
+}
+
 // B5: laneLimits is only ever a lane-level claim ("some card here is limited"), so it must agree with the
 // per-card roster the board shows. Keep a card's entry only while that same card is effectively limited;
 // an entry whose card was acknowledged, paused, disabled, or removed from the roster stops asserting the
 // lane and moves to laneEvidence with a marker for why it was cleared.
-export function visibleLaneLimits(laneLimits, roster, laneEvidence = {}) {
+export function visibleLaneLimits(laneLimits, roster, laneEvidence = {}, now = Date.now()) {
   const byId = new Map((roster || []).map((adventurer) => [adventurer.id, adventurer]));
   const visible = {};
   const evidence = { ...laneEvidence };
   for (const [lane, limit] of Object.entries(laneLimits || {})) {
     if (!limit || typeof limit !== 'object') continue;
-    const entries = limit.cards && typeof limit.cards === 'object'
-      ? Object.entries(limit.cards)
-      : (identity(limit) ? [[identity(limit), limit]] : []);
+    const hasCards = limit.cards && typeof limit.cards === 'object';
+    if (!hasCards && !identity(limit)) {
+      recordUnidentifiedLegacyLimit(evidence, lane, limit);
+      continue;
+    }
+    const entries = hasCards ? Object.entries(limit.cards) : [[identity(limit), limit]];
     const kept = {};
     const dropped = {};
     for (const [id, rawEntry] of entries) {
       const entry = rawEntry || {};
       const card = byId.get(id);
-      if (card && card.status === 'limited') { kept[id] = entry; continue; }
-      dropped[id] = { ...entry, cleared: !card ? 'no_card' : (card.status === 'available' ? 'owner' : 'status') };
+      if (card && card.status === 'limited') { kept[id] = dropStaleUntil(card, entry); continue; }
+      dropped[id] = { ...entry, cleared: clearedReasonFor(card, entry, now) };
     }
     if (Object.keys(kept).length) {
       const newest = Object.values(kept).reduce((best, entry) => (entryAt(entry) >= entryAt(best) ? entry : best));
@@ -227,9 +321,4 @@ export function visibleLaneLimits(laneLimits, roster, laneEvidence = {}) {
     }
   }
   return { laneLimits: visible, laneEvidence: evidence };
-}
-
-function entryAt(entry) {
-  const at = timestamp(entry && entry.at);
-  return at === null ? -Infinity : at;
 }

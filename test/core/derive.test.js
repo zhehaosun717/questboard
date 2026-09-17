@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseFileSet, titleLine, withFileSets, unpostedBriefs } from '../../src/core/briefs.js';
 import { deriveTransitions, liveByName, tailText } from '../../src/core/sync.js';
-import { effectiveRoster } from '../../src/core/overlay.js';
+import { effectiveRoster, visibleLaneLimits } from '../../src/core/overlay.js';
 import { packageFromFileName, packageIdPattern, briefPathAllowed } from '../../src/core/patterns.js';
 import { makeProject } from '../helpers.js';
 
@@ -260,5 +260,169 @@ describe('overlay', () => {
     const lanes = { packages: [{ package: 'P', lane: 'codex', model: 'm', adventurerId: 'limited', state: 'bounced' }], laneLimits: { codex: { until: null } } };
     const result = effectiveRoster(manual, lanes, now);
     assert.deepEqual(result.map((card) => [card.status, card.baseStatus, card.baseReason]), [['limited', 'limited', 'manual check'], ['paused', 'paused', 'cost'], ['disabled', 'disabled', 'retired']]);
+  });
+
+  it('reports the reset as unknown, never an invented date that drifts with the poll, when there is no real observation time (F1/N5)', () => {
+    const row = {
+      package: 'RUN-11', lane: 'codex', model: 'gpt-5.6-luna', adventurerId: 'codex-luna',
+      state: 'bounced', bounceUntil: '1:54 PM',
+      // Only a week-old dispatch time, never a real observation of the bounce itself — dispatchedAt is when
+      // the worker was launched, not when it bounced, so it must not anchor the reset.
+      dispatchedAt: '2026-09-13T08:00:00.000Z',
+    };
+    for (const hours of [0, 30, 240]) {
+      const at = Date.parse('2026-09-13T12:00:00.000Z') + hours * 3600 * 1000;
+      const during = effectiveRoster([roster[1]], { packages: [row], laneLimits: {} }, at)[0];
+      assert.equal(during.status, 'limited', `+${hours}h: stays limited, never auto-recovers from an unknown reset`);
+      assert.equal(during.derived.resetsAt, null, `+${hours}h: no invented reset date, unlike a poll-anchored guess that would move forward with each check`);
+      assert.doesNotMatch(during.derived.reason, /\d{1,2}:\d{2}/, `+${hours}h: the reason carries no time when the reset is unknown`);
+    }
+  });
+
+  it('honours a full or dated reset even with no real observation time, and recovers after it (F4)', () => {
+    const lanes = { packages: [{ package: 'RUN-11', lane: 'codex', model: 'gpt-5.6-luna', adventurerId: 'codex-luna', state: 'bounced', bounceUntil: 'Sep 18, 2026 1:54 PM',
+      // Only a week-old dispatch time, never a real observation — but a dated reset carries its own
+      // calendar day and needs no anchor, unlike a bare clock time.
+      dispatchedAt: '2026-09-13T08:00:00.000Z' }] };
+    const before = effectiveRoster(roster, lanes, now)[1];
+    assert.equal(before.status, 'limited');
+    assert.notEqual(before.derived.resetsAt, null, 'a full/dated reset needs no observation time to anchor it, unlike a bare clock time');
+    assert.match(before.derived.reason, /RUN-11 限额退回，Sep 18, 2026 1:54 PM 恢复/);
+    const after = effectiveRoster(roster, lanes, Date.parse('2026-09-18T21:00:00.000Z'))[1];
+    assert.equal(after.status, 'available', 'a known reset that F4 dropped would never have recovered; this one does');
+  });
+
+  it('anchors a time-only reset to a real observation time, and recovers once it has passed (N5)', () => {
+    const observedAt = '2026-09-13T10:00:00.000Z';
+    const row = {
+      package: 'RUN-11', lane: 'codex', model: 'gpt-5.6-luna', adventurerId: 'codex-luna',
+      state: 'bounced', bounceUntil: '1:54 PM', observedAt,
+      // The stale, week-old dispatch time is present too, but observedAt — the real evidence timestamp —
+      // must win as the calendar reference, not dispatchedAt and not the current poll.
+      dispatchedAt: '2026-09-06T08:00:00.000Z',
+    };
+    const lanes = { packages: [row], laneLimits: {} };
+    const during = effectiveRoster([roster[1]], lanes, Date.parse('2026-09-13T12:00:00.000Z'))[0];
+    assert.equal(during.status, 'limited');
+    assert.equal(during.derived.resetsAt, '2026-09-13T20:54:00.000Z', 'anchored to the real observation day, not the stale dispatch day');
+    const after = effectiveRoster([roster[1]], lanes, Date.parse('2026-09-13T21:00:00.000Z'))[0];
+    assert.equal(after.status, 'available', 'recovers once the real observation-anchored reset has passed');
+  });
+
+  it('shows a duplicated ambiguous-evidence diagnostic once, keyed by code and text (N4)', () => {
+    const lanes = {
+      packages: [{ package: 'RUN-20', lane: 'codex', model: 'gpt-5.6-luna', state: 'bounced', observedAt: '2026-09-16T09:00:00.000Z' }],
+      laneLimits: { codex: { until: null, unidentified: [{ at: '2026-09-16T09:05:00.000Z', model: 'gpt-5.6-luna' }] } },
+    };
+    const result = effectiveRoster([roster[1]], lanes, now);
+    assert.equal(result[0].laneDiagnostics.length, 1, 'two ambiguous entries for the same lane collapse into one notice');
+  });
+
+  it('splits cleared into owner, success and expired instead of one blurred owner marker (N16)', () => {
+    const at = '2026-09-16T10:00:00.000Z';
+    const laneLimits = {
+      codex: {
+        cards: {
+          'owner-card': { adventurerId: 'owner-card', at, since: at, until: null, resetsAt: null, name: 'a' },
+          'success-card': { adventurerId: 'success-card', at, since: at, until: null, resetsAt: null, name: 'b' },
+          'expired-card': { adventurerId: 'expired-card', at, since: at, until: '11:00 AM', resetsAt: '2026-09-16T11:00:00.000Z', name: 'c' },
+        },
+      },
+    };
+    const cardRoster = [
+      { id: 'owner-card', status: 'available', statusSetBy: 'owner', statusSince: '2026-09-16T10:30:00.000Z' },
+      { id: 'success-card', status: 'available' },
+      { id: 'expired-card', status: 'available' },
+    ];
+    const later = Date.parse('2026-09-16T12:00:00.000Z');
+    const result = visibleLaneLimits(laneLimits, cardRoster, {}, later);
+    assert.deepEqual(result.laneLimits, {}, 'none of the three cards are still limited');
+    assert.equal(result.laneEvidence.codex.cards['owner-card'].cleared, 'owner');
+    assert.equal(result.laneEvidence.codex.cards['success-card'].cleared, 'success');
+    assert.equal(result.laneEvidence.codex.cards['expired-card'].cleared, 'expired');
+  });
+
+  it('drops a stale `until` when a manual re-limit supersedes the evidence it kept, but keeps a fresher one (N18)', () => {
+    const bounceAt = '2026-09-16T09:00:00.000Z';
+    const laneLimits = {
+      codex: {
+        cards: {
+          'codex-luna': { adventurerId: 'codex-luna', at: bounceAt, since: bounceAt, until: 'Sep 18th, 2026 1:54 PM', resetsAt: '2026-09-18T13:54:00.000Z', name: 'a' },
+        },
+      },
+    };
+    const later = Date.parse('2026-09-16T12:00:00.000Z');
+
+    const staleRoster = [{ id: 'codex-luna', status: 'limited', statusSetBy: 'owner', statusSince: '2026-09-16T10:00:00.000Z' }];
+    const stale = visibleLaneLimits(laneLimits, staleRoster, {}, later);
+    const kept = stale.laneLimits.codex.cards['codex-luna'];
+    assert.equal(kept.until, null, 'the bounce\'s own recovery time is dropped once a manual re-limit supersedes it');
+    assert.equal(kept.resetsAt, null);
+    assert.match(kept.reason, /手动设为限额/);
+    assert.equal(stale.laneLimits.codex.until, null, 'the lane header drops the stale time too');
+
+    const freshRoster = [{ id: 'codex-luna', status: 'limited', statusSetBy: 'owner', statusSince: '2026-09-16T08:00:00.000Z' }];
+    const fresh = visibleLaneLimits(laneLimits, freshRoster, {}, later);
+    assert.equal(fresh.laneLimits.codex.cards['codex-luna'].until, 'Sep 18th, 2026 1:54 PM', 'a manual limit that predates the evidence never clears it');
+  });
+
+  it('keeps an unidentified legacy top-level lane-limit entry as named evidence instead of dropping it (N19)', () => {
+    const laneLimits = { codex: { since: '2026-09-16T09:00:00.000Z', at: '2026-09-16T09:00:00.000Z', until: '13:54', resetsAt: null, name: 'legacy' } };
+    const result = visibleLaneLimits(laneLimits, [], {}, now);
+    assert.deepEqual(result.laneLimits, {});
+    assert.equal(result.laneEvidence.codex.cards && Object.keys(result.laneEvidence.codex.cards).length, 0);
+    const [entry] = result.laneEvidence.codex.unidentified;
+    assert.equal(entry.name, 'legacy');
+    assert.match(entry.note, /旧格式限额记录/);
+    assert.match(entry.note, /codex/);
+  });
+
+  it('is a fixed point of its own output across every cleared kind — owner, success and expired, not just one owner fixture (F2/N8)', () => {
+    const acknowledgedAt = '2026-09-16T11:00:00.000Z';
+    const ownerAt = '2026-09-16T10:00:00.000Z';
+    const ownerEntry = { adventurerId: 'codex-luna', at: ownerAt, since: ownerAt, until: null, resetsAt: null, name: 'luna-a1' };
+
+    const bounceAt = '2026-09-16T08:00:00.000Z';
+    const successAt = '2026-09-16T08:30:00.000Z';
+    const successEntry = { adventurerId: 'codex-nova', at: bounceAt, since: bounceAt, until: null, resetsAt: null, name: 'nova-run' };
+
+    const expiredAt = '2026-09-16T08:00:00.000Z';
+    const expiredEntry = { adventurerId: 'codex-vega', at: expiredAt, since: expiredAt, until: '09:00 AM', resetsAt: '2026-09-16T09:00:00.000Z', name: 'vega-run' };
+
+    const fixtures = [
+      {
+        label: 'owner: a status-log record after the evidence acknowledges the card',
+        at: now,
+        rosterInput: [{ id: 'codex-luna', lane: 'codex', model: 'gpt-5.6-luna', status: 'available', statusSetBy: 'owner', statusSince: acknowledgedAt }],
+        lanes: { packages: [], laneLimits: { codex: { ...ownerEntry, cards: { 'codex-luna': ownerEntry } } } },
+      },
+      {
+        label: 'success: a later delivered run by the same card clears it',
+        at: Date.parse('2026-09-16T09:00:00.000Z'),
+        rosterInput: [{ id: 'codex-nova', lane: 'codex', model: 'gpt-5.6-nova', status: 'available' }],
+        lanes: {
+          packages: [{ package: 'P-nova-2', lane: 'codex', model: 'gpt-5.6-nova', adventurerId: 'codex-nova', state: 'delivered', observedAt: successAt }],
+          laneLimits: { codex: { ...successEntry, cards: { 'codex-nova': successEntry } } },
+        },
+      },
+      {
+        label: 'expired: the entry\'s own known reset has passed with no acknowledgement (F2 regression)',
+        at: Date.parse('2026-09-16T10:00:00.000Z'),
+        rosterInput: [{ id: 'codex-vega', lane: 'codex', model: 'gpt-5.6-vega', status: 'available' }],
+        lanes: { packages: [], laneLimits: { codex: { ...expiredEntry, cards: { 'codex-vega': expiredEntry } } } },
+      },
+    ];
+
+    for (const { label, at, rosterInput, lanes } of fixtures) {
+      const roster1 = effectiveRoster(rosterInput, lanes, at);
+      const visible1 = visibleLaneLimits(lanes.laneLimits, roster1, lanes.laneEvidence || {}, at);
+
+      const lanes2 = { packages: [], laneLimits: visible1.laneLimits, laneEvidence: visible1.laneEvidence };
+      const roster2 = effectiveRoster(rosterInput, lanes2, at);
+      const visible2 = visibleLaneLimits(lanes2.laneLimits, roster2, lanes2.laneEvidence, at);
+
+      assert.deepEqual(roster2, roster1, `${label}: the same roster comes back when the overlay's own output is fed back in`);
+      assert.deepEqual(visible2, visible1, `${label}: the same laneLimits/laneEvidence come back on the second pass`);
+    }
   });
 });

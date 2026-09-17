@@ -2,7 +2,7 @@
 // Read-only and never throws for a single bad worker — that worker gets state 'unknown' with the reason.
 import path from 'node:path';
 import { readJsonLines } from '../core/jsonl.js';
-import { workerState, countEdits, readText, laneLimitFromEvidence, active, laneEvidence as readLaneEvidence, mtime, resetAt } from './workers.js';
+import { workerState, countEdits, readText, laneLimitFromEvidence, active, laneEvidence as readLaneEvidence, mtime, resetAt, limitEntry } from './workers.js';
 import { protocolFor } from './protocols.js';
 import { latestProgress } from './progress.js';
 import { isCurrentRow, tailText } from '../core/sync.js';
@@ -59,6 +59,24 @@ function attemptStartAt(quest, dispatch) {
   return quest?.assignee?.at || dispatch.at;
 }
 
+// N9: an API lane (no outputDir, e.g. OpenCode) has no output directory to re-scan for terminal evidence
+// the way a file lane does, so a bounce would otherwise live only in the reassigned package's *current*
+// row and vanish the moment a new dispatch replaces it. The evidence belongs to the card and lane, not the
+// assignment, so it is remembered here across polls until the same identity later succeeds.
+function rememberApiEvidence(cache, lane, entry, now) {
+  const key = `${lane}:${entry.adventurerId}`;
+  const observed = entry.observedAt ? Date.parse(entry.observedAt) : now;
+  if (!Number.isFinite(observed)) return;
+  if (entry.state === 'bounced') {
+    const prior = cache.get(key);
+    if (prior && prior.observedMs > observed) return;
+    cache.set(key, { observedMs: observed, entry: limitEntry({ at: observed, bounceUntil: entry.bounceUntil, adventurerId: entry.adventurerId, name: entry.name, code: entry.code }) });
+  } else if (entry.state === 'delivered') {
+    const prior = cache.get(key);
+    if (prior && observed > prior.observedMs) cache.delete(key);
+  }
+}
+
 function baseEntry(pkg, dispatch, data, now, adventurerId, quest) {
   const history = [
     ...data.dispatches.map((d) => ({ at: d.at, lane: d.lane, model: d.model, event: 'dispatch' })),
@@ -91,6 +109,7 @@ async function pollAll(jobs) {
 export function createCollector(config, { fetchImpl = fetch } = {}) {
   const lastSeen = new Map();
   const models = new Map();
+  const apiEvidence = new Map();
 
   function fileWorker(entry, lane, now, registryToken) {
     const basePath = path.join(config.root, lane.outputDir, entry.name);
@@ -187,11 +206,23 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
       recoverModel(entry, config.lanes[entry.lane]);
       const newest = entry.history.at(-1);
       if (!entry.stale && newest && now - Date.parse(newest.at) > STALE_3D_MS) entry.stale = true;
+      const lane = config.lanes[entry.lane];
+      if (lane && !lane.outputDir && entry.adventurerId) rememberApiEvidence(apiEvidence, entry.lane, entry, now);
     }
     const laneLimits = {};
     const laneEvidence = {};
     for (const [id, lane] of Object.entries(config.lanes)) {
-      if (!lane.outputDir) continue;
+      if (!lane.outputDir) {
+        const prefix = `${id}:`;
+        const cards = {};
+        for (const [key, cached] of apiEvidence) if (key.startsWith(prefix)) cards[key.slice(prefix.length)] = cached.entry;
+        if (!Object.keys(cards).length) continue;
+        const limit = laneLimitFromEvidence({ cards, unidentified: [] }, now);
+        if (limit) laneLimits[id] = limit;
+        const expiredCards = Object.fromEntries(Object.entries(cards).filter(([, entry]) => !active(entry, now)));
+        if (Object.keys(expiredCards).length) laneEvidence[id] = { cards: expiredCards, unidentified: [] };
+        continue;
+      }
       const options = { identityByName: (name) => identitiesByName.get(name) || null, bouncePatterns: config.policy.bouncePatterns };
       // One read of the output folder serves both the lane-wide limit and the expired/unidentified
       // evidence below — laneLimitFromEvidence and the `active` filter share this same evidence object

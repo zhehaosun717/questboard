@@ -278,6 +278,44 @@ describe('collector', () => {
     assert.match(byPkg['RUN-5'].lastText, /^…/, 'a long report is cut at a word boundary, not mid-word');
     assert.ok(byPkg['RUN-5'].lastText.length <= 301);
   });
+
+  it('keeps an OpenCode quota bounce as lane evidence across a reassignment, then clears it on that card\'s later success (N9)', async () => {
+    const { config } = makeProject();
+    let respond = null;
+    const fetchImpl = async (url) => respond(url);
+    const collector = createCollector(config, { fetchImpl });
+
+    // Phase 1: oc-mimo bounces on a structured 402.
+    const t1 = Date.parse('2026-09-16T10:00:00.000Z');
+    dispatch(config, { package: 'RUN-9', lane: 'opencode', model: 'xiaomi/mimo-v2.5-pro', name: 'oc-a', session: 'ses_a', adventurerId: 'oc-mimo' });
+    const bouncedMessages = [{ info: { role: 'assistant', time: { completed: t1 }, error: { status: 402 } } }];
+    respond = async (url) => ({ ok: true, json: async () => (url.endsWith('/message') ? bouncedMessages : {}) });
+    const first = await collector.collect({ now: t1 });
+    assert.equal(first.packages[0].state, 'bounced');
+    assert.ok(first.laneLimits.opencode?.cards?.['oc-mimo'], 'the bounce is visible while it is the current attempt');
+
+    // Phase 2: RUN-9 is reassigned to a different card (oc-deepseek), now merely running. The current
+    // package row no longer mentions oc-mimo at all, but the evidence must not vanish with it.
+    const t2 = t1 + 5 * 60 * 1000;
+    dispatch(config, { package: 'RUN-9', lane: 'opencode', model: 'deepseek/deepseek-v4-pro', name: 'oc-b', session: 'ses_b', adventurerId: 'oc-deepseek' });
+    const runningMessages = [{ info: { role: 'assistant', time: { created: t2 } }, parts: [] }];
+    respond = async (url) => ({ ok: true, json: async () => (url.endsWith('/message') ? runningMessages : {}) });
+    const second = await collector.collect({ now: t2 });
+    assert.equal(second.packages[0].adventurerId, 'oc-deepseek', 'the live row now belongs to the reassigned card');
+    assert.ok(second.laneLimits.opencode?.cards?.['oc-mimo'], 'the evidence belongs to the card and lane, not the assignment');
+    assert.equal(second.laneLimits.opencode.cards['oc-deepseek'], undefined);
+
+    // Phase 3: oc-mimo is dispatched again and this time succeeds — the remembered bounce clears, exactly
+    // like a file lane's own later-success rule.
+    const t3 = t2 + 5 * 60 * 1000;
+    dispatch(config, { package: 'RUN-9', lane: 'opencode', model: 'xiaomi/mimo-v2.5-pro', name: 'oc-c', session: 'ses_c', adventurerId: 'oc-mimo' });
+    const successMessages = [{ info: { role: 'assistant', time: { completed: t3 } }, parts: [{ type: 'text', text: 'done' }] }];
+    respond = async (url) => ({ ok: true, json: async () => (url.endsWith('/message') ? successMessages : {}) });
+    const third = await collector.collect({ now: t3 });
+    assert.equal(third.packages[0].state, 'delivered');
+    assert.equal(third.laneLimits.opencode, undefined, 'a later success by the same card clears its remembered bounce entirely');
+    assert.equal(third.laneEvidence.opencode, undefined, 'cleared by success leaves no residual evidence either, like a file lane');
+  });
 });
 
 describe('workers', () => {
