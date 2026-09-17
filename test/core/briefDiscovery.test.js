@@ -94,21 +94,39 @@ describe('the newest copy governs even when it is the one that is broken (requir
   });
 });
 
+describe('a folder read failure is this folder\'s own diagnostic, not a crash that fails the whole snapshot (F4)', () => {
+  it('reports a mid-scan directory read error (EIO) for just that folder and still returns the other folder\'s briefs', () => {
+    const { config, root, write } = makeProject({ briefs: { dispatchDirs: ['docs/b1', 'docs/b2'] } });
+    write('docs/b2/RUN-12-ok.md', '# fine');
+    const dir1 = path.join(root, 'docs', 'b1');
+    const orig = fs.readdirSync;
+    fs.readdirSync = (target, options) => {
+      if (path.resolve(String(target)) === path.resolve(dir1)) {
+        const err = new Error('input/output error');
+        err.code = 'EIO';
+        throw err;
+      }
+      return orig(target, options);
+    };
+    let result;
+    try {
+      assert.doesNotThrow(() => { result = discoverBriefs(config, { postedIds: new Set(), dispatchedIds: new Set() }); });
+    } finally {
+      fs.readdirSync = orig;
+    }
+    const err = result.errors.find((e) => e.folder === 'docs/b1');
+    assert.ok(err, 'docs/b1 must report its own diagnostic');
+    assert.equal(err.reason, '目录不可读（EIO）');
+    assert.ok(result.items.some((i) => i.package === 'RUN-12'), 'docs/b2 must still be scanned and its brief returned');
+  });
+});
+
 describe('the iteration cap states truthful seen/returned counts, never "scanned 0, complete" (requirement 5)', () => {
   // Actually creating 50000+ real files to trip MAX_DIR_ITERATE is minutes slow on NTFS; scanDirectory only
-  // ever calls fs.opendirSync/handle.readSync()/handle.closeSync(), so a fake handle exercises the exact same
-  // loop and cap logic in microseconds. 5 real .md entries mixed in prove seen/mdSeen stay separate concepts.
-  function fakeDirHandle(names) {
-    let i = 0;
-    return {
-      readSync() {
-        if (i >= names.length) return null;
-        const name = names[i];
-        i += 1;
-        return { name, isSymbolicLink: () => false, isFile: () => true };
-      },
-      closeSync() {},
-    };
+  // ever calls fs.readdirSync(dir, {withFileTypes: true}) once, so a fake Dirent array exercises the exact
+  // same sort/cap logic in microseconds. 5 real .md entries mixed in prove seen/mdSeen stay separate concepts.
+  function fakeDirent(name) {
+    return { name, isSymbolicLink: () => false, isFile: () => true };
   }
 
   it('reports how many .md files were seen and returned when the raw entry cap stops the scan', () => {
@@ -117,19 +135,54 @@ describe('the iteration cap states truthful seen/returned counts, never "scanned
     const names = [];
     for (let i = 0; i < 5; i++) names.push(`AAA-${i}-early.md`);
     for (let i = 0; i < 50010; i++) names.push(`noise-${String(i).padStart(6, '0')}.txt`);
-    const origOpendir = fs.opendirSync;
-    fs.opendirSync = (target) => (path.resolve(String(target)) === path.resolve(dir) ? fakeDirHandle(names) : origOpendir(target));
+    const origReaddir = fs.readdirSync;
+    fs.readdirSync = (target, options) => (path.resolve(String(target)) === path.resolve(dir) ? names.map(fakeDirent) : origReaddir(target, options));
     let result;
     try {
       result = discoverBriefs(config, { postedIds: new Set(), dispatchedIds: new Set() });
     } finally {
-      fs.opendirSync = origOpendir;
+      fs.readdirSync = origReaddir;
     }
     assert.equal(result.truncated, true);
     const err = result.errors.find((e) => e.folder === 'docs/briefs');
     assert.ok(err, 'the folder must report a diagnostic');
     assert.doesNotMatch(err.reason, /扫描 0|scanned 0/i, 'must never claim it scanned nothing');
     assert.match(err.reason, /5/, 'must state the concrete .md-seen count, not just "truncated"');
+  });
+
+  it('which entries survive the raw-entry cap is a sorted, stable choice — never an accident of raw listing order (F4)', () => {
+    const { config, root, write } = makeProject();
+    const dir = path.join(root, 'docs', 'briefs');
+    // The candidates need to actually be readable (discoverBriefs stats and peeks every .md name scanDirectory
+    // returns), but scanDirectory's own directory listing is faked so 50000+ filler entries never have to
+    // exist on disk.
+    write('docs/briefs/AAA-1-early.md', '# early');
+    write('docs/briefs/MMM-5-mid.md', '# mid');
+    write('docs/briefs/ZZZZZ-9-notlast.md', '# not last');
+    // The 3 real .md candidates are appended LAST in raw order, after more than MAX_DIR_ITERATE (50000)
+    // filler entries that all sort AFTER them ("zzz-filler-*" > "AAA"/"MMM"). A scan that merely streams raw
+    // entries and stops at the 50000th would never reach these three at all (iterationCapped, mdSeen 0) —
+    // only a scan that sorts the full listing before applying the cap can find them.
+    const names = [];
+    for (let i = 0; i < 50002; i++) names.push(`zzz-filler-${String(i).padStart(6, '0')}.txt`);
+    // "ZZZZZ-9-…" sorts after every "zzz-filler-…" filler name (verified: locale compare ranks the shared
+    // "zzz" prefix ahead of a longer all-caps run), so it is always past the cap in sorted order — unlike raw
+    // order, where it would win just by being appended last, and unlike a lowercase name it would never be
+    // excluded as a bad package id either.
+    names.push('MMM-5-mid.md', 'AAA-1-early.md', 'ZZZZZ-9-notlast.md');
+    const origReaddir = fs.readdirSync;
+    fs.readdirSync = (target, options) => (path.resolve(String(target)) === path.resolve(dir) ? names.map(fakeDirent) : origReaddir(target, options));
+    let result;
+    try {
+      result = discoverBriefs(config, { postedIds: new Set(), dispatchedIds: new Set() });
+    } finally {
+      fs.readdirSync = origReaddir;
+    }
+    const briefs = result.items.map((i) => i.brief).sort();
+    assert.deepEqual(briefs, ['docs/briefs/AAA-1-early.md', 'docs/briefs/MMM-5-mid.md']);
+    assert.equal(result.items.some((i) => i.brief === 'docs/briefs/ZZZZZ-9-notlast.md'), false, 'sorts after all the filler names, so it must not survive the raw-entry cap');
+    const err = result.errors.find((e) => e.folder === 'docs/briefs');
+    assert.equal(err?.reason?.includes('停止扫描'), true, 'the iteration cap must have actually triggered, not just happened to exclude nothing');
   });
 });
 
@@ -181,5 +234,29 @@ describe('a symlinked entry inside a scanned folder is skipped, never followed (
     } finally {
       fs.rmSync(outsideFile, { force: true });
     }
+  });
+
+  it('reports a dangling junction on the discovery shelf instead of surfacing it, with a Chinese reason (F4, discovery shelf only)', () => {
+    const { config, root } = makeProject();
+    // mklink /J can only target a directory, so the dangling junction itself has to be a directory entry —
+    // exactly the shape a broken dispatch-briefs-style link takes. Its target is never created, so this
+    // proves discovery never follows the link, dangling or not. The POST-time refusal for the same shape is
+    // covered separately, through QuestStore.post, in test/core/store.test.js — this test starts and ends
+    // at discovery.
+    const missingTarget = path.join(root, '..', `qb-discovery-missing-target-${path.basename(root)}`);
+    const junctionPath = path.join(root, 'docs', 'briefs', 'RUN-31-x.md');
+    fs.mkdirSync(path.dirname(junctionPath), { recursive: true });
+    try { fs.symlinkSync(missingTarget, junctionPath, 'junction'); }
+    catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) return;
+      throw error;
+    }
+    assert.equal(fs.existsSync(missingTarget), false, 'test setup: the junction target must stay nonexistent');
+    const result = discoverBriefs(config, { postedIds: new Set(), dispatchedIds: new Set() });
+    assert.equal(result.items.some((i) => i.package === 'RUN-31'), false, 'a dangling junction must never be surfaced as a ready brief');
+    const row = result.excluded.find((e) => e.brief === 'docs/briefs/RUN-31-x.md');
+    assert.ok(row, 'the dangling junction must be reported, not silently dropped');
+    assert.equal(row.kind, 'symlink');
+    assert.equal(row.reason, '这是链接，跳过了，没有跟进去');
   });
 });

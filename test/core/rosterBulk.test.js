@@ -75,6 +75,8 @@ describe('roster bulk preview and apply', () => {
     assert.equal(preview.deniedActiveCards[0].id, 'quota');
     assert.match(preview.deniedActiveCards[0].reasons[0].message, /\u786e\u8ba4\u989d\u5ea6\u5df2\u6062\u590d/);
     assert.match(preview.statusNote, /不能批量设为空闲/);
+    assert.doesNotMatch(preview.statusNote, /可用/, 'the bulk note must use the single-card 空闲 label, never 可用');
+    assert.doesNotMatch(preview.deniedActiveCards[0].reasons[0].message, /可用/, 'the bulk refusal must call available 空闲 too');
 
     const dir = tmp('qb-roster-bulk-derived-');
     const file = path.join(dir, 'roster.json');
@@ -172,6 +174,97 @@ describe('roster bulk preview and apply', () => {
     assert.ok(visible.laneEvidence.code.cards.paused);
   });
 
+  it('a bulk available that finds a card already acknowledged keeps its existing reason instead of blanking it (F6)', async () => {
+    const now = Date.parse('2026-09-16T12:00:00.000Z');
+    const roster = { adventurers: [card('acked', { lane: 'code' })] };
+    const statusRecords = [
+      { at: '2026-09-16T11:55:00.000Z', adventurerId: 'acked', status: 'available', reason: '已手动确认额度恢复', setBy: 'owner' },
+    ];
+    const dir = tmp('qb-roster-bulk-keep-reason-');
+    const file = path.join(dir, 'roster.json');
+    const statusFile = path.join(dir, 'status.jsonl');
+    fs.writeFileSync(file, `${JSON.stringify(roster)}\n`);
+    fs.writeFileSync(statusFile, `${statusRecords.map((record) => JSON.stringify(record)).join('\n')}\n`);
+    const log = new StatusLog(statusFile);
+    const request = { ids: ['acked'], patch: { status: 'available' } };
+    const preview = previewRosterBulk({ roster, statusRecords, quests: [], request });
+    assert.equal(preview.results[0].ok, true);
+    assert.equal(preview.results[0].ready, true);
+    assert.deepEqual(preview.results[0].changedFields, [], 'already available with no new reason given: nothing to change');
+    const applied = await applyRosterBulk({ rosterFile: file, statusLog: log, request, now: () => '2026-09-16T12:00:00.000Z' });
+    assert.equal(applied.counts.changed, 0);
+    assert.equal(applied.counts.unchanged, 1);
+    assert.equal(applied.results[0].ok, true);
+    const records = log.records();
+    assert.equal(records.length, 1, 'no new record is written for a bulk action that changes nothing');
+    assert.equal(records[0].reason, '已手动确认额度恢复', 'the earlier acknowledgement reason must survive untouched');
+  });
+
+  it('a bulk available with an explicit empty reason keeps the existing reason, same as no reason at all (F6)', async () => {
+    const roster = { adventurers: [card('acked', { lane: 'code' })] };
+    const statusRecords = [
+      { at: '2026-09-16T11:55:00.000Z', adventurerId: 'acked', status: 'available', reason: '已手动确认额度恢复', setBy: 'owner' },
+    ];
+    const dir = tmp('qb-roster-bulk-empty-reason-');
+    const file = path.join(dir, 'roster.json');
+    const statusFile = path.join(dir, 'status.jsonl');
+    fs.writeFileSync(file, `${JSON.stringify(roster)}\n`);
+    fs.writeFileSync(statusFile, `${statusRecords.map((record) => JSON.stringify(record)).join('\n')}\n`);
+    const log = new StatusLog(statusFile);
+    // An explicitly empty reason means the same thing as leaving it out: this request names no new reason of
+    // its own, so the existing acknowledgement must survive. Bulk deliberately cannot clear a reason — that
+    // is a single-card action.
+    const request = { ids: ['acked'], patch: { status: 'available', reason: '' } };
+    const preview = previewRosterBulk({ roster, statusRecords, quests: [], request });
+    assert.deepEqual(preview.results[0].changedFields, []);
+    const applied = await applyRosterBulk({ rosterFile: file, statusLog: log, request, now: () => '2026-09-16T12:00:00.000Z' });
+    assert.equal(applied.counts.changed, 0);
+    assert.equal(applied.counts.unchanged, 1);
+    const records = log.records();
+    assert.equal(records.length, 1, 'no new record is written for a bulk action that changes nothing');
+    assert.equal(records[0].reason, '已手动确认额度恢复');
+  });
+
+  it('a bulk available with an explicit non-empty reason replaces the old reason (F6)', async () => {
+    const roster = { adventurers: [card('acked', { lane: 'code' })] };
+    const statusRecords = [
+      { at: '2026-09-16T11:55:00.000Z', adventurerId: 'acked', status: 'available', reason: '已手动确认额度恢复', setBy: 'owner' },
+    ];
+    const dir = tmp('qb-roster-bulk-new-reason-');
+    const file = path.join(dir, 'roster.json');
+    const statusFile = path.join(dir, 'status.jsonl');
+    fs.writeFileSync(file, `${JSON.stringify(roster)}\n`);
+    fs.writeFileSync(statusFile, `${statusRecords.map((record) => JSON.stringify(record)).join('\n')}\n`);
+    const log = new StatusLog(statusFile);
+    const request = { ids: ['acked'], patch: { status: 'available', reason: '额度已确认，确实恢复了' } };
+    const applied = await applyRosterBulk({ rosterFile: file, statusLog: log, request, now: () => '2026-09-16T12:00:00.000Z' });
+    assert.equal(applied.counts.changed, 1);
+    const records = log.records();
+    assert.equal(records.length, 2);
+    assert.equal(records[1].status, 'available');
+    assert.equal(records[1].reason, '额度已确认，确实恢复了', 'an explicit non-empty reason still replaces the old one');
+  });
+
+  it('a bulk status transition away from an acknowledged available card still clears the old reason normally', async () => {
+    const roster = { adventurers: [card('acked', { lane: 'code' })] };
+    const statusRecords = [
+      { at: '2026-09-16T11:55:00.000Z', adventurerId: 'acked', status: 'available', reason: '已手动确认额度恢复', setBy: 'owner' },
+    ];
+    const dir = tmp('qb-roster-bulk-transition-');
+    const file = path.join(dir, 'roster.json');
+    const statusFile = path.join(dir, 'status.jsonl');
+    fs.writeFileSync(file, `${JSON.stringify(roster)}\n`);
+    fs.writeFileSync(statusFile, `${statusRecords.map((record) => JSON.stringify(record)).join('\n')}\n`);
+    const log = new StatusLog(statusFile);
+    const request = { ids: ['acked'], patch: { status: 'paused', reason: '手动暂停' } };
+    const applied = await applyRosterBulk({ rosterFile: file, statusLog: log, request, now: () => '2026-09-16T12:00:00.000Z' });
+    assert.equal(applied.counts.changed, 1);
+    const records = log.records();
+    assert.equal(records.length, 2);
+    assert.equal(records[1].status, 'paused');
+    assert.equal(records[1].reason, '手动暂停', 'an explicit reason on a real status transition is never overridden');
+  });
+
   it('allows bulk available for a card whose single-card acknowledgement is newer than its quota evidence', async () => {
     const now = Date.parse('2026-09-16T12:00:00.000Z');
     const roster = { adventurers: [card('acked', { lane: 'code' })] };
@@ -227,13 +320,15 @@ describe('roster bulk preview and apply', () => {
       now: () => '2026-09-16T12:00:00.000Z',
     });
     assert.equal(applied.counts.denied, 0);
-    assert.equal(applied.counts.changed, 1);
+    // Already available, and the bulk request names no reason of its own: F6 keeps the existing "已手动确认
+    // 额度恢复" acknowledgement untouched rather than writing a fresh record that blanks it — see the
+    // dedicated F6 test above.
+    assert.equal(applied.counts.changed, 0);
+    assert.equal(applied.counts.unchanged, 1);
     assert.equal(applied.results[0].ok, true);
     const records = log.records();
-    assert.equal(records.length, 2);
-    assert.equal(records[1].adventurerId, 'acked');
-    assert.equal(records[1].status, 'available');
-    assert.equal(records[1].reason, '');
+    assert.equal(records.length, 1);
+    assert.equal(records[0].reason, '已手动确认额度恢复');
   });
 
   it('allows bulk available for a card whose quota evidence has expired', async () => {

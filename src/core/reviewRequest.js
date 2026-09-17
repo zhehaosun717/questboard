@@ -67,7 +67,13 @@ export function buildReviewBrief({ reviewId, parent, note = '' }) {
     `- The brief the work was done against: \`${parent.brief}\`. Read it first; it is the standard.`,
   ];
   if (last) lines.push(`- Done by ${last.model} through the ${last.lane} lane (worker ${last.name}).`);
-  if ((parent.files || []).length) {
+  if (parent.briefUnknownReason) {
+    // parent.brief could not be read (too large, unreadable, or now outside the project) when this review
+    // was requested — withFileSets marks that `unknown`, never as "reads fine and lists no files" (see
+    // briefs.js's fail-closed contract). An empty list here would read as "no files were touched", not as
+    // "the file list could not be checked", so the reviewer is told which is true and why, in Chinese.
+    lines.push(`- 委托允许改的文件列表现在不知道：${parent.briefUnknownReason}`);
+  } else if ((parent.files || []).length) {
     lines.push('- The files that brief allowed it to change:');
     for (const file of parent.files) lines.push(`  - \`${file}\``);
   }

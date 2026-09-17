@@ -191,4 +191,162 @@ describe('annotationSnapshot core', () => {
     assert.throws(() => writeAnnotationSnapshot({ config, packageId: 'ART-39', attemptId: 'attempt-1', ...prepared }), (error) => error.code === 'snapshot_containment');
     assert.equal(fs.existsSync(path.join(outsideData, 'dispatch-briefs')), false);
   });
+
+  it('refuses a data directory outside the project before assign, creating nothing (F1)', () => {
+    const project = makeProject({ reviewPages: { dir: 'docs/art' } });
+    project.write('docs/briefs/ART-39-x.md', '# original');
+    project.write('docs/art/review_robot8.html', manifest('robot8'));
+    const outsideData = path.join(project.root, '..', `qb-prepare-data-outside-${path.basename(project.root)}`);
+    fs.rmSync(outsideData, { recursive: true, force: true });
+    fs.mkdirSync(outsideData, { recursive: true });
+    const config = { ...project.config, paths: { ...project.config.paths, data: outsideData } };
+    assert.throws(
+      () => prepareAnnotationSnapshot({ config, quest: artQuest() }),
+      (error) => {
+        assert.equal(error.code, 'snapshot_containment');
+        assert.equal(error.message, `派遣数据目录在项目之外：${outsideData}`);
+        assert.doesNotMatch(error.message, /符号链接|联接点/, 'a plain folder must never be called a link');
+        return true;
+      },
+    );
+    assert.equal(fs.existsSync(path.join(outsideData, 'dispatch-briefs')), false, 'prepare must not create anything under the outside data folder');
+  });
+
+  it('refuses a dispatch-briefs junction resolving outside data before assign, creating nothing when supported (F1)', () => {
+    const project = makeProject({ reviewPages: { dir: 'docs/art' } });
+    project.write('docs/briefs/ART-39-x.md', '# original');
+    project.write('docs/art/review_robot8.html', manifest('robot8'));
+    fs.mkdirSync(project.config.paths.data, { recursive: true });
+    const outside = path.join(project.root, '..', `qb-prepare-briefs-outside-${path.basename(project.root)}`);
+    fs.rmSync(outside, { recursive: true, force: true });
+    fs.mkdirSync(outside, { recursive: true });
+    const dispatchBriefs = path.join(project.config.paths.data, 'dispatch-briefs');
+    try { fs.symlinkSync(outside, dispatchBriefs, 'junction'); }
+    catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) return;
+      throw error;
+    }
+    assert.throws(
+      () => prepareAnnotationSnapshot({ config: project.config, quest: artQuest() }),
+      (error) => {
+        assert.equal(error.code, 'snapshot_containment');
+        assert.equal(error.message, `派遣数据目录里的联接点指向项目之外：${dispatchBriefs}`);
+        return true;
+      },
+    );
+    assert.equal(fs.existsSync(path.join(outside, 'ART-39')), false, 'prepare must not create a package folder outside data');
+  });
+
+  it('refuses a dangling dispatch-briefs junction before assign, naming the path and creating nothing (F1)', () => {
+    const project = makeProject({ reviewPages: { dir: 'docs/art' } });
+    project.write('docs/briefs/ART-39-x.md', '# original');
+    project.write('docs/art/review_robot8.html', manifest('robot8'));
+    fs.mkdirSync(project.config.paths.data, { recursive: true });
+    const missingTarget = path.join(project.root, '..', `qb-prepare-briefs-missing-${path.basename(project.root)}`);
+    fs.rmSync(missingTarget, { recursive: true, force: true });
+    const dispatchBriefs = path.join(project.config.paths.data, 'dispatch-briefs');
+    try { fs.symlinkSync(missingTarget, dispatchBriefs, 'junction'); }
+    catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) return;
+      throw error;
+    }
+    assert.equal(fs.existsSync(missingTarget), false, 'test setup: the junction target stays missing');
+    assert.throws(
+      () => prepareAnnotationSnapshot({ config: project.config, quest: artQuest() }),
+      (error) => {
+        assert.equal(error.code, 'snapshot_containment');
+        assert.equal(error.message, `派遣简报目录是一个指向不存在位置的联接点：${dispatchBriefs}`);
+        return true;
+      },
+    );
+    assert.equal(fs.existsSync(missingTarget), false, 'the check itself must not create the missing target');
+  });
+
+  it('refuses a data path that is itself a junction to a missing target, before assign (F1 hardening)', () => {
+    const project = makeProject({ reviewPages: { dir: 'docs/art' } });
+    project.write('docs/briefs/ART-39-x.md', '# original');
+    project.write('docs/art/review_robot8.html', manifest('robot8'));
+    const danglingData = path.join(project.root, '.dangling-data');
+    const missingTarget = path.join(project.root, '.dangling-data-target-never-created');
+    fs.rmSync(missingTarget, { recursive: true, force: true });
+    try { fs.symlinkSync(missingTarget, danglingData, 'junction'); }
+    catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) return;
+      throw error;
+    }
+    assert.ok(fs.lstatSync(danglingData).isSymbolicLink(), 'test setup: the data path is a real junction');
+    assert.equal(fs.existsSync(missingTarget), false, 'test setup: the junction target stays missing');
+    const config = { ...project.config, paths: { ...project.config.paths, data: danglingData } };
+    assert.throws(
+      () => prepareAnnotationSnapshot({ config, quest: artQuest() }),
+      (error) => {
+        assert.equal(error.code, 'snapshot_containment');
+        assert.equal(error.message, `派遣数据目录是一个指向不存在位置的联接点：${danglingData}`);
+        return true;
+      },
+    );
+    assert.equal(fs.existsSync(missingTarget), false);
+  });
+
+  it('refuses a data path that is outside as written but a junction back inside the project, before assign (F2)', () => {
+    const project = makeProject({ reviewPages: { dir: 'docs/art' } });
+    project.write('docs/briefs/ART-39-x.md', '# original');
+    project.write('docs/art/review_robot8.html', manifest('robot8'));
+    const innerData = path.join(project.root, '.inner-data');
+    fs.mkdirSync(innerData, { recursive: true });
+    const datalink = path.join(project.root, '..', `qb-datalink-${path.basename(project.root)}`);
+    fs.rmSync(datalink, { recursive: true, force: true });
+    try { fs.symlinkSync(innerData, datalink, 'junction'); }
+    catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) return;
+      throw error;
+    }
+    const config = { ...project.config, paths: { ...project.config.paths, data: datalink } };
+    assert.throws(
+      () => prepareAnnotationSnapshot({ config, quest: artQuest() }),
+      (error) => {
+        assert.equal(error.code, 'snapshot_containment');
+        assert.equal(error.message, `批注快照路径在项目之外：${datalink}`);
+        return true;
+      },
+    );
+  });
+
+  it('refuses a snapshot write whose data path is outside as written but a junction back inside the project (F2)', () => {
+    const project = makeProject({ reviewPages: { dir: 'docs/art' } });
+    project.write('docs/briefs/ART-39-x.md', '# original');
+    project.write('docs/art/review_robot8.html', manifest('robot8'));
+    const prepared = prepareAnnotationSnapshot({ config: project.config, quest: artQuest() });
+    const innerData = path.join(project.root, '.inner-data');
+    fs.mkdirSync(innerData, { recursive: true });
+    const datalink = path.join(project.root, '..', `qb-datalink-${path.basename(project.root)}`);
+    fs.rmSync(datalink, { recursive: true, force: true });
+    try { fs.symlinkSync(innerData, datalink, 'junction'); }
+    catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) return;
+      throw error;
+    }
+    const config = { ...project.config, paths: { ...project.config.paths, data: datalink } };
+    // This is exactly the check round 1 removed as unreachable: the real-path checks all pass here (the
+    // junction leads back inside the project), yet the stored reference would keep the ".." the config
+    // wrote, so the write must still refuse it — after rendering, before anything is handed back.
+    assert.throws(
+      () => writeAnnotationSnapshot({ config, packageId: 'ART-39', attemptId: 'attempt-1', ...prepared }),
+      (error) => {
+        assert.equal(error.code, 'snapshot_containment');
+        assert.equal(error.message, '批注快照路径在项目之外');
+        return true;
+      },
+    );
+  });
+
+  it('does not mistake a data folder that has simply never been created for an escape (F2)', () => {
+    const project = makeProject({ reviewPages: { dir: 'docs/art' } });
+    project.write('docs/briefs/ART-39-x.md', '# original');
+    project.write('docs/art/review_robot8.html', manifest('robot8'));
+    assert.equal(fs.existsSync(project.config.paths.data), false, 'test setup: nothing has dispatched yet');
+    const prepared = prepareAnnotationSnapshot({ config: project.config, quest: artQuest() });
+    assert.equal(prepared.page, 'robot8');
+    assert.equal(fs.existsSync(project.config.paths.data), false, 'prepare must not create the data folder, and must not report it as broken');
+  });
 });

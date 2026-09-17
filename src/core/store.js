@@ -1,5 +1,6 @@
 // Quest store. One quest per package id. Snapshots are appended to <data>/quests.jsonl (replay keeps the
 // latest per id); every state change is also appended to the events file the coordinator tails.
+import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -99,19 +100,19 @@ function pathInside(root, target) {
 // The snapshot reference is plain, non-secret metadata. It is validated at the persistence boundary as well
 // as when it is created, so a malformed caller cannot turn the detail route into a path or digest oracle.
 export function validateAnnotationSnapshot(config, questId, value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('annotationSnapshot must be an object');
-  if (typeof value.page !== 'string' || !ANNOTATION_PAGE_PATTERN.test(value.page)) throw new Error('annotationSnapshot.page has an invalid page id');
-  if (typeof value.title !== 'string' || value.title.length > 1000) throw new Error('annotationSnapshot.title must be a string of at most 1000 characters');
-  if (!Number.isSafeInteger(value.count) || value.count < 0) throw new Error('annotationSnapshot.count must be a non-negative integer');
-  if (typeof value.capturedAt !== 'string' || !Number.isFinite(Date.parse(value.capturedAt))) throw new Error('annotationSnapshot.capturedAt must be a valid date string');
-  if (typeof value.digest !== 'string' || !ANNOTATION_DIGEST_PATTERN.test(value.digest)) throw new Error('annotationSnapshot.digest must be a SHA-256 hex digest');
-  if (typeof value.path !== 'string' || !value.path.trim() || value.path.includes('\0') || path.isAbsolute(value.path)) throw new Error('annotationSnapshot.path must be a relative path');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('批注快照必须是一个对象');
+  if (typeof value.page !== 'string' || !ANNOTATION_PAGE_PATTERN.test(value.page)) throw new Error('批注快照的页面编号无效');
+  if (typeof value.title !== 'string' || value.title.length > 1000) throw new Error('批注快照的标题必须是最长 1000 个字符的文本');
+  if (!Number.isSafeInteger(value.count) || value.count < 0) throw new Error('批注快照的批注数量必须是不小于 0 的整数');
+  if (typeof value.capturedAt !== 'string' || !Number.isFinite(Date.parse(value.capturedAt))) throw new Error('批注快照的捕获时间无效');
+  if (typeof value.digest !== 'string' || !ANNOTATION_DIGEST_PATTERN.test(value.digest)) throw new Error('批注快照的摘要必须是 SHA-256 十六进制字符串');
+  if (typeof value.path !== 'string' || !value.path.trim() || value.path.includes('\0') || path.isAbsolute(value.path)) throw new Error('批注快照路径必须是相对路径');
   const absolutePath = path.resolve(config.root, value.path);
-  if (!pathInside(config.root, absolutePath)) throw new Error('annotationSnapshot.path must stay under the project root');
+  if (!pathInside(config.root, absolutePath)) throw new Error('批注快照路径必须在项目根目录之内');
   const projectIssue = realpathContainmentIssue(config.root, absolutePath);
-  if (projectIssue) throw new Error('annotationSnapshot.path must stay under the project root');
+  if (projectIssue) throw new Error('批注快照路径必须在项目根目录之内');
   const expected = path.join(config.paths.data, 'dispatch-briefs', questId);
-  if (!pathInside(expected, absolutePath)) throw new Error('annotationSnapshot.path must stay under the quest dispatch-brief directory');
+  if (!pathInside(expected, absolutePath)) throw new Error('批注快照路径必须在这次委托的派遣简报目录之内');
   return { page: value.page, title: value.title, count: value.count, capturedAt: value.capturedAt, digest: value.digest, path: value.path };
 }
 
@@ -128,6 +129,21 @@ export function validatePost(config, payload, quests = []) {
   if (brief && !briefPathAllowed(config, brief, kind)) {
     const dirs = kind === 'owner' ? [...config.briefs.dispatchDirs, ...config.briefs.ownerDirs] : config.briefs.dispatchDirs;
     errors.brief = `brief must be <dir>/<file>.md with <dir> one of ${[...new Set(dirs)].join(', ')}`;
+  }
+  // A brief path that exists only as a link to a missing target is refused right here, at POST, before any
+  // attempt can be minted: fileStatusFor would call it missing only after an assign (the same class of
+  // failure the snapshot pre-check was built to catch). lstat sees the link where stat/exists would follow
+  // it and see nothing; a brief that is simply not written yet stays legal, and briefPathAllowed's
+  // directory-only rule is left exactly as it was.
+  if (brief && !errors.brief) {
+    const absolute = path.join(config.root, brief);
+    let link = null;
+    try { link = fs.lstatSync(absolute); } catch { link = null; }
+    if (link && link.isSymbolicLink()) {
+      let targetExists = true;
+      try { fs.statSync(absolute); } catch { targetExists = false; }
+      if (!targetExists) errors.brief = `简报路径是一个指向不存在位置的联接点：${brief}`;
+    }
   }
   const ids = (field) => {
     const list = splitList(input[field]);

@@ -29,6 +29,15 @@ describe('review requests', () => {
     assert.deepEqual(parseFileSet(text, config.briefs.fileListHeading), [], 'a review never queues behind the work it reviews');
   });
 
+  it('says the file list is unknown and why when the parent brief is too large or unreadable, instead of an empty list', () => {
+    const text = buildReviewBrief({
+      reviewId: 'REVIEW-ARC-2',
+      parent: { ...parent, files: [], briefUnknownReason: '文件过大（3.0MB，上限 2MB）' },
+    });
+    assert.match(text, /委托允许改的文件列表现在不知道：文件过大（3\.0MB，上限 2MB）/);
+    assert.doesNotMatch(text, /The files that brief allowed it to change/);
+  });
+
   it('leaves out the owner note and the worker lines when there are none', () => {
     const text = buildReviewBrief({ reviewId: 'REVIEW-ARC-2', parent: { ...parent, dispatches: [], files: [], lastDetail: '' } });
     assert.doesNotMatch(text, /owner's note/);

@@ -276,35 +276,42 @@ function normalizedFolders(dirs) {
 // undispatchable). A symlink is never followed, file or directory, so a link planted inside a configured
 // folder cannot surface a file from outside it.
 //
-// Iterates with fs.opendirSync/readSync instead of loading the whole directory into an array first, so a
-// folder holding many thousands of unrelated files never holds more than one Dirent in memory at a time, and
-// stops outright at MAX_DIR_ITERATE raw entries so a folder that never ends cannot make a scan run forever.
-// The .md names actually seen are then sorted and capped at MAX_SCAN_ENTRIES, so which files "win" when a
-// folder has too many is deterministic (alphabetical) and never an accident of raw filesystem order.
+// Reads the whole raw listing in one call (name plus type, no per-entry stat) and sorts it by name before
+// classifying anything, so which entries fall inside MAX_DIR_ITERATE — and therefore which .md files are even
+// candidates for the MAX_SCAN_ENTRIES cap — is always the same alphabetically-first slice of the directory,
+// never an accident of whatever order the filesystem happens to hand back raw entries in. Only the names are
+// kept and sorted: the caps bound what is kept (the returned slice), not what is read, because a stable
+// slice needs every name — a sort cannot finish before the last entry arrives, and the streaming version that
+// stopped early could not promise the same first slice. The single read call is wrapped: a mid-read failure
+// (EIO, a permission change) reports as this one folder's diagnostic (discoverBriefs then moves on to the
+// next configured folder) instead of throwing past a caller that has no per-folder boundary to catch it at,
+// which would fail every folder's discovery for one folder's fault.
 function scanDirectory(directory) {
-  let handle;
+  let entries;
   try {
-    handle = fs.opendirSync(directory);
+    entries = fs.readdirSync(directory, { withFileTypes: true });
   } catch (err) {
     return { files: [], skippedLinks: [], error: err.code === 'ENOENT' ? '目录不存在' : `目录不可读（${err.code || err.message}）`, seen: 0, mdSeen: 0, returned: 0, truncated: false, iterationCapped: false };
   }
+  // Project the dirents down to what matters right away: each name is classified once into this lookup and
+  // dropped, so the sorted array and everything held afterwards is plain strings, not objects.
+  const kindOf = new Map();
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) kindOf.set(entry.name, 'link');
+    else if (entry.isFile() && entry.name.endsWith('.md')) kindOf.set(entry.name, 'md');
+  }
+  const names = entries.map((entry) => entry.name).sort((a, b) => a.localeCompare(b));
   const mdFiles = [];
   const skippedLinks = [];
   let seen = 0;
   let iterationCapped = false;
-  try {
-    let entry = handle.readSync();
-    while (entry !== null) {
-      seen += 1;
-      if (seen > MAX_DIR_ITERATE) { iterationCapped = true; break; }
-      if (entry.isSymbolicLink()) skippedLinks.push(entry.name);
-      else if (entry.isFile() && entry.name.endsWith('.md')) mdFiles.push(entry.name);
-      entry = handle.readSync();
-    }
-  } finally {
-    handle.closeSync();
+  for (const name of names) {
+    seen += 1;
+    if (seen > MAX_DIR_ITERATE) { iterationCapped = true; break; }
+    const kind = kindOf.get(name);
+    if (kind === 'link') skippedLinks.push(name);
+    else if (kind === 'md') mdFiles.push(name);
   }
-  mdFiles.sort((a, b) => a.localeCompare(b));
   const mdSeen = mdFiles.length;
   const files = mdFiles.slice(0, MAX_SCAN_ENTRIES);
   return {

@@ -99,6 +99,10 @@ function normalizePatch(input, body) {
       if (own(statusInput, 'reason')) reason = statusInput.reason;
     } else status = statusInput;
     if (typeof status !== 'string' || !BULK_STATUSES.includes(status)) fail(`patch.status must be one of ${BULK_STATUSES.join('|')}`);
+    // A reason that was never sent and an explicit empty string land on the same value on purpose: both mean
+    // "this request names no new reason of its own" (see statusChange — repeating a status then keeps the
+    // existing reason instead of blanking an acknowledgement; a non-empty reason still replaces it). Bulk
+    // deliberately cannot clear a reason; that is a single-card action.
     if (reason === undefined) reason = '';
     if (typeof reason !== 'string' || reason.length > 300) fail('patch.reason must be a string of at most 300 characters');
   } else if (reason !== undefined) fail('patch.reason needs patch.status');
@@ -230,8 +234,14 @@ function statusChange(cardId, patch, statuses) {
   const current = statuses.get(cardId);
   const currentStatus = current?.status || 'available';
   const currentReason = current?.reason || '';
-  if (currentStatus === patch.status && currentReason === patch.reason) return null;
-  return { status: patch.status, reason: patch.reason };
+  // A bulk request that repeats the status a card is already in, without naming a reason of its own (patch.reason
+  // is '' — normalizePatch's default both when none was sent and when an explicit empty string was sent), must
+  // not blank an existing reason such as a single-card "已手动确认额度恢复" acknowledgement just because it
+  // happened to sweep this already-acknowledged card up too. A real status transition, or an explicit non-empty
+  // reason, still applies normally; clearing a reason through bulk is not a supported operation.
+  const reason = patch.reason === '' && currentStatus === patch.status ? currentReason : patch.reason;
+  if (currentStatus === patch.status && currentReason === reason) return null;
+  return { status: patch.status, reason };
 }
 
 function protectionFor(id, quests) {
@@ -255,9 +265,13 @@ function quotaEvidenceProtection(id, patch, quotaEvidenceCards) {
   // keeps a newer single-card available acknowledgement meaningful, while exposing lane evidence that the
   // normal overlay intentionally leaves hidden for manually limited/paused cards.
   if (evidence?.status !== 'limited' || evidence.derived?.from !== 'lanes') return null;
+  // A manually limited or paused card never shows the single-card "\u786e\u8ba4\u989d\u5ea6\u5df2\u6062\u590d" button (CardModal only
+  // renders it when card.derived is set \u2014 see rosterBulk N-f), so telling the owner to click it here would
+  // send them looking for a button that is not there. The single card always lets them switch \u72b6\u6001 to \u7a7a\u95f2
+  // by hand, so the refusal names both real paths instead of the one that may not exist for this card.
   return {
     code: 'quota_evidence',
-    message: `\u5361\u7247 ${id} \u5f53\u524d\u4ecd\u6709\u5177\u4f53\u7684\u9650\u989d\u8bc1\u636e\uff0c\u4e0d\u80fd\u6279\u91cf\u8bbe\u7f6e\u4e3a\u53ef\u7528\uff1b\u8bf7\u4f7f\u7528\u5355\u5361\u7684\u201c\u786e\u8ba4\u989d\u5ea6\u5df2\u6062\u590d\u201d\u64cd\u4f5c\u540e\u518d\u8bd5`,
+    message: `\u5361\u7247 ${id} \u5f53\u524d\u4ecd\u6709\u5177\u4f53\u7684\u9650\u989d\u8bc1\u636e\uff0c\u4e0d\u80fd\u6279\u91cf\u8bbe\u7f6e\u4e3a\u7a7a\u95f2\uff1b\u8bf7\u5728\u5355\u5361\u4e2d\u786e\u8ba4\u989d\u5ea6\u5df2\u6062\u590d\uff08\u6216\u624b\u52a8\u6539\u4e3a\u7a7a\u95f2\uff09\u540e\u518d\u8bd5`,
   };
 }
 
@@ -327,7 +341,7 @@ export function previewRosterBulk({ roster, statusRecords = [], quests = [], eff
     changedFields,
     preservedFields,
     deniedActiveCards,
-    statusNote: '这里显示的是记下的状态；通道实时发现的限额另外显示。还有具体限额证据的卡不能批量设为空闲，请到那张卡上点「确认额度已恢复」。',
+    statusNote: '这里显示的是记下的状态；通道实时发现的限额另外显示。还有具体限额证据的卡不能批量设为空闲，请在单卡中确认额度已恢复（或手动改为空闲）。',
     results,
     counts: summarizeCounts(results),
   };

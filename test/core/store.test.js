@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { QuestStore, sameAttempt } from '../../src/core/store.js';
+import { QuestStore, sameAttempt, validateAnnotationSnapshot } from '../../src/core/store.js';
 import { appendJsonLine, readJsonLines } from '../../src/core/jsonl.js';
 import { eventsAfter, readEvents } from '../../src/core/events.js';
 import { canDispatch } from '../../src/core/rules.js';
@@ -38,6 +38,24 @@ describe('QuestStore', () => {
     assert.match(store.post({ package: 'RUN-4', brief: '../x.md' }).errors.brief, /docs\/briefs/);
   });
 
+  it('rejects a malformed annotation snapshot reference with plain Chinese messages (F2)', () => {
+    const good = {
+      page: 'robot8',
+      title: 'T',
+      count: 1,
+      capturedAt: '2026-09-16T12:00:00.000Z',
+      digest: 'a'.repeat(64),
+      path: '.questboard-data/dispatch-briefs/RUN-4/RUN-4-attempt-1.md',
+    };
+    assert.throws(() => validateAnnotationSnapshot(project.config, 'RUN-4', { ...good, page: 'NOT A PAGE' }), /批注快照的页面编号无效/);
+    assert.throws(() => validateAnnotationSnapshot(project.config, 'RUN-4', { ...good, path: '../x.md' }), /批注快照路径必须在项目根目录之内/);
+    assert.throws(() => validateAnnotationSnapshot(project.config, 'RUN-4', { ...good, path: '/abs/x.md' }), /批注快照路径必须是相对路径/);
+    assert.throws(() => validateAnnotationSnapshot(project.config, 'RUN-4', { ...good, count: -1 }), /批注快照的批注数量必须是不小于 0 的整数/);
+    assert.throws(() => validateAnnotationSnapshot(project.config, 'RUN-4', { ...good, digest: 'nope' }), /摘要必须是 SHA-256/);
+    assert.throws(() => validateAnnotationSnapshot(project.config, 'RUN-4', { ...good, path: 'docs/other/x.md' }), /必须在这次委托的派遣简报目录之内/);
+    assert.equal(validateAnnotationSnapshot(project.config, 'RUN-4', good).page, 'robot8');
+  });
+
   it('refuses a new post naming a parent that is not on the board yet, self, or a cycle — before persisting', () => {
     const missing = store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md', parents: 'RUN-9' });
     assert.match(missing.errors.parents, /RUN-9 not found; post it first/);
@@ -55,6 +73,23 @@ describe('QuestStore', () => {
       assert.ok(store.post({ package: 'RUN-7', brief }).errors.brief, brief);
     }
     assert.equal(store.post({ package: 'ARC-3', kind: 'owner', brief: 'docs/design/ARC-3.md' }).quest.brief, 'docs/design/ARC-3.md');
+  });
+
+  it('refuses a brief path that exists only as a dangling junction, already at POST (F4)', (t) => {
+    const junctionPath = path.join(project.root, 'docs', 'briefs', 'RUN-31-x.md');
+    const missingTarget = path.join(project.root, '..', `qb-post-missing-${path.basename(project.root)}`);
+    fs.mkdirSync(path.dirname(junctionPath), { recursive: true });
+    fs.rmSync(missingTarget, { recursive: true, force: true });
+    try { fs.symlinkSync(missingTarget, junctionPath, 'junction'); }
+    catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) { t.skip('junction creation refused on this machine'); return; }
+      throw error;
+    }
+    assert.equal(fs.existsSync(missingTarget), false, 'test setup: the junction target stays missing');
+    const { errors } = store.post({ package: 'RUN-31', brief: 'docs/briefs/RUN-31-x.md' });
+    assert.equal(errors.brief, '简报路径是一个指向不存在位置的联接点：docs/briefs/RUN-31-x.md');
+    assert.equal(store.get('RUN-31'), null, 'a quest whose brief is a dangling link is never posted');
+    assert.equal(events().length, 0, 'nothing is persisted for the refused post');
   });
 
   it('holds a quest for a ruling and releases it on the ruling', () => {

@@ -153,6 +153,56 @@ export function foldAnnotations(config, page) {
   return [...latest.values()];
 }
 
+// Checked at the start of prepareAnnotationSnapshot, before assign: a dataDir that escapes the project, or a
+// dispatch-briefs junction that resolves outside the data folder, would otherwise only be discovered by
+// safeAttemptTarget after store.assign had already minted an attempt — settling it failed, but still leaving
+// a failed dispatch row behind for something the filesystem or config already made impossible. The refusal
+// names the offending path exactly as the config writes it and says what is wrong: a plain folder sitting
+// outside the project is not a link and is never called one, while a link (junction or symlink) that
+// redirects elsewhere is named as a link. A link to a missing target is reported as exactly that name+path
+// before any containment comparison, because a target that does not exist has no real path to compare.
+// Nothing here creates anything: a data folder or dispatch-briefs folder that simply does not exist yet is
+// not an escape, just nothing to check yet, and is left for safeAttemptTarget to create when the write
+// actually happens.
+function linkState(target) {
+  let stat;
+  try { stat = fs.lstatSync(target); }
+  catch { return 'missing'; }
+  return stat.isSymbolicLink() ? 'link' : 'plain';
+}
+
+function linkResolves(target) {
+  try { fs.statSync(target); return true; }
+  catch { return false; }
+}
+
+function snapshotTargetContainmentIssue(config) {
+  const data = config.paths.data;
+  const dataLexical = lexicalContainmentIssue(config.root, data);
+  const dataReal = realpathContainmentIssue(config.root, data);
+  // Outside as written but inside by real path: only a link back into the project can do that, and the
+  // snapshot reference would still record the ".." the config wrote (see writeAnnotationSnapshot), so it is
+  // refused here, before an attempt exists, with the path as written.
+  if (dataLexical && !dataReal) return `批注快照路径在项目之外：${data}`;
+  if (dataLexical && dataReal) {
+    return linkState(data) === 'link' ? `派遣数据目录里的联接点指向项目之外：${data}` : `派遣数据目录在项目之外：${data}`;
+  }
+  // Inside as written, outside by real path: a link redirects the data folder out of the project.
+  if (dataReal) return `派遣数据目录里的联接点指向项目之外：${data}`;
+  const dataKind = linkState(data);
+  if (dataKind === 'missing') return null;
+  if (dataKind === 'link' && !linkResolves(data)) return `派遣数据目录是一个指向不存在位置的联接点：${data}`;
+  const briefsDir = path.join(data, 'dispatch-briefs');
+  const briefsKind = linkState(briefsDir);
+  if (briefsKind === 'missing') return null;
+  if (briefsKind === 'link' && !linkResolves(briefsDir)) return `派遣简报目录是一个指向不存在位置的联接点：${briefsDir}`;
+  const briefsIssue = realpathContainmentIssue(data, briefsDir);
+  if (briefsIssue) {
+    return briefsKind === 'link' ? `派遣数据目录里的联接点指向项目之外：${briefsDir}` : `派遣数据目录在项目之外：${briefsDir}`;
+  }
+  return null;
+}
+
 function quote(value) { return JSON.stringify(String(value)); }
 
 function normalizeLineSeparators(value) {
@@ -251,12 +301,20 @@ export function writeAnnotationSnapshot({ config, packageId, attemptId, briefTex
     if (error.code === 'EEXIST') fail('这次派遣的批注快照已经存在，不会覆盖', 'snapshot_exists');
     fail(`批注快照写入失败：${error.code || error.message}`, 'snapshot_write_failed');
   }
+  // safeAttemptTarget has already asserted containment of both target.directory and target.file (against the
+  // data folder and the project root, both before and after the mkdir calls), but those checks compare real
+  // paths: a data folder that is outside as written yet inside by real path (a junction planted back into
+  // the project) passes every one of them, while the reference stored below still carries the ".." the
+  // config wrote. That case is reachable — the pre-assign check refuses it on the dispatcher path, but a
+  // direct caller, or a target swapped after the pre-check ran, still arrives here — so this check stays.
   const relative = path.relative(config.root, target.file).split(path.sep).join('/');
   if (relative === '..' || relative.startsWith('../')) fail('批注快照路径在项目之外', 'snapshot_containment');
   return { page, title, count: items.length, capturedAt, digest: createHash('sha256').update(content, 'utf8').digest('hex'), path: relative };
 }
 
 export function prepareAnnotationSnapshot({ config, quest }) {
+  const targetIssue = snapshotTargetContainmentIssue(config);
+  if (targetIssue) fail(targetIssue, 'snapshot_containment');
   const page = String(quest.reviewPage || '').trim();
   const resolved = resolveReviewPage(config, page);
   const brief = String(quest.brief || '').replaceAll('\\', '/');
