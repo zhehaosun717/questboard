@@ -197,7 +197,7 @@ describe('OpenCode session cancellation containment', () => {
     const oldAttempt = store.get('GEN-RACE-1').assignee;
     store.setStatus('GEN-RACE-1', 'failed', { source: 'collector', by: 'lanes', detail: 'old attempt ended', evidence: { kind: 'collector', attemptId: oldAttempt.attemptId } });
     const reassigned = store.assign('GEN-RACE-1', { adventurer: genericCard, name: 'generic-new' });
-    resolveAdapter({ result: 'stopped_by_wrapper', detail: '通用包装器已确认并记录直接子进程已停止' });
+    resolveAdapter({ result: 'stopped_by_wrapper', detail: '包装脚本已确认并记下：它直接启动的进程已停止' });
     const result = await cancelPromise;
     assert.equal(result.status, 202);
     assert.equal(result.body.result, 'unknown');

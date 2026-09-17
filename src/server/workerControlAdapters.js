@@ -22,7 +22,7 @@ export function createGenericWrapperAdapter({ config, timeoutMs = 5000 } = {}) {
     const child = handle?.child;
     const token = handle?.token;
     if (!child || typeof child.send !== 'function' || !token) {
-      resolve({ result: 'manual_required', detail: '该工作进程没有可验证的通用包装器控制通道，需要人工确认' });
+      resolve({ result: 'manual_required', detail: '这个 worker 的包装脚本不支持可核实的停止，需要手动确认' });
       return;
     }
     let acknowledged = false;
@@ -43,20 +43,20 @@ export function createGenericWrapperAdapter({ config, timeoutMs = 5000 } = {}) {
       // The wrapper sends the ack immediately before killing its direct child. The exit event and the
       // exit-file write are the second, independent fact; ack alone never frees the reservation.
       if (exitEvidence(config, attempt.lane, attempt.name, request.requestId)) finish({
-        result: 'stopped_by_wrapper', detail: '通用包装器已确认并记录直接子进程已停止',
+        result: 'stopped_by_wrapper', detail: '包装脚本已确认并记下：它直接启动的进程已停止',
         evidence: { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: request.requestId, scope: 'direct-child' },
       });
     };
     const onExit = () => {
       const evidence = exitEvidence(config, attempt.lane, attempt.name, request.requestId);
       if (acknowledged && evidence) finish({
-        result: 'stopped_by_wrapper', detail: '通用包装器已确认并记录直接子进程已停止',
+        result: 'stopped_by_wrapper', detail: '包装脚本已确认并记下：它直接启动的进程已停止',
         evidence: { kind: 'wrapper', attempt: attemptEvidence(attempt), ack: true, exitRequestId: evidence.requestId, scope: evidence.scope },
       });
-      else finish({ result: 'unknown', detail: '工作进程已退出，但没有匹配的取消确认和退出记录' });
+      else finish({ result: 'unknown', detail: 'worker 已退出，但没有对应的取消确认和退出记录' });
     };
-    const onError = () => finish({ result: 'unknown', detail: '工作进程控制通道结束，尚未收到匹配的取消确认' });
-    const timer = setTimeout(() => finish({ result: 'unknown', detail: '取消控制超时；工作进程占用仍保留，需要人工处理' }), timeoutMs);
+    const onError = () => finish({ result: 'unknown', detail: '和 worker 的控制连接在收到确认前断了' });
+    const timer = setTimeout(() => finish({ result: 'unknown', detail: '等取消确认超时；worker 仍占着，需要手动处理' }), timeoutMs);
     timer.unref?.();
     child.on('message', onMessage);
     child.once('exit', onExit);
@@ -64,10 +64,10 @@ export function createGenericWrapperAdapter({ config, timeoutMs = 5000 } = {}) {
     child.once('error', onError);
     try {
       child.send({ type: 'questboard-cancel', attemptId: attempt.attemptId, requestId: request.requestId, token }, (error) => {
-        if (error) finish({ result: 'unknown', detail: '取消控制未能发送；工作进程占用仍保留' });
+        if (error) finish({ result: 'unknown', detail: '取消指令没送到；worker 仍占着' });
       });
     } catch {
-      finish({ result: 'unknown', detail: '取消控制未能发送；工作进程占用仍保留' });
+      finish({ result: 'unknown', detail: '取消指令没送到；worker 仍占着' });
     }
   });
 }
