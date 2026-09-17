@@ -100,6 +100,66 @@ describe('roster bulk routes', () => {
     assert.ok(snapshot.body.laneEvidence.codex.cards['bulk-two']);
   });
 
+  it('allows bulk available through the real route when the single-card acknowledgement is newer than the lane evidence', async () => {
+    const now = Date.now();
+    const evidenceAt = new Date(now - 3 * 60 * 60_000).toISOString();
+    const ackAt = new Date(now - 60_000).toISOString();
+    fx.server.statusLog.set('bulk-one', { at: ackAt, status: 'available', reason: '已手动确认额度恢复', setBy: 'owner' });
+    const entry = {
+      adventurerId: 'bulk-one',
+      at: evidenceAt,
+      since: evidenceAt,
+      until: null,
+      resetsAt: new Date(now + 3 * 60 * 60_000).toISOString(),
+      name: 'Bulk One',
+    };
+    fx.holder.lanes = { packages: [], laneLimits: { codex: { ...entry, cards: { 'bulk-one': entry } } } };
+    const request = { ids: ['bulk-one'], patch: { status: 'available' } };
+    const preview = await fx.api('/api/roster/bulk/preview', 'POST', request);
+    assert.equal(preview.status, 200, preview.text);
+    assert.equal(preview.body.counts.denied, 0);
+    assert.equal(preview.body.results[0].ready, true);
+    assert.equal(preview.body.results[0].denied, false);
+
+    const applied = await fx.api('/api/roster/bulk/apply', 'POST', request);
+    assert.equal(applied.status, 200, applied.text);
+    assert.equal(applied.body.counts.denied, 0);
+    assert.equal(applied.body.counts.changed, 0);
+    assert.equal(applied.body.counts.unchanged, 1);
+    const status = fs.readFileSync(fx.home.status, 'utf8');
+    assert.match(status, /已手动确认额度恢复/);
+    assert.equal(status.trim().split('\n').length, 1, 'no new status record is written for a bulk action that changes nothing');
+  });
+
+  it('allows bulk available through the real route for cards whose lane evidence has expired', async () => {
+    const now = Date.now();
+    const evidenceAt = new Date(now - 3 * 60 * 60_000).toISOString();
+    const expiredResetsAt = new Date(now - 60_000).toISOString();
+    const pausedAt = new Date(now - 4 * 60 * 60_000).toISOString();
+    fx.server.statusLog.set('bulk-two', { at: pausedAt, status: 'paused', reason: 'manual pause', setBy: 'owner' });
+    const entry = (adventurerId) => ({
+      adventurerId,
+      at: evidenceAt,
+      since: evidenceAt,
+      until: null,
+      resetsAt: expiredResetsAt,
+      name: adventurerId,
+    });
+    fx.holder.lanes = { packages: [], laneLimits: { codex: { cards: { 'bulk-one': entry('bulk-one'), 'bulk-two': entry('bulk-two') } } } };
+    const request = { ids: ['bulk-one', 'bulk-two'], patch: { status: 'available' } };
+    const preview = await fx.api('/api/roster/bulk/preview', 'POST', request);
+    assert.equal(preview.status, 200, preview.text);
+    assert.deepEqual(preview.body.results.map((result) => result.denied), [false, false]);
+    assert.equal(preview.body.counts.denied, 0);
+
+    const applied = await fx.api('/api/roster/bulk/apply', 'POST', request);
+    assert.equal(applied.status, 200, applied.text);
+    assert.equal(applied.body.counts.denied, 0);
+    assert.deepEqual(applied.body.results.map((result) => result.ok), [true, true]);
+    const snapshot = await fx.api('/api/quests');
+    assert.deepEqual(snapshot.body.roster.filter((card) => card.id === 'bulk-one' || card.id === 'bulk-two').map((card) => card.status), ['available', 'available']);
+  });
+
   it('applies facts and status separately, records actor/time in status log, and keeps roster data status-free', async () => {
     const roster = loadRoster(fx.home.roster);
     const fingerprint = rosterFingerprint(roster, []);

@@ -62,6 +62,18 @@ function fakeSpawn(options = {}) {
   return result;
 }
 
+// A real Windows ENOENT surfaces as an async 'error' event on the child, not a synchronous throw from
+// spawn() itself — spawn() returns an object first and Node emits 'error' on the next tick.
+function makeErroringChild(message = 'raw child detail') {
+  const child = new EventEmitter();
+  child.stdin = { write: () => true };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = () => true;
+  queueMicrotask(() => child.emit('error', new Error(message)));
+  return child;
+}
+
 describe('Codex app-server usage adapter', () => {
   it('uses only the read-only handshake allowlist and maps the synthetic ChatGPT snapshot', async () => {
     const fake = fakeSpawn({ extra: [FIXTURE_LINES.find((line) => line.method === 'account/rateLimits/updated')] });
@@ -255,6 +267,64 @@ describe('Codex app-server usage adapter', () => {
     assert.ok(checked.every((candidate) => !/\.(?:cmd|bat)$/i.test(candidate)));
   });
 
+  it('resolves the native Windows package executable for an arm64 host', () => {
+    const expected = 'C:\\npm-bin\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-arm64\\vendor\\aarch64-pc-windows-msvc\\bin\\codex.exe';
+    const checked = [];
+    const resolved = resolveCodexExecutable({
+      platform: 'win32',
+      arch: 'arm64',
+      env: { PATH: 'C:\\npm-bin' },
+      existsImpl(candidate) {
+        checked.push(candidate);
+        return candidate === expected;
+      },
+    });
+    assert.equal(resolved, expected);
+    assert.ok(checked.length > 0);
+    assert.ok(checked.every((candidate) => !/\.(?:cmd|bat)$/i.test(candidate)));
+  });
+
+  it('returns null for an unsupported Windows architecture without touching the filesystem', () => {
+    const checked = [];
+    const resolved = resolveCodexExecutable({
+      platform: 'win32',
+      arch: 'ia32',
+      env: { PATH: 'C:\\npm-bin' },
+      existsImpl(candidate) {
+        checked.push(candidate);
+        return true;
+      },
+    });
+    assert.equal(resolved, null);
+    assert.equal(checked.length, 0);
+  });
+
+  it('resolves the executable through an APPDATA-only npm root when PATH has no codex entry', () => {
+    const expected = 'C:\\Users\\A\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe';
+    const checked = [];
+    const resolved = resolveCodexExecutable({
+      platform: 'win32',
+      arch: 'x64',
+      env: { PATH: 'C:\\unrelated\\bin', APPDATA: 'C:\\Users\\A\\AppData\\Roaming' },
+      existsImpl(candidate) {
+        checked.push(candidate);
+        return candidate === expected;
+      },
+    });
+    assert.equal(resolved, expected);
+    assert.ok(checked.includes(expected));
+  });
+
+  it('finds nothing when only APPDATA is set and the npm root has no codex package', () => {
+    const resolved = resolveCodexExecutable({
+      platform: 'win32',
+      arch: 'x64',
+      env: { APPDATA: 'C:\\Users\\A\\AppData\\Roaming' },
+      existsImpl: () => false,
+    });
+    assert.equal(resolved, null);
+  });
+
   it('spawns the injected native Windows executable without enabling a shell', async () => {
     const fake = fakeSpawn();
     const resolved = 'C:\\codex\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe';
@@ -294,12 +364,35 @@ describe('Codex app-server usage adapter', () => {
       timestamp: '2026-09-16T10:00:00Z',
       payload: { rate_limits: { primary: { used_percent: 12, window_minutes: 300, resets_at: NOW / 1000 + 3600 } } },
     }));
-    const result = await codexAppServer.fetch({ spawnImpl: () => { throw new Error('raw child detail'); }, env: {}, homedir, now: NOW });
+    // A found executable that then fails to start (the child's 'error' event) must reach this fallback
+    // exactly as an unresolved command does; resolveImpl here always returns a command so this exercises
+    // the spawn-failure branch, not the not-found branch.
+    const result = await codexAppServer.fetch({
+      resolveImpl: () => 'C:\\fake\\codex.exe',
+      spawnImpl: () => makeErroringChild('raw child detail'),
+      env: {},
+      homedir,
+      now: NOW,
+      platform: 'win32',
+    });
     assert.equal(result.source, 'local-log');
     assert.equal(result.state, 'stale');
     assert.equal(result.windows[0].usedPercent, 12);
     assert.match(result.note, /local-log/);
     assert.ok(!JSON.stringify(result).includes('raw child detail'));
+  });
+
+  it('rejects with the Chinese spawn-failure reason and the start code when the child emits error before responding', async () => {
+    await assert.rejects(
+      readCodexAppServer({
+        resolveImpl: () => 'C:\\fake\\codex.exe',
+        spawnImpl: () => makeErroringChild('raw child detail'),
+        env: {},
+        platform: 'win32',
+        now: NOW,
+      }),
+      (error) => error && error.code === 'start' && /Codex app-server 无法启动/.test(error.message) && !String(error.message).includes('raw child detail'),
+    );
   });
 
   it('labels the missing executable in the stale fallback note', async () => {
