@@ -7,6 +7,11 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
+/* Every @import must come first; these explicit source roots then tell Tailwind where the board's own
+   components are (they sit above this stylesheet), including classes written inside template literals. */
+@source "../../index.html";
+@source "../**/*.{ts,tsx}";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme {
@@ -29,6 +34,8 @@
   --color-amber: #d9b45a;
   --color-brass-lt: #f0cf8a;
   --color-pcb: #4f8a4b;
+  --color-pcb-dk: #2f5e2c;
+  --color-grey: #8f8170;
   --color-blood: #a8322a;
   --color-cobalt: #3f6f9e;
   --color-violet: #8a6fae;

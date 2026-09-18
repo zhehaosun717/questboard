@@ -118,6 +118,21 @@ export function QuestCard({
     }
   };
 
+  // Two materials, one card: parchment notices (the board) and dark wood counter plaques (the 交差柜台).
+  // The tone of 下一步 is the one line that says who holds the quest up, so its colours are stated here
+  // rather than as a pile of .q-next-* overrides.
+  const TONE: Record<string, { paper: string; plate: string }> = {
+    ready: { paper: 'border-pcb-dk text-pcb-dk', plate: 'border-pcb text-ready-lt' },
+    working: { paper: 'border-cobalt text-cobalt', plate: 'border-cobalt text-travel-lt' },
+    coordinator: { paper: 'border-cobalt text-cobalt', plate: 'border-cobalt text-travel-lt' },
+    you: { paper: 'border-rust bg-[rgba(217,180,90,.24)] text-rust-dk shadow-[inset_0_0_0_1px_rgba(138,106,36,.24)]', plate: 'border-rust bg-black/30 text-cream' },
+    done: { paper: 'border-pcb-dk text-pcb-dk', plate: 'border-pcb text-ready-lt' },
+    waiting: { paper: 'border-grey text-ink-soft', plate: 'border-grey text-dim' },
+  };
+  const tone = (TONE[step.tone] ?? TONE.waiting) as { paper: string; plate: string };
+  const inkText = isCounter ? 'text-cream' : 'text-ink';
+  const softText = isCounter ? 'text-dim' : 'text-ink-soft';
+
   const classNames = [
     'quest',
     isCounter ? 'counter' : 'notice',
@@ -151,40 +166,61 @@ export function QuestCard({
             {seal.line2}
           </span>
         ) : null}
-        <div className="q-top">
-          <span className="tape">{KIND[quest.kind] ?? quest.kind}</span>
-          <span className="pid">{quest.id}</span>
+        <div className={`flex min-w-0 items-center gap-2${seal && isCounter ? ' pr-12' : ''}`}>
+          <span className="tape whitespace-nowrap">{KIND[quest.kind] ?? quest.kind}</span>
           <span
-            className={`rank${rank === 'S' ? ' s' : ''}`}
+            className={`ml-auto inline-grid size-5 flex-none place-items-center rounded-full font-display text-[13px] font-bold leading-none shadow-[0_1px_2px_rgba(0,0,0,.4)] ${
+              rank === 'S'
+                ? 'bg-blood text-white'
+                : isCounter
+                  ? 'border border-rust/35 bg-black/45 text-cream'
+                  : 'bg-ink text-tag'
+            }`}
             title={`优先级 ${quest.priority || 2}`}
           >
             {rank}
           </span>
         </div>
-        <h3>{quest.title}</h3>
+        {/* The quest id gets its own line: squeezed beside the kind tape it truncated to a few characters,
+            and the id is what the owner greps for. */}
+        <div className={`mt-1.5 truncate whitespace-nowrap font-display text-[19px] leading-none tracking-[.03em] ${isCounter ? 'text-brass-lt' : 'text-ink'}`}>{quest.id}</div>
+        <h3 className={`mb-[7px] mt-1.5 text-[14px] font-bold leading-[1.35] ${inkText}`}>{quest.title}</h3>
         {/* One line for what happens next; the dossier opens on the same step with its controls. */}
-        <div className={`q-next q-next-${step.tone}`} title={step.detail}>
-          <i aria-hidden="true" />
+        <div
+          className={`mb-[7px] mt-0.5 flex w-fit max-w-full items-center gap-[5px] border-l-[3px] py-0.5 pl-[5px] pr-[7px] text-[11px] font-bold leading-[1.35] ${isCounter ? tone.plate : tone.paper}`}
+          title={step.detail}
+        >
+          <i aria-hidden="true" className="size-[7px] flex-none rounded-full bg-current" />
           {step.title}
         </div>
         <span className={`stamp${statusChanged ? ' thunk' : ''}`}>
           {STATUS[quest.status] ?? quest.status}
         </span>
-        {showDetail ? <div className="q-detail">{quest.lastDetail}</div> : null}
-        {quest.needsOwner ? <div className="q-ask">❓ {quest.needsOwner}</div> : null}
+        {showDetail ? <div className={`mt-1.5 line-clamp-2 font-mono text-[11px] leading-[1.45] ${softText}`}>{quest.lastDetail}</div> : null}
+        {quest.needsOwner ? (
+          <div
+            className={`mt-2 border-l-[3px] border-amber-dk px-2 py-[5px] text-[12px] ${
+              isCounter
+                ? 'bg-[repeating-linear-gradient(-45deg,rgba(201,162,74,.25)_0_9px,rgba(201,162,74,.12)_9px_18px)] text-cream'
+                : 'bg-[repeating-linear-gradient(-45deg,rgba(217,180,90,.34)_0_9px,rgba(217,180,90,.2)_9px_18px)]'
+            }`}
+          >
+            ❓ {quest.needsOwner}
+          </div>
+        ) : null}
         {quest.assignee ? (
-          <div className="q-who">
+          <div className={`mt-2 flex items-center gap-1.5 text-[12px] font-bold ${inkText}`}>
             <i className={`led ok${quest.status === 'dispatched' ? ' run' : ''}`} />
             <span>{adv ? adv.name : quest.assignee.model}</span>
             {live ? (
-              <span className="mono">
+              <span className={`ml-auto font-mono text-[11px] font-normal ${softText}`}>
                 {formatAgo(live.elapsed)} · {live.edits || 0} 改动
               </span>
             ) : null}
           </div>
         ) : null}
         {meta.length > 0 ? (
-          <div className="q-meta">
+          <div className={`mt-1.5 flex flex-wrap gap-x-2.5 gap-y-1 font-mono text-[11px] ${softText}`}>
             {meta.map((m, i) => (
               <span key={i}>{m}</span>
             ))}

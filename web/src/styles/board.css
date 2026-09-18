@@ -120,18 +120,6 @@ code, .mono { font-family: var(--mono); }
   box-shadow: 0 5px 12px rgba(0, 0, 0, .5);
 }
 .quest.counter::before { display: none; }
-.quest.counter .pid { color: var(--brass-lt); }
-.quest.counter h3 { color: var(--cream); }
-.quest.counter .q-detail { color: var(--dim); }
-.quest.counter .q-meta { color: var(--dim); }
-.quest.counter .q-who { color: var(--cream); }
-.quest.counter .q-who .mono { color: var(--dim); }
-.quest.counter .q-ask {
-  color: var(--cream); border-left-color: var(--rust);
-  background: repeating-linear-gradient(-45deg, rgba(201, 162, 74, .25) 0 9px, rgba(201, 162, 74, .12) 9px 18px);
-}
-.quest.counter .q-next { color: var(--cream); background: rgba(0, 0, 0, .32); border-left-color: var(--rust); }
-.quest.counter .q-next i { background: var(--rust); }
 .quest.counter .stamp { mix-blend-mode: normal; background: rgba(0, 0, 0, .35); filter: brightness(1.4); }
 
 /* Wax seal in top-right corner of counter plaque */
@@ -145,32 +133,13 @@ code, .mono { font-family: var(--mono); }
 }
 .quest.counter.has-seal .q-top { padding-right: 48px; }
 
-.q-top { display: flex; align-items: center; gap: 8px; }
 .tape {
   flex: none; padding: 1px 8px 1px 7px; font: 700 11px/1.4 var(--body); color: var(--cream); background: var(--tape); transform: rotate(-.5deg);
   clip-path: polygon(0 8%, 4% 0, 100% 4%, 97% 50%, 100% 96%, 3% 100%, 0 60%);
 }
 .k-code { --tape: var(--cobalt); } .k-review { --tape: var(--violet); } .k-art { --tape: var(--rust); } .k-tool { --tape: var(--teal); } .k-owner { --tape: var(--amber-dk); }
-.pid { font: 400 19px/1 var(--display); letter-spacing: .03em; color: var(--ink); }
-
-/* Rank medallion */
-.rank {
-  display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
-  font: 700 13px/1 var(--display); color: var(--tag); background: var(--ink); flex: none; margin-left: auto;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
-}
-.rank.s { background: var(--blood); color: #fff; }
-.quest.counter .rank { background: rgba(0, 0, 0, .45); color: var(--cream); border: 1px solid rgba(201, 162, 74, .35); }
-.quest.counter .rank.s { background: var(--blood); color: #fff; border-color: var(--blood); }
-
-.quest h3 { margin: 7px 0 7px; font: 700 14px/1.35 var(--body); }
-/* 下一步 on a card: one line, coloured by who holds the quest up. Cards are paper, so the ink is dark. */
-.q-next { display: flex; align-items: center; gap: 5px; width: fit-content; max-width: 100%; margin: 2px 0 7px; padding: 2px 7px 2px 5px; font: 700 11px/1.35 var(--body); color: var(--ink-soft); border-left: 3px solid var(--grey); background: rgba(36, 28, 19, .08); }
-.q-next i { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--grey); }
-.q-next-ready { color: var(--pcb-dk); border-left-color: var(--pcb-dk); } .q-next-ready i { background: var(--pcb-dk); }
-.q-next-working { color: var(--cobalt); border-left-color: var(--cobalt); } .q-next-working i { background: var(--cobalt); }
-.q-next-you { color: var(--rust-dk); border-left-color: var(--rust); background: rgba(217, 180, 90, .24); box-shadow: inset 0 0 0 1px rgba(138, 106, 36, .24); } .q-next-you i { background: var(--rust); }
-.q-next-done { color: var(--pcb-dk); border-left-color: var(--pcb-dk); } .q-next-done i { background: var(--pcb-dk); }
+/* Card content (id, rank medallion, title, 下一步 strip, detail, ask, who, meta) is styled with Tailwind
+   utilities in QuestCard.tsx, in two materials: parchment notices and dark counter plaques. */
 .q-drop-hint { margin-top: 4px; font: 700 11px var(--body); color: var(--pcb-dk); }
 .q-drop-warning { margin-top: 3px; font: 600 11px/1.35 var(--body); color: var(--rust-dk); }
 .stamp {
@@ -183,11 +152,7 @@ code, .mono { font-family: var(--mono); }
 .s-dispatched { --stamp: var(--cobalt); } .s-delivered, .s-reviewing { --stamp: var(--violet); }
 .s-failed, .s-stalled { --stamp: var(--blood); } .s-bounced, .s-lane_limited { --stamp: var(--rust-dk); }
 .s-needs_owner, .s-owner_playtest { --stamp: var(--amber-dk); } .s-done { --stamp: var(--pcb-dk); } .s-superseded, .s-cancelled { --stamp: var(--grey); }
-.q-detail { margin-top: 6px; font: 11px/1.45 var(--mono); color: var(--ink-soft); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.q-ask { margin-top: 8px; padding: 5px 8px; font-size: 12px; border-left: 3px solid var(--amber-dk); background: repeating-linear-gradient(-45deg, rgba(217, 180, 90, .34) 0 9px, rgba(217, 180, 90, .2) 9px 18px); }
-.q-who { display: flex; align-items: center; gap: 6px; margin-top: 8px; font: 700 12px var(--body); }
-.q-who .mono { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--ink-soft); }
-.q-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font: 11px var(--mono); color: var(--ink-soft); }
+
 .q-refuse { display: none; margin: 9px -11px -9px -11px; border-radius: 0 0 2px 2px; padding: 4px 10px 5px; font: 700 11px/1.4 var(--body); color: var(--cream); background: var(--blood); }
 .quest.enter { animation: dropin .55s cubic-bezier(.2, .9, .3, 1.25) both; animation-delay: calc(var(--i, 0) * 40ms); }
 @keyframes dropin { from { opacity: 0; transform: translateY(-16px) rotate(-.6deg); } to { opacity: 1; transform: none; } }
