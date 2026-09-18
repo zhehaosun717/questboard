@@ -4,6 +4,7 @@ import { formatAgo, formatClock, isSafeReviewUrl, relatedQuestIds, reviewSourceP
 import { evidenceFor } from '../lib/evidence';
 import { t } from '../lib/i18n';
 import { KIND, STATUS } from '../lib/labels';
+import { Button } from './ui/button';
 import { nextStep } from '../lib/nextStep';
 import { isArchived } from '../lib/questState';
 import { AssignSection } from './quest/AssignSection';
@@ -147,22 +148,22 @@ export function QuestDrawer({
 
   return (
     <div id="drawer" className="drawer">
-      <button className="close" type="button" onClick={onClose}>
+      <Button variant="ghost" size="xs" type="button" className="float-right" onClick={onClose}>
         ✕ {t('drawer.close')}
-      </button>
+      </Button>
       <p className="eyebrow">{t('drawer.eyebrow')}</p>
-      <div className="d-head">
-        <span className="pid">{quest.id}</span>
+      <div className="mt-2.5 flex items-center gap-2.5">
+        <span className="font-display text-[30px] leading-none text-tag">{quest.id}</span>
         <span className={`tape k-${quest.kind}`}>{KIND[quest.kind] || quest.kind}</span>
-        <span className={`stamp s-${quest.status}`}>{STATUS[quest.status] || quest.status}</span>
+        <span className={`stamp s-${quest.status} brightness-[1.6] [mix-blend-mode:normal]`}>{STATUS[quest.status] || quest.status}</span>
       </div>
-      <h2>{quest.title}</h2>
-      <div className="d-meta">
+      <h2 className="mb-1 mt-1.5 font-han text-[30px] font-normal leading-[1.15] tracking-[.03em] text-tag">{quest.title}</h2>
+      <div className="text-[12px] text-dim">
         {t('drawer.postedBy', { name: quest.postedBy || '—' })}
         {quest.brief ? (
           <>
             {' '}
-            · {t('drawer.briefLabel')} <code>{quest.brief}</code>
+            · {t('drawer.briefLabel')} <code className="text-cable">{quest.brief}</code>
           </>
         ) : null}
       </div>
@@ -171,7 +172,7 @@ export function QuestDrawer({
 
       {quest.cancelRequest || limitStall ? (
         <DrawerSection en="CANCELLATION" zh="取消请求">
-          <div className="rec">
+          <div className="text-[12px] leading-[1.55] text-dim [&+&]:mt-[3px]">
             {quest.cancelRequest
               ? `${CANCEL_RESULT[quest.cancelRequest.result] ?? quest.cancelRequest.result} · ${t('drawer.cancel.from')}${CANCEL_SOURCE[quest.cancelRequest.bySource] ?? quest.cancelRequest.bySource} · ${quest.cancelRequest.reason}${quest.cancelRequest.detail ? ` · ${quest.cancelRequest.detail}` : ''}`
               : quest.lastDetail}
@@ -189,7 +190,7 @@ export function QuestDrawer({
 
       {quest.manualResolution ? (
         <DrawerSection en="RESOLUTION" zh="手动处理记录">
-          <div className="rec">
+          <div className="text-[12px] leading-[1.55] text-dim [&+&]:mt-[3px]">
             {CANCEL_SOURCE[quest.manualResolution.actorSource] ?? quest.manualResolution.actorSource} · {quest.manualResolution.reason} · {quest.manualResolution.time}
           </div>
         </DrawerSection>
@@ -252,7 +253,7 @@ export function QuestDrawer({
 
       {assignee ? (
         <DrawerSection en="ON QUEST" zh={quest.status === 'dispatched' ? '正在做的冒险者' : '接手的冒险者'}>
-          <div className="rec">
+          <div className="text-[12px] leading-[1.55] text-dim [&+&]:mt-[3px]">
             ⚔ {assigneeName} · {t('drawer.onQuest.model', { model: assignee.model })} · {t('drawer.onQuest.workerId', { name: assignee.name })} · {t('drawer.onQuest.dispatchedAt', { time: formatClock(assignee.at) })}
             {live ? ` · ${live.state} · ${formatAgo(live.elapsed)}` : ''}
             {live?.heartbeat ? ` · ${t('drawer.onQuest.heartbeat', { seconds: Math.max(0, Math.floor(live.heartbeat.ageMs / 1000)) })}` : ''}
@@ -300,7 +301,7 @@ export function QuestDrawer({
       {threads.length > 0 ? (
         <DrawerSection en="CHATTER" zh="留言板">
           {threads.map((thread) => (
-            <div key={thread.id} className="rec">
+            <div key={thread.id} className="text-[12px] leading-[1.55] text-dim [&+&]:mt-[3px]">
               <a href={`#/threads/${encodeURIComponent(thread.id)}`} onClick={onClose}>
                 {thread.title}
               </a>{' '}
@@ -313,7 +314,7 @@ export function QuestDrawer({
       {quest.dispatches && quest.dispatches.length > 0 ? (
         <DrawerSection en="LOG" zh="派出记录">
           {quest.dispatches.map((d, i) => (
-            <div key={i} className="rec">
+            <div key={i} className="text-[12px] leading-[1.55] text-dim [&+&]:mt-[3px]">
               {new Date(d.at).toLocaleString('zh-CN')} · {d.model} · 编号 <code>{d.name}</code> · {d.by || ''}
             </div>
           ))}
@@ -323,7 +324,7 @@ export function QuestDrawer({
       {quest.rulings && quest.rulings.length > 0 ? (
         <DrawerSection en="RULINGS" zh="裁决记录">
           {quest.rulings.map((r, i) => (
-            <div key={i} className="rec">
+            <div key={i} className="text-[12px] leading-[1.55] text-dim [&+&]:mt-[3px]">
               {new Date(r.at).toLocaleString('zh-CN')} · {t('drawer.rulings.question', { question: r.question || '' })} · {t('drawer.rulings.answer', { text: r.text })}
             </div>
           ))}

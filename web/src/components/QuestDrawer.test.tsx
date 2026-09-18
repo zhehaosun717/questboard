@@ -94,10 +94,12 @@ describe('QuestDrawer 修改委托 hook-in', () => {
     const snap = makeSnapshot({ quests: [quest] });
     const html = render(quest, snap);
     expect(html).toContain('修改委托');
-    // Anchor on the DrawerSection headings themselves (<span>EN</span>zh), not any mention of the words
-    // elsewhere — ReviewSection's own hint text also says "交回的东西" earlier in the drawer.
-    expect(html.indexOf('修改委托')).toBeGreaterThan(html.indexOf('<span>EVIDENCE</span>'));
-    expect(html.indexOf('修改委托')).toBeLessThan(html.indexOf('<span>RECEIPT</span>'));
+    // Anchor on the DrawerSection headings themselves (the English category label inside its own span),
+    // not any mention of the words elsewhere — ReviewSection's own hint text also says "交回的东西" earlier
+    // in the drawer. The anchor deliberately ignores the span's attributes so restyling it cannot break the
+    // order assertion.
+    expect(html.indexOf('修改委托')).toBeGreaterThan(html.indexOf('>EVIDENCE</span>'));
+    expect(html.indexOf('修改委托')).toBeLessThan(html.indexOf('>RECEIPT</span>'));
   });
 
   it('is collapsed by default — no form fields rendered until opened', () => {

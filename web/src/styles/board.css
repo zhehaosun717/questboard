@@ -230,14 +230,8 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: var(--ink); ba
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 20; width: min(610px, 100%); overflow-y: auto; padding: 20px 22px 50px 30px; background: linear-gradient(180deg, var(--soil2), var(--soil)); box-shadow: -18px 0 40px rgba(0, 0, 0, .6); animation: slidein .28s cubic-bezier(.2, .9, .3, 1) both; }
 .drawer::before { content: ""; position: fixed; top: 0; bottom: 0; width: 8px; margin-left: -30px; background: repeating-linear-gradient(-45deg, var(--amber) 0 10px, var(--soil) 10px 20px); }
 @keyframes slidein { from { transform: translateX(46px); opacity: 0; } }
-.close { float: right; padding: 4px 11px; color: var(--cream); background: transparent; border: 1px solid var(--steel2); border-radius: 3px; }
-.close:hover { border-color: var(--rust); color: var(--rust); }
-.d-head { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-.d-head .pid { font-size: 30px; color: var(--tag); }
-.d-head .stamp { mix-blend-mode: normal; background: rgba(0, 0, 0, .25); filter: brightness(1.6); }
-.drawer h2 { margin: 6px 0 4px; font: 400 30px/1.15 var(--han); color: var(--tag); letter-spacing: .03em; }
-.d-meta { font-size: 12px; color: var(--dim); }
-.d-meta code { color: var(--cable); }
+/* The drawer's close control is the guild ghost Button (src/components/ui/button.tsx). */
+/* The drawer head (id, kind tape, status stamp, title, byline) is Tailwind-styled in QuestDrawer.tsx. */
 /* 下一步 in a dossier: who the quest waits on, what to do, what happens after. The drawer is dark steel. */
 .next-step { margin-top: 14px; padding: 11px 13px; background: rgba(255, 255, 255, .04); border-left: 4px solid var(--grey); }
 .next-step-eyebrow { font: 400 10px var(--display); letter-spacing: .25em; color: var(--dim); }
@@ -262,8 +256,7 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: var(--ink); ba
 .evidence-accepted-refs { margin: 3px 0 0; padding: 0; list-style: none; font-size: 10px; color: var(--dim); }
 .evidence-accepted-refs li { line-height: 1.4; }
 .d-sec { margin-top: 20px; }
-.d-sec h3 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; padding-bottom: 5px; font: 400 18px var(--han); color: var(--tag); border-bottom: 1px solid var(--steel); }
-.d-sec h3 span { font: 400 11px var(--display); letter-spacing: .3em; color: var(--rust); }
+/* Section headings are Tailwind-styled in DrawerSection.tsx. */
 .ask-box { padding: 8px 10px; color: var(--ink); background: repeating-linear-gradient(-45deg, var(--brass-lt) 0 12px, var(--amber) 12px 24px); font-weight: 700; }
 .pick { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 9px; background: rgba(255, 255, 255, .025); border-left: 3px solid var(--steel2); }
 .pick + .pick { margin-top: 5px; }
@@ -272,8 +265,7 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: var(--ink); ba
 .pick strong { font: 700 14px var(--body); color: var(--tag); }
 .pick .a-model { display: inline; margin-left: 6px; }
 .why { margin-top: 2px; font-size: 11px; color: var(--wax-lt); }
-.rec { font-size: 12px; color: var(--dim); }
-.rec + .rec { margin-top: 3px; }
+
 /* Assign section when no card can take the quest: the shared reason once, per-card extras folded away. */
 .assign-blocked { display: grid; gap: 3px; padding: 9px 11px; background: rgba(255, 255, 255, .035); border-left: 3px solid var(--rust); }
 .assign-blocked strong { font: 700 13px var(--body); color: var(--tag); }
