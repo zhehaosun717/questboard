@@ -56,7 +56,8 @@ code, .mono { font-family: var(--mono); }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 30px 0; }
 .chip {
   display: inline-flex; align-items: center; gap: 7px; padding: 3px 11px 3px 9px; border-radius: 2px; font: 500 12px var(--body); color: var(--cable);
-  background: linear-gradient(180deg, var(--soil2), var(--soil)); border: 1px solid var(--hall-edge); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05); text-decoration: none;
+  /* A chip is a small stamped plate, the same grammar as the shadcn Badge the board now uses. */
+  background: var(--hall-edge); border: 1px solid var(--steel2); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05); text-decoration: none;
 }
 .chip.bad { color: var(--wax-lt); } .chip.warn { color: var(--brass-lt); }
 .led { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--steel2); box-shadow: inset 0 -1px 1px rgba(0, 0, 0, .6); }
@@ -297,8 +298,12 @@ body.picking .quest.drop-queue .q-refuse { display: block; color: var(--ink); ba
 .receipt-pending { color: var(--brass-lt); font-weight: 700; }
 .receipt-done { color: var(--ready-lt); font-weight: 700; }
 pre { margin: 0; max-height: 230px; overflow-y: auto; padding: 9px 10px; white-space: pre-wrap; word-break: break-word; font: 11px/1.5 var(--mono); color: var(--cable); background: var(--hall-edge); border: 1px solid var(--hall-edge); }
-textarea, select, input { width: 100%; padding: 7px 9px; font: 13px var(--body); color: var(--cream); background: var(--hall-edge); border: 1px solid var(--steel); border-radius: 2px; }
-textarea:focus, select:focus, input:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
+/* Guild fields: a recessed dark slot in a brass-rimmed frame; the focus ring is the same gold the rest of
+   the board uses for "this is yours to touch". Placeholders stay dim so they never read as a value. */
+textarea, select, input { width: 100%; padding: 7px 9px; font: 13px var(--body); color: var(--cream); background: var(--hall-edge); border: 1px solid var(--steel); border-radius: 2px; box-shadow: inset 0 1px 2px rgba(0, 0, 0, .35); transition: border-color .12s, box-shadow .12s; }
+textarea:hover, select:hover, input:hover { border-color: var(--rivet); }
+textarea::placeholder, input::placeholder { color: var(--dim); opacity: .75; }
+textarea:focus, select:focus, input:focus { outline: 2px solid var(--amber); outline-offset: 1px; border-color: var(--rust-dk); }
 .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 .row.end { justify-content: flex-end; }
 .btn { padding: 5px 13px; font: 700 13px var(--body); color: var(--cream); background: var(--steel2); border: 1px solid var(--hall-edge); border-radius: 2px; box-shadow: 0 2px 0 var(--hall-edge); }
