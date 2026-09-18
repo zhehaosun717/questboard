@@ -1,7 +1,7 @@
 // Finds or starts the board server for a project.
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
@@ -22,31 +22,69 @@ pub enum Health {
     Other(String),
 }
 
-pub fn check_health(port: u16, project_name: &str, project_root: &Path) -> Health {
+/// A questboard board answering on a port, whoever it belongs to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Board {
+    pub name: String,
+    pub root: String,
+}
+
+/// One HTTP probe of the port's /api/health.
+enum Probe {
+    /// Nothing answers on the port.
+    Down,
+    /// A response came back.
+    Body(String),
+    /// Something holds the port but does not answer.
+    Broken(String),
+}
+
+fn probe(port: u16) -> Probe {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(400)) else {
-        return Health::Down;
+        return Probe::Down;
     };
     let _ = stream.set_read_timeout(Some(Duration::from_millis(1500)));
     let request = format!("GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
     if stream.write_all(request.as_bytes()).is_err() {
-        return Health::Other("端口有程序在监听，但不回应".into());
+        return Probe::Broken("端口有程序在监听，但不回应".into());
     }
     let mut response = String::new();
     let _ = stream.read_to_string(&mut response);
-    classify_health(&response, project_name, project_root)
+    Probe::Body(response)
+}
+
+pub fn check_health(port: u16, project_name: &str, project_root: &Path) -> Health {
+    match probe(port) {
+        Probe::Down => Health::Down,
+        Probe::Broken(why) => Health::Other(why),
+        Probe::Body(response) => classify_health(&response, project_name, project_root),
+    }
+}
+
+/// The board serving a port, whichever project it belongs to. This is what lets the window name the board
+/// holding a port instead of telling the owner to "close the program".
+pub fn board_on(port: u16) -> Option<Board> {
+    let Probe::Body(response) = probe(port) else { return None };
+    let value = health_body(&response)?;
+    let name = value.get("project").and_then(|v| v.as_str())?.to_string();
+    let root = value.get("root").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    Some(Board { name, root })
+}
+
+/// A board's /api/health body: an object that says `ok: true`.
+fn health_body(response: &str) -> Option<serde_json::Value> {
+    let body = response.split("\r\n\r\n").nth(1).unwrap_or("");
+    let value = serde_json::from_str::<serde_json::Value>(body).ok()?;
+    (value.get("ok").and_then(|v| v.as_bool()) == Some(true)).then_some(value)
 }
 
 /// A board is ours only when both the project name and the project folder match: two projects can share a
 /// name, and the folder is what the server was started with.
 pub fn classify_health(response: &str, project_name: &str, project_root: &Path) -> Health {
-    let body = response.split("\r\n\r\n").nth(1).unwrap_or("");
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+    let Some(value) = health_body(response) else {
         return Health::Other("端口被别的程序占用".into());
     };
-    if value.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-        return Health::Other("端口被别的程序占用".into());
-    }
     let Some(name) = value.get("project").and_then(|v| v.as_str()) else {
         return Health::Other("端口上的看板没有报告项目名".into());
     };
@@ -73,6 +111,121 @@ fn same_folder(reported: &str, expected: &Path) -> bool {
     let expected = std::fs::canonicalize(expected).unwrap_or_else(|_| expected.to_path_buf());
     let reported = std::fs::canonicalize(reported).unwrap_or_else(|_| PathBuf::from(reported));
     normalize_folder(&reported.to_string_lossy()) == normalize_folder(&expected.to_string_lossy())
+}
+
+/// The process holding a listening port, when the system will say. Windows only: elsewhere the port is
+/// still reported, just without a program to name or end.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Process {
+    pub pid: u32,
+    pub image: String,
+}
+
+pub fn holder_process(port: u16) -> Option<Process> {
+    let pid = listening_pid(port)?;
+    Some(Process { pid, image: process_image(pid).unwrap_or_else(|| "未知程序".into()) })
+}
+
+#[cfg(windows)]
+fn listening_pid(port: u16) -> Option<u32> {
+    let stdout = quiet_command("netstat", &["-ano", "-p", "TCP"]).ok()?;
+    pid_from_netstat(&stdout, port)
+}
+
+#[cfg(not(windows))]
+fn listening_pid(_port: u16) -> Option<u32> { None }
+
+#[cfg(windows)]
+fn process_image(pid: u32) -> Option<String> {
+    let filter = format!("PID eq {pid}");
+    let stdout = quiet_command("tasklist", &["/FI", &filter, "/FO", "CSV", "/NH"]).ok()?;
+    image_from_tasklist_csv(&stdout)
+}
+
+#[cfg(not(windows))]
+fn process_image(_pid: u32) -> Option<String> { None }
+
+fn quiet_command(program: &str, args: &[&str]) -> Result<String, String> {
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::null());
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().map_err(|e| format!("{program} 运行不了：{e}"))?;
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The PID column of a `netstat -ano` row whose LOCAL address listens on `port`
+/// (`  TCP    127.0.0.1:6097    0.0.0.0:0    LISTENING    12345`). Rows for other ports, other protocols
+/// and IPv6 spellings are told apart by the same rule: the local address has to END in `:port`. The state
+/// word is only a preference, because Windows translates it on non-English installs.
+pub fn pid_from_netstat(text: &str, port: u16) -> Option<u32> {
+    let suffix = format!(":{port}");
+    let mut fallback = None;
+    for line in text.lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 5 || fields[0] != "TCP" || !fields[1].ends_with(&suffix) {
+            continue;
+        }
+        let Ok(pid) = fields[fields.len() - 1].parse::<u32>() else { continue };
+        if fields[3].eq_ignore_ascii_case("LISTENING") {
+            return Some(pid);
+        }
+        fallback.get_or_insert(pid);
+    }
+    fallback
+}
+
+/// The image name from `tasklist /FO CSV /NH` (`"node.exe","12345","Console","1","120,000 K"`). A filter
+/// that matches nothing answers with a localized sentence instead of a row, so anything not starting with
+/// a quote is not an answer. The name is read up to its closing quote, so a comma inside it cannot split it.
+pub fn image_from_tasklist_csv(text: &str) -> Option<String> {
+    let line = text.lines().find(|line| line.trim_start().starts_with('"'))?;
+    let rest = line.trim().strip_prefix('"')?;
+    let end = rest.find('"')?;
+    let name = &rest[..end];
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// The first port from `from` on that this machine can listen on. The browser-unsafe ports are skipped — a
+/// board on one of them would listen fine and then be unreachable from every tab. Binding is the honest
+/// probe: the standard library does not set SO_REUSEADDR on Windows, so a bind fails exactly when another
+/// process already holds the port.
+pub fn free_port(from: u16, tries: u16, unsafe_ports: &[u16]) -> Option<u16> {
+    for offset in 0..tries {
+        let Some(port) = from.checked_add(offset) else { break };
+        if port == 0 || unsafe_ports.contains(&port) {
+            continue;
+        }
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return Some(port);
+        }
+    }
+    None
+}
+
+/// Ends the process holding a port, after the owner asked for it. Only that one process, never its child
+/// tree: a board's own running workers are not taken down with the board.
+pub fn kill_process(pid: u32) -> Result<(), String> {
+    #[cfg(windows)]
+    let mut command = {
+        let mut command = Command::new("taskkill");
+        command.args(["/PID", &pid.to_string(), "/F"]);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = Command::new("kill");
+        command.args(["-TERM", &pid.to_string()]);
+        command
+    };
+    command.stdin(Stdio::null());
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().map_err(|e| format!("无法结束进程 {pid}：{e}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(format!("结束进程 {pid} 失败：{}", first_useful_error(&String::from_utf8_lossy(&output.stderr))))
 }
 
 /// The questboard checkout that holds src/cli/questboard.js.
@@ -133,12 +286,24 @@ pub fn first_useful_error(stderr: &str) -> String {
     pick.chars().take(300).collect()
 }
 
-/// Runs `questboard init` on a folder and waits for it. Returns what it printed, so the window can say what
-/// was written; the CLI is the only place that knows how to set a project up. Everything it printed is also
-/// written to `log_file`, because a one-line dialog is never enough to debug a failed setup.
-pub fn run_init(node: &str, questboard_root: &Path, project: &Path, log_file: &Path) -> Result<String, String> {
+/// Replaces one field of a project config through the CLI, so the window never writes the file itself: the
+/// CLI validates the port the same way the board does, and keeps a timestamped backup of the old file.
+pub fn set_port_args(questboard_root: &Path, project: &Path, port: u16) -> Vec<String> {
+    vec![
+        script_path(questboard_root).to_string_lossy().into_owned(),
+        "port".into(),
+        port.to_string(),
+        "--project".into(),
+        node_path(project).to_string_lossy().into_owned(),
+    ]
+}
+
+/// Runs one questboard CLI command and waits for it. Returns what it printed, so the window can say what
+/// happened; the CLI is the only place that knows how to change a project. Everything it printed is also
+/// written to `log_file`, because a one-line dialog is never enough to debug a failed command.
+fn run_cli(node: &str, questboard_root: &Path, args: &[String], log_file: &Path, what: &str) -> Result<String, String> {
     let mut command = Command::new(node);
-    command.args(init_args(questboard_root, project)).current_dir(node_path(questboard_root)).stdin(Stdio::null());
+    command.args(args).current_dir(node_path(questboard_root)).stdin(Stdio::null());
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     let output = command.output().map_err(|e| format!("启动 Node 失败（{node}）：{e}。需要安装 Node 22"))?;
@@ -149,12 +314,22 @@ pub fn run_init(node: &str, questboard_root: &Path, project: &Path, log_file: &P
     }
     let _ = std::fs::write(
         log_file,
-        format!("$ {node} {}\n\n--- stdout\n{stdout}\n--- stderr\n{stderr}\n", init_args(questboard_root, project).join(" ")),
+        format!("$ {node} {}\n\n--- stdout\n{stdout}\n--- stderr\n{stderr}\n", args.join(" ")),
     );
     if !output.status.success() {
-        return Err(format!("建项目失败：{}\n\n完整输出：{}", first_useful_error(&stderr), log_file.display()));
+        return Err(format!("{what}失败：{}\n\n完整输出：{}", first_useful_error(&stderr), log_file.display()));
     }
     Ok(stdout)
+}
+
+/// `questboard init` on a folder: the CLI writes the config, wrapper, sample brief and roster.
+pub fn run_init(node: &str, questboard_root: &Path, project: &Path, log_file: &Path) -> Result<String, String> {
+    run_cli(node, questboard_root, &init_args(questboard_root, project), log_file, "建项目")
+}
+
+/// `questboard port <n>` on a project: the config file's `port` changes, nothing else does.
+pub fn run_set_port(node: &str, questboard_root: &Path, project: &Path, port: u16, log_file: &Path) -> Result<String, String> {
+    run_cli(node, questboard_root, &set_port_args(questboard_root, project, port), log_file, "改端口")
 }
 
 pub fn spawn_server(node: &str, questboard_root: &Path, project: &Path, log_file: &Path) -> Result<Child, String> {
@@ -277,6 +452,63 @@ mod tests {
     #[test]
     fn nothing_listening_is_down() {
         assert_eq!(check_health(1, "x", Path::new("x")), Health::Down);
+    }
+    // board_on is what turns "close the program" into a name the owner can act on; nothing listening must
+    // stay None rather than inventing a holder.
+    #[test]
+    fn a_port_nothing_answers_on_has_no_board_and_no_holder() {
+        assert_eq!(board_on(1), None);
+    }
+
+    #[test]
+    fn finds_the_pid_listening_on_a_port() {
+        let netstat = "活动连接\n\n  协议  本地地址          外部地址        状态           PID\n"
+            .to_string()
+            + "  TCP    127.0.0.1:6097         0.0.0.0:0              LISTENING       24680\n"
+            + "  TCP    127.0.0.1:6098         0.0.0.0:0              LISTENING       11111\n"
+            + "  TCP    127.0.0.1:51234        127.0.0.1:6097         ESTABLISHED     22222\n"
+            + "  TCP    [::1]:6097             [::]:0                 LISTENING       24680\n"
+            + "  UDP    127.0.0.1:6097         *:*                                    33333\n";
+        assert_eq!(pid_from_netstat(&netstat, 6097), Some(24680));
+        assert_eq!(pid_from_netstat(&netstat, 6098), Some(11111));
+        assert_eq!(pid_from_netstat(&netstat, 6099), None, "no row for that port means no answer");
+        assert_eq!(pid_from_netstat("", 6097), None);
+    }
+
+    // Windows translates the connection state, so a German install prints ABHÖREN where an English one
+    // prints LISTENING. The port match is what identifies the row; the state word is only a preference.
+    #[test]
+    fn a_translated_state_word_still_names_the_holder() {
+        let netstat = "  TCP    127.0.0.1:6097    0.0.0.0:0    ABHÖREN    24680\n";
+        assert_eq!(pid_from_netstat(netstat, 6097), Some(24680));
+    }
+
+    #[test]
+    fn reads_the_image_name_out_of_a_tasklist_row() {
+        assert_eq!(image_from_tasklist_csv("\"node.exe\",\"24680\",\"Console\",\"1\",\"120,000 K\"\n").as_deref(), Some("node.exe"));
+        assert_eq!(image_from_tasklist_csv("\"my,agent.exe\",\"1\",\"Console\",\"1\",\"1 K\"\n").as_deref(), Some("my,agent.exe"));
+        assert_eq!(image_from_tasklist_csv("信息: 没有运行的任务匹配指定标准。\n"), None);
+        assert_eq!(image_from_tasklist_csv(""), None);
+    }
+
+    #[test]
+    fn a_free_port_skips_a_taken_one_and_the_browser_unsafe_ones() {
+        let taken = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = taken.local_addr().unwrap().port();
+        assert_eq!(free_port(port, 1, &[]), None, "the port this test holds is not free");
+        assert_ne!(free_port(port, 5, &[]), Some(port), "a port the scan finds is never the taken one");
+        assert_eq!(free_port(6666, 1, &[6666]), None, "a browser-blocked port is never offered");
+        assert_eq!(free_port(65535, 2, &[65535]), None, "a scan that runs off the port range gives up");
+    }
+
+    #[test]
+    fn builds_the_port_command_for_the_project() {
+        let args = set_port_args(Path::new("E:/questboard"), Path::new("D:/my game"), 6098);
+        assert_eq!(args[1], "port");
+        assert_eq!(args[2], "6098");
+        assert_eq!(args[3], "--project");
+        assert_eq!(args[4], "D:/my game", "a folder with a space is one argument, not two");
+        assert!(args[0].ends_with("questboard.js"));
     }
 
     #[test]

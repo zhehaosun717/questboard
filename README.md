@@ -168,6 +168,7 @@ The `{role}` placeholder itself, and `lanes.<id>.session.saveTo`/`lanes.<id>.env
 
 ```text
 questboard serve [--project <dir>] [--port <n>]
+questboard port <n> [--project <dir>]        # rewrite the project config's port (timestamped backup of the old file)
 questboard post --package RUN-4 --brief docs/briefs/RUN-4-x.md [--kind code|review|art|tool|owner]
      [--parents A-1] [--conflicts B-2] [--lanes codex,agy] [--priority 1|2|3] [--needs-owner "question"]
 questboard list | status <id> <status> | ruling <id> --text ... | assign <id> --adventurer <card>
@@ -318,6 +319,12 @@ npm run build        # Windows installer; builds web/ first and bundles the serv
 
 The window loads the server's own page, so the board keeps the server's same-origin write rules and the
 page gets no desktop permissions.
+
+If the project's port is already taken, the app is not a dead end. It names what holds the port — another
+project's board (its project and folder) or any other program the system can identify (its image and PID) —
+and then offers to move this project to a free port, to open the board that is already running, or to end
+the program that holds it. Moving writes only the `port` field, through `questboard port`, which keeps a
+timestamped backup of the old file.
 
 ## Tests
 

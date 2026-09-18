@@ -12,7 +12,7 @@ pub const CONFIG_FILE: &str = "questboard.config.json";
 // 82 ports instead of two copies that could drift apart. See src/core/browserUnsafePorts.js for the Node side.
 const BROWSER_UNSAFE_PORTS_JSON: &str = include_str!("../../../src/core/browserUnsafePorts.json");
 
-fn browser_unsafe_ports() -> Vec<u16> {
+pub fn browser_unsafe_ports() -> Vec<u16> {
     serde_json::from_str(BROWSER_UNSAFE_PORTS_JSON)
         .expect("src/core/browserUnsafePorts.json must be a JSON array of port numbers")
 }

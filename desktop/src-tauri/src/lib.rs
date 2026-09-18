@@ -12,7 +12,7 @@ use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::{Manager, RunEvent, Url, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
-use server::Health;
+use server::{Board, Health, Process};
 use settings::{ProjectInfo, Settings};
 
 /// The server process this app started (never one it merely found running), and whether the app is closing.
@@ -107,17 +107,127 @@ fn questboard_candidates(app: &tauri::AppHandle, stored: &Settings) -> Vec<PathB
     candidates
 }
 
+/// How many ports up from a taken one the window looks before it stops offering to move a project.
+const FREE_PORT_TRIES: u16 = 500;
+
+fn board_url(port: u16) -> Result<Url, String> {
+    format!("http://127.0.0.1:{port}/").parse::<Url>().map_err(|e| e.to_string())
+}
+
+/// What to do about a port that is already taken.
+enum Resolution {
+    /// Start the picked project: on the port it already has, or on the free one the owner moved it to.
+    StartHere(ProjectInfo),
+    /// Show the board that already holds the port instead.
+    ShowRunning(Url),
+}
+
+/// A taken port used to be a dead end: the page that changes a project's port is behind the port itself,
+/// the message named neither the program nor a way out, and the only advice was to close something the
+/// owner could not identify. All of that happens here instead, without that page — the window says what
+/// holds the port, then offers to move this project to a free port, open the board that already runs, or
+/// end the program that holds it.
+fn resolve_port_conflict(
+    app: &tauri::AppHandle,
+    window: &WebviewWindow,
+    stored: &Settings,
+    project: &ProjectInfo,
+    reason: &str,
+) -> Result<Resolution, String> {
+    let port = project.port;
+    let board = server::board_on(port);
+    let holder = server::holder_process(port);
+    let mut text = format!(
+        "端口 {port} 被占用了。\n\n占着它的是：{}\n\n本项目「{}」（{}）连不上它。",
+        holder_text(board.as_ref(), holder.as_ref()),
+        project.name,
+        project.root.display()
+    );
+    let Some(next_port) = server::free_port(port.saturating_add(1), FREE_PORT_TRIES, &settings::browser_unsafe_ports()) else {
+        text.push_str(&format!("\n\n从 {port} 往上找了 {FREE_PORT_TRIES} 个端口，都被占着：换一个端口再试。"));
+        app.dialog().message(text).title("端口被占用").buttons(MessageDialogButtons::Ok).blocking_show();
+        return Err(format!("{reason}（端口 {port}）。"));
+    };
+    let change = format!("换成 {next_port}");
+    let alternative = match (&board, &holder) {
+        (Some(_), _) => "打开它的看板".to_string(),
+        (None, Some(process)) => format!("结束 {}（PID {}）", process.image, process.pid),
+        (None, None) => "算了".to_string(),
+    };
+    let moves = format!("【{change}】会把 {} 里的 port 改成 {next_port}（旧文件留一份备份）再启动", settings::CONFIG_FILE);
+    match (&board, &holder) {
+        (Some(_), _) => text.push_str(&format!("\n\n{moves}；【{alternative}】会打开正在跑的那个看板。")),
+        (None, Some(_)) => text.push_str(&format!("\n\n{moves}；【{alternative}】会结束那个程序（它派出去的 worker 不会跟着关）。")),
+        (None, None) => text.push_str(&format!("\n\n{moves}。")),
+    }
+    let chose_change = app
+        .dialog()
+        .message(text)
+        .title("端口被占用")
+        .buttons(MessageDialogButtons::OkCancelCustom(change, alternative.clone()))
+        .blocking_show();
+    if chose_change {
+        let node = stored.node.clone().unwrap_or_else(|| "node".into());
+        let root = server::locate_questboard(&questboard_candidates(app, stored))?;
+        let log = app.path().app_log_dir().map_err(|e| e.to_string())?.join("port.log");
+        show_status(window, &format!("正在把端口换成 {next_port}"), false);
+        server::run_set_port(&node, &root, &project.root, next_port, &log)?;
+        let updated = settings::read_project(&project.root)?;
+        if updated.port != next_port {
+            return Err(format!("端口没有改成 {next_port}，配置文件里还是 {}。日志：{}", updated.port, log.display()));
+        }
+        return Ok(Resolution::StartHere(updated));
+    }
+    if board.is_some() {
+        return Ok(Resolution::ShowRunning(board_url(port)?));
+    }
+    if let Some(process) = &holder {
+        let sure = app
+            .dialog()
+            .message(format!("要结束 {}（PID {}）吗？\n\n它会立刻被结束。看板自己派出去的 worker 不会跟着关。", process.image, process.pid))
+            .title("结束这个程序？")
+            .buttons(MessageDialogButtons::OkCancelCustom("结束它".into(), "算了".into()))
+            .blocking_show();
+        if sure {
+            show_status(window, &format!("正在结束 {}（PID {}）", process.image, process.pid), false);
+            server::kill_process(process.pid)?;
+            return Ok(Resolution::StartHere(project.clone()));
+        }
+    }
+    Err(format!("{reason}（端口 {port}）。"))
+}
+
+/// Who holds a port, in one sentence: a board names its project and folder, a program the system names
+/// gets its image and PID, and a port nobody can be asked about says exactly that.
+fn holder_text(board: Option<&Board>, process: Option<&Process>) -> String {
+    let who = match board {
+        Some(board) if board.root.is_empty() => format!("项目「{}」的看板", board.name),
+        Some(board) => format!("项目「{}」的看板（{}）", board.name, board.root),
+        None => "一个不是看板的程序".to_string(),
+    };
+    match process {
+        Some(process) => format!("{who}，进程 {}（PID {}）", process.image, process.pid),
+        None => format!("{who}，进程查不到"),
+    }
+}
+
 fn start(app: &tauri::AppHandle, window: &WebviewWindow, force_pick: bool) -> Result<Url, String> {
     let file = settings_file(app)?;
     let stored = settings::load(&file);
     show_status(window, "正在找项目", false);
-    let project = choose_project(app, window, &stored, force_pick)?;
-    let url = format!("http://127.0.0.1:{}/", project.port).parse::<Url>().map_err(|e| e.to_string())?;
+    let mut project = choose_project(app, window, &stored, force_pick)?;
     match server::check_health(project.port, &project.name, &project.root) {
-        Health::Ours => return Ok(url),
-        Health::Other(reason) => return Err(format!("{reason}（端口 {}）。请关掉占用的程序，或在项目配置里换一个 port。", project.port)),
+        Health::Ours => return board_url(project.port),
+        Health::Other(reason) => {
+            show_status(window, &format!("端口 {} 被占用了", project.port), true);
+            match resolve_port_conflict(app, window, &stored, &project, &reason)? {
+                Resolution::ShowRunning(url) => return Ok(url),
+                Resolution::StartHere(next) => project = next,
+            }
+        }
         Health::Down => {}
     }
+    let url = board_url(project.port)?;
     show_status(window, &format!("正在启动「{}」的看板服务器", project.name), false);
     let root = server::locate_questboard(&questboard_candidates(app, &stored))?;
     let node = stored.node.clone().unwrap_or_else(|| "node".into());
@@ -218,6 +328,23 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    // The message the owner reads when a port is taken: it has to name the holder precisely enough to act
+    // on, and never invent one it could not find.
+    #[test]
+    fn names_who_holds_a_port() {
+        let board = Board { name: "Wastecape".into(), root: "E:/Wastecape".into() };
+        let process = Process { pid: 24680, image: "node.exe".into() };
+        let both = holder_text(Some(&board), Some(&process));
+        assert!(both.contains("Wastecape") && both.contains("E:/Wastecape"), "{both}");
+        assert!(both.contains("node.exe") && both.contains("24680"), "{both}");
+        assert!(holder_text(None, Some(&process)).contains("不是看板"), "a program that is not a board is not called one");
+        assert!(holder_text(None, None).contains("查不到"), "a port nobody can be asked about says so");
+        let nameless = Board { name: "Other".into(), root: String::new() };
+        assert_eq!(holder_text(Some(&nameless), None), "项目「Other」的看板，进程查不到", "no empty folder brackets, and an unknown process says so");
+    }
+
     // With Tauri's native drag-drop on (the default), WebView2 on Windows swallows HTML5 drags: dragging a card
     // onto a quest shows the forbidden cursor and never drops, although the same page works in a browser.
     #[test]

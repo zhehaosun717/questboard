@@ -4,6 +4,7 @@
 //   questboard init [<dir>] [--name "My Game"] [--port 6097] [--force]   (config + wrapper + brief + roster)
 //        [--lane aider="aider --model {model}"]      add a lane for your own agent CLI; repeat for more
 //   questboard serve [--project <dir>] [--port <n>]
+//   questboard port <n> [--project <dir>]                           (改项目配置里的端口；旧配置留一份带时间的备份，重启后生效)
 //   questboard post --package RUN-4 --brief docs/briefs/RUN-4-x.md [--kind code|review|art|tool|owner]
 //        [--parents A-1,B-2] [--conflicts C-3] [--lanes codex,agy] [--priority 1|2|3] [--needs-owner "question"] [--title "..."]
 //   questboard list [--status posted]

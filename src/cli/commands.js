@@ -5,7 +5,7 @@ import path from 'node:path';
 import { option, optionAll, projectConfig, serverUrl, request } from './client.js';
 import { validateAcceptanceShape } from '../core/acceptance.js';
 import { startServer } from '../server/server.js';
-import { validateBoardPort, DEFAULT_PORT } from '../core/config.js';
+import { validateBoardPort, DEFAULT_PORT, CONFIG_FILE, readRawConfig, saveProjectConfig, findProjectRoot } from '../core/config.js';
 import { homePaths } from '../core/home.js';
 import { splitLegacyRoster } from '../core/legacy.js';
 import { loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.js';
@@ -186,6 +186,27 @@ export const commands = {
     const config = projectConfig(args);
     const port = parsePortOption(option(args, '--port'));
     startServer({ config, port });
+  },
+
+  // The port lives in the project config — the very file you cannot reach when that port is taken, because
+  // the page that edits it is the page that will not open. Only `port` changes: the rest of the file is
+  // written back byte-for-value as it was, and saveProjectConfig keeps the same timestamped backup the
+  // settings page keeps. Read raw (not loadProjectConfig) on purpose, so a config whose port is *already*
+  // refused — blocked by the browser, out of range, missing — can still be repaired from here.
+  async port(args) {
+    const wanted = positional(args, ['--project']);
+    if (wanted === undefined) {
+      throw new Error('usage: questboard port <n> [--project <dir>]　（把项目配置里的端口改成 n，比如 6098；旧配置留一份带时间的备份，改完重启看板服务器才生效）');
+    }
+    const port = parsePortOption(wanted);
+    const dir = option(args, '--project') || process.env.QUESTBOARD_PROJECT || findProjectRoot();
+    if (!dir) throw new Error('no questboard.config.json here or in any parent folder; run inside a project or pass --project <dir>');
+    const raw = readRawConfig(dir);
+    if (!raw) throw new Error(`读不到 ${path.join(dir, CONFIG_FILE)}，或者它不是 JSON 对象`);
+    const previous = raw.port === undefined ? DEFAULT_PORT : raw.port;
+    saveProjectConfig(dir, { ...raw, port });
+    out(`端口 ${previous} → ${port}（${path.join(dir, CONFIG_FILE)}）`);
+    out('重启看板服务器后生效。');
   },
 
   async post(args) {
