@@ -90,7 +90,9 @@ code, .mono { font-family: var(--mono); }
 .col.c-run { --accent: var(--cobalt); } .col.c-check { --accent: var(--violet); } .col.c-owner { --accent: var(--amber); } .col.c-done { --accent: var(--pcb); }
 /* Column headers are the shared ColumnHead component in Board.tsx, styled with Tailwind utilities and the
    guild Badge/Button primitives, so the four columns cannot drift apart. */
-.count { margin-left: auto; min-width: 30px; text-align: center; padding: 2px 6px; font: 600 13px var(--mono); color: var(--amber); background: var(--hall-edge); border: 1px solid var(--hall-edge); border-radius: 2px; box-shadow: inset 0 0 6px rgba(217, 180, 90, .15); }
+/* The count plate, shared by every list header (board columns, threads, history): the same stamped badge
+   grammar as the shadcn Badge, so a count looks identical wherever it appears. */
+.count { margin-left: auto; min-width: 30px; text-align: center; padding: 2px 6px; font: 600 13px var(--mono); color: var(--amber); background: var(--hall-edge); border: 1px solid var(--steel2); border-radius: 2px; box-shadow: inset 0 0 6px rgba(217, 180, 90, .15); }
 .list { display: flex; flex-direction: column; gap: 12px; padding: 12px 10px 16px; }
 .empty { padding: 26px 8px; text-align: center; color: var(--dim); font: 400 14px/1.6 var(--display); letter-spacing: .2em; }
 .empty code { display: block; margin-top: 6px; font-size: 11px; letter-spacing: 0; color: var(--dim); }
