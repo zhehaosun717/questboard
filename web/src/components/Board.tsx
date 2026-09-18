@@ -4,6 +4,8 @@ import { filterQuests, paginate, projectScopedKey, questsInColumn } from '../lib
 import { COLUMNS, type Column } from '../lib/labels';
 import { useLocale, useT } from '../lib/i18n';
 import { QuestCard } from './QuestCard';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 import '../styles/responsibility.css';
 import '../styles/archive.css';
 
@@ -44,11 +46,16 @@ function FoldedStrip({ col, count, onOpen }: { col: Column; count: number; onOpe
   const t = useT();
   return (
     <section className={`col c-${col.key} collapsed`}>
-      <button className="col-toggle" type="button" title={t('board.expandTitle', { title: col.title })} onClick={onOpen}>
-        <span className="col-num">{col.num}</span>
-        <span className="count">{count}</span>
-        <span className="v-title">{col.title}</span>
-        <span className="v-hint">{t('board.expand')}</span>
+      <button
+        className="flex w-full min-h-full flex-col items-center gap-2.5 px-0 py-3.5 text-cream bg-transparent border-0 cursor-pointer transition-colors hover:bg-white/4"
+        type="button"
+        title={t('board.expandTitle', { title: col.title })}
+        onClick={onOpen}
+      >
+        <span className="font-display text-[26px] leading-none text-rust">{col.num}</span>
+        <Badge variant="outline">{count}</Badge>
+        <span className="[writing-mode:vertical-rl] font-han text-[17px] tracking-[.25em] text-tag">{col.title}</span>
+        <span className="[writing-mode:vertical-rl] text-[11px] tracking-[.2em] text-dim">{t('board.expand')}</span>
       </button>
     </section>
   );
@@ -71,10 +78,35 @@ function ColumnTitle({ col }: { col: Column }) {
   const locale = useLocale();
   const showSub = locale === 'en' ? !subRepeatsTitle(col) : true;
   return (
-    <div className="col-title">
-      <h2>{col.title}</h2>
-      {showSub ? <span>{col.sub}</span> : null}
+    <div className="flex min-w-0 flex-col">
+      <h2 className="m-0 font-han text-[20px] leading-tight tracking-[.05em] text-tag">{col.title}</h2>
+      {showSub ? <span className="mt-[3px] font-display text-[10px] leading-none tracking-[.28em] text-dim">{col.sub}</span> : null}
     </div>
+  );
+}
+
+// One guild header for every column: the numeral is the big display glyph, the count is a stamped plate,
+// and folding is a ghost plate button. Shared so the four columns cannot drift apart.
+function ColumnHead({
+  col,
+  count,
+  countTitle,
+  fold,
+}: {
+  col: Column;
+  count: number;
+  countTitle?: string;
+  fold?: { title: string; label: string; onClick: () => void };
+}) {
+  return (
+    <header className="flex items-end gap-2.5 border-b border-rivet/45 bg-[linear-gradient(180deg,rgba(75,54,36,.35),transparent)] px-3 pb-2.5 pt-3.5">
+      <span className="font-display text-[34px] leading-[.82] tracking-[.02em] text-rust drop-shadow-[0_1px_2px_rgba(0,0,0,.6)]">{col.num}</span>
+      <ColumnTitle col={col} />
+      <Badge variant="outline" className="ml-auto min-w-[30px] justify-center" title={countTitle}>{count}</Badge>
+      {fold ? (
+        <Button variant="ghost" size="xs" type="button" title={fold.title} onClick={fold.onClick}>{fold.label}</Button>
+      ) : null}
+    </header>
   );
 }
 
@@ -113,14 +145,12 @@ function ArchiveColumn({
   }
   return (
     <section className={`col c-${col.key}`}>
-      <header className="col-head">
-        <span className="col-num">{col.num}</span>
-        <ColumnTitle col={col} />
-        <span className="count" title={t('board.archiveCountTitle')}>{items.length}</span>
-        <button className="col-fold" type="button" title={t('board.collapseTitle', { title: col.title })} onClick={() => onToggle(false)}>
-          {t('board.collapse')}
-        </button>
-      </header>
+      <ColumnHead
+        col={col}
+        count={items.length}
+        countTitle={t('board.archiveCountTitle')}
+        fold={{ title: t('board.collapseTitle', { title: col.title }), label: t('board.collapse'), onClick: () => onToggle(false) }}
+      />
       <div className="archive-search">
         <input
           type="search"
@@ -180,14 +210,11 @@ function OwnerColumn({
   }
   return (
     <section className={`col c-${col.key}`}>
-      <header className="col-head">
-        <span className="col-num">{col.num}</span>
-        <ColumnTitle col={col} />
-        <span className="count">{items.length}</span>
-        <button className="col-fold" type="button" title={t('board.collapseTitle', { title: col.title })} onClick={() => onToggle(false)}>
-          {t('board.collapse')}
-        </button>
-      </header>
+      <ColumnHead
+        col={col}
+        count={items.length}
+        fold={{ title: t('board.collapseTitle', { title: col.title }), label: t('board.collapse'), onClick: () => onToggle(false) }}
+      />
       <div className="list">{renderQuestList(items)}</div>
     </section>
   );
@@ -306,11 +333,7 @@ export function Board({ snap, pickingCardId, onSelectQuest, onDropCard }: BoardP
         }
         return (
           <section className={`col c-${col.key}`} key={col.key}>
-            <header className="col-head">
-              <span className="col-num">{col.num}</span>
-              <ColumnTitle col={col} />
-              <span className="count">{items.length}</span>
-            </header>
+            <ColumnHead col={col} count={items.length} />
             <div className="list">{renderQuestList(items)}</div>
           </section>
         );
