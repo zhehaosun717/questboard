@@ -1,4 +1,6 @@
 import { describe, it, before, after } from 'node:test';
+import fs from 'node:fs';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { startFixture } from './fixture.js';
 import { validateAnnotations } from '../../src/server/boardRoutes.js';
@@ -54,6 +56,20 @@ describe('annotations', () => {
     assert.equal((await fx.api('/api/annotations?page=../x')).status, 400);
   });
 
+  it('a failed save answers 500 with a plain message, never a 200 (FB2-02 item 5)', async () => {
+    const own = await startFixture();
+    try {
+      // A plain file where the annotations folder must be: the append cannot succeed.
+      fs.mkdirSync(own.project.config.paths.data, { recursive: true });
+      fs.writeFileSync(path.join(own.project.config.paths.data, 'annotations'), 'not a directory');
+      const result = await own.api('/api/annotations', 'POST', { page: 'robot8', items: [{ id: 'a', verdict: '', note: 'x', updatedAt: new Date().toISOString() }] });
+      assert.equal(result.status, 500);
+      assert.match(result.text, /批注没存上/);
+      assert.equal(fs.existsSync(path.join(own.project.config.paths.data, 'annotations', 'robot8.jsonl')), false, 'no half-written log');
+    } finally {
+      await own.close();
+    }
+  });
   it('validates every field with a named message', () => {
     assert.match(validateAnnotations({ page: 'Bad Page', items: [] }), /page must match/);
     assert.match(validateAnnotations({ page: 'p', items: [{ id: 'a', note: 1, verdict: '', updatedAt: 'x' }] }), /note must be a string/);
