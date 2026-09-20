@@ -3,6 +3,11 @@
 import { resetAt } from '../lanes/workers.js';
 
 const UNVERIFIED_REASON = '限额窗口已过，尚未验证可用';
+// FB2-01.2: coded lane evidence decides which derived status a card gets. A dead model (410/404/
+// model-not-found in the worker's last lines) breaks the card — there is no reset window to wait out.
+// An auth failure (401/invalid key) limits it — the owner can fix the key and clear it, same as quota.
+const BROKE_CODES = new Set(['model_gone']);
+const AUTH_CODES = new Set(['auth_failed']);
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 // A provider's own bounce label (e.g. "1:54 PM", "Sep 18, 2026 1:54 PM") is shown verbatim. Only a
 // machine-shaped timestamp (YYYY-MM-DD…, as a structured API's resetAt field can hand back directly) is
@@ -109,6 +114,11 @@ function laneEntries(lanes) {
 
 function reasonFor(row, resetsAt, expired) {
   if (expired) return UNVERIFIED_REASON;
+  // Coded auth/model-gone evidence carries the provider's own error line as its reason (bounded at
+  // detection time in workers.js) — showing that original text beats any paraphrase of it.
+  if ((BROKE_CODES.has(row.code) || AUTH_CODES.has(row.code)) && typeof row.reason === 'string' && row.reason) {
+    return BROKE_CODES.has(row.code) ? `模型已下线：${row.reason}` : `认证失败：${row.reason}`;
+  }
   // F1: resetsAt null means the reset time is genuinely unknown (no real observation to anchor it) — the
   // reason must not show a time in that case, even if the provider's own bounceUntil text looks like one.
   const label = resetsAt === null ? '' : humanResetLabel(row.bounceUntil || '', resetsAt);
@@ -232,8 +242,8 @@ export function effectiveRoster(adventurers, lanes, now = Date.now()) {
     if (manualClearAfter(adventurer, evidenceAt) || (successAt !== null && evidenceAt !== null && successAt > evidenceAt)) return result;
 
     const derived = { from: 'lanes', reason: reasonFor(row, reset, reset !== null && reset <= now), ...derivedEvidence(row, now) };
-    if (reset !== null && reset <= now) return { ...result, derived };
-    return { ...result, status: 'limited', derived };
+    if (reset !== null && reset <= now && !BROKE_CODES.has(row.code)) return { ...result, derived };
+    return { ...result, status: BROKE_CODES.has(row.code) ? 'broke' : 'limited', derived };
   });
 }
 

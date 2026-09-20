@@ -406,3 +406,47 @@ describe('dispatcher deliverFromApi', () => {
     assert.equal(last.report.verdict.verdict, 'unknown');
   });
 });
+
+// FB2-01.3: a claude stream-json worker can end with a result line and no .exit/.md. The collector reads
+// the result; the dispatcher owns the write of the missing <outputDir>/<name>.md, then delivers.
+describe('dispatcher stream-json delivery (FB2-01.3)', () => {
+  const streamAssignee = { name: 'sj1', lane: 'claude', model: 'claude-opus-5', at: '2026-09-14T00:00:00.000Z', attemptId: 'att-sj1' };
+  const streamQuest = () => ({ id: 'ART-8', status: 'dispatched', assignee: streamAssignee, kind: 'art', dispatches: [] });
+  const streamRow = { name: 'sj1', package: 'ART-8', lane: 'claude', model: 'claude-opus-5', state: 'delivered', dispatchedAt: '2026-09-14T00:00:01.000Z', streamResult: '# 最终报告\n完成了评审页' };
+
+  it('writes the extracted result into <outputDir>/<name>.md and then delivers', async () => {
+    const { config } = makeProject();
+    const store = makeStore([streamQuest()]);
+    const dispatcher = createDispatcher({ config, store });
+    dispatcher.applyLanes({ packages: [streamRow] });
+    await wait();
+    const md = path.join(config.root, '.work', 'claude', 'sj1.md');
+    assert.equal(fs.readFileSync(md, 'utf8'), streamRow.streamResult);
+    assert.equal(store.get('ART-8').status, 'delivered');
+    assert.match(store.get('ART-8').lastDetail, /stream-json/);
+  });
+
+  it('never overwrites a report the worker wrote itself', async () => {
+    const { config, write } = makeProject();
+    write('.work/claude/sj1.md', '# worker 自己写的报告');
+    const store = makeStore([streamQuest()]);
+    const dispatcher = createDispatcher({ config, store });
+    dispatcher.applyLanes({ packages: [streamRow] });
+    await wait();
+    assert.equal(fs.readFileSync(path.join(config.root, '.work', 'claude', 'sj1.md'), 'utf8'), '# worker 自己写的报告');
+    assert.equal(store.get('ART-8').status, 'delivered');
+  });
+
+  it('fails loudly with delivery_write_failed when the report write itself fails, never a fake delivery', async () => {
+    const { config, write } = makeProject();
+    // A file where the output directory should be makes every write under it fail.
+    write('.work/claude', 'not a directory');
+    const store = makeStore([streamQuest()]);
+    const dispatcher = createDispatcher({ config, store });
+    dispatcher.applyLanes({ packages: [streamRow] });
+    await wait();
+    assert.equal(store.get('ART-8').status, 'failed');
+    assert.ok(store.events.some((e) => e.event === 'delivery_write_failed'), JSON.stringify(store.events));
+    assert.equal(store.events.filter((e) => e.event === 'delivered').length, 0);
+  });
+});

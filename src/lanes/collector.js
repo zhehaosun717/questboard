@@ -1,9 +1,10 @@
 // Lane collector: reads the project's dispatch registry and each worker's state, per the lane config.
 // Read-only and never throws for a single bad worker — that worker gets state 'unknown' with the reason.
+import fs from 'node:fs';
 import path from 'node:path';
 import { readJsonLines } from '../core/jsonl.js';
 import { workerState, countEdits, readText, laneLimitFromEvidence, active, laneEvidence as readLaneEvidence, mtime, resetAt, limitEntry } from './workers.js';
-import { protocolFor } from './protocols.js';
+import { protocolFor, parseAgyVerdict } from './protocols.js';
 import { latestProgress } from './progress.js';
 import { isCurrentRow, tailText } from '../core/sync.js';
 
@@ -91,7 +92,7 @@ function baseEntry(pkg, dispatch, data, now, adventurerId, quest) {
   return {
     package: pkg, lane: dispatch.lane, model: dispatch.model, variant: dispatch.variant || '', name: dispatch.name,
     session: dispatch.session || null, dispatchedAt: dispatch.at,
-    ...(current ? { attemptAt: startedAt } : {}), elapsed: Math.max(0, now - Date.parse(startedAt)),
+    ...(current ? { attemptAt: startedAt, current: true } : {}), elapsed: Math.max(0, now - Date.parse(startedAt)),
     state: 'unknown', reason: '', stale: false, edits: 0, tokens: null, lastText: '', bounceUntil: null, history,
     ...(adventurerId ? { adventurerId } : {}),
   };
@@ -106,12 +107,41 @@ async function pollAll(jobs) {
   return results;
 }
 
-export function createCollector(config, { fetchImpl = fetch } = {}) {
+export function createCollector(config, { fetchImpl = fetch, verifyProcessTree = null } = {}) {
   const lastSeen = new Map();
   const models = new Map();
   const apiEvidence = new Map();
 
-  function fileWorker(entry, lane, now, registryToken) {
+  // The board's job-object verifier (wired in by the server, see src/server/server.js) reports whether the
+  // process tree of one attempt is gone, still alive, or unknown. The collector itself never spawns or
+  // inspects processes: it only asks, and only a verified 'empty' turns a silent worker into a terminal
+  // failure. Anything else (alive, unknown, the callback itself throwing) leaves the existing
+  // stall-after-minutes behaviour untouched.
+  async function workerDied(entry, lane, quest, basePath, outText) {
+    if (!verifyProcessTree || !quest || !entry.current) return false;
+    if (quest.status !== 'dispatched' && quest.status !== 'stalled') return false;
+    if (TERMINAL_STATES.has(entry.state)) return false;
+    // Death detection needs the total absence of terminal evidence: a .exit or a .md on disk is the
+    // worker's own last word and wins, whatever the process tree says.
+    if (fs.existsSync(`${basePath}.exit`) || fs.existsSync(`${basePath}.md`)) return false;
+    let verdict = 'unknown';
+    try {
+      verdict = await verifyProcessTree({
+        attemptId: (quest.assignee && quest.assignee.attemptId) || null,
+        name: entry.name, lane: entry.lane, package: entry.package,
+      });
+    } catch {
+      verdict = 'unknown';
+    }
+    if (verdict !== 'empty') return false;
+    const tail = tailText(outText, LAST_TEXT_MAX);
+    entry.state = 'failed';
+    entry.reason = `进程树已空，worker 已不在${tail ? `：${tail}` : '（没有输出）'}`;
+    entry.lastText = '';
+    return true;
+  }
+
+  async function fileWorker(entry, lane, now, registryToken, quest) {
     const basePath = path.join(config.root, lane.outputDir, entry.name);
     Object.assign(entry, workerState(basePath, now, {
       editCounter: lane.editCounter,
@@ -129,14 +159,21 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
         }
       }
     }
-    if (!TERMINAL_STATES.has(entry.state) && stallForLimit(entry, fileLimitReason(entry, lane), lane)) return;
     const outText = readText(`${basePath}.out`, 20000);
+    // A verified-dead worker fails now — no waiting for stallAfterMinutes, and an already-stalled row flips
+    // to failed the same way, since the empty tree is a terminal fact about this attempt.
+    if (await workerDied(entry, lane, quest, basePath, outText)) return;
+    if (!TERMINAL_STATES.has(entry.state) && stallForLimit(entry, fileLimitReason(entry, lane), lane)) return;
     entry.edits = countEdits(outText, lane.editCounter);
+    // FB2-01.4: an agy-style VERDICT line at the .out tail is the review's conclusion, read straight into
+    // the row (条目 21.1). No line, no field — an absent verdict stays honestly absent.
+    const verdict = parseAgyVerdict(outText);
+    if (verdict) entry.verdict = verdict;
     const report = readText(`${basePath}.md`, LAST_TEXT_MAX + 200).trim();
     // A stream-json lane's .out is a tool transcript, never a report — showing its raw tail as a "summary"
     // is exactly the bloated, mid-token cut this replaces; a text-only lane's own stdout still stands in
     // for one, cut at a word boundary instead of mid-word/mid-token.
-    entry.lastText = tailText(report || (lane.editCounter === 'stream-json' ? '' : outText), LAST_TEXT_MAX);
+    entry.lastText = tailText(report || entry.streamResult || (lane.editCounter === 'stream-json' ? '' : outText), LAST_TEXT_MAX);
   }
 
   async function apiWorker(entry, lane, skipStale, now, protocol) {
@@ -195,7 +232,7 @@ export function createCollector(config, { fetchImpl = fetch } = {}) {
         const protocol = lane ? protocolFor(lane) : null;
         if (!lane) entry.reason = `lane ${entry.lane} is not configured`;
         else if (protocol) jobs.push(() => apiWorker(entry, lane, skipStale, now, protocol).catch((error) => { entry.reason = error.message; }));
-        else fileWorker(entry, lane, now, dispatch.token);
+        else jobs.push(() => fileWorker(entry, lane, now, dispatch.token, questRows.get(pkg)).catch((error) => { entry.state = 'unknown'; entry.reason = error.message; }));
       } catch (error) {
         entry.state = 'unknown';
         entry.reason = error.message;

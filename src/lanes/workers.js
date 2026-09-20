@@ -2,6 +2,7 @@
 // and optionally <name>.md as the final report.
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseStreamJsonResult } from './protocols.js';
 
 export const STALE_MS = 20 * 60 * 1000;
 export const HEARTBEAT_DEFAULT_MS = 20 * 1000;
@@ -72,7 +73,21 @@ function resetText(line) {
   return match ? match[1].trim() : null;
 }
 
-function bounceFromExit(line, exitRecord, patterns) {
+// FB2-01.2: a worker that died of an auth failure or a retired model never wrote a structured reason —
+// the CLI's own error line in the .out tail is the only evidence. These built-ins share the
+// policy.bouncePatterns entry point (they run only after a genuine nonzero exit, never on a live worker's
+// output) and carry the original line as the reason, so the card shows what the provider actually said.
+// A 401/auth line limits the card (the owner can fix the key and clear it); a 410/404/model-not-found line
+// marks it broke (the model itself is gone — no reset window exists).
+const AUTH_RE = /(?:\b401\b[^\n]*(?:unauthorized|authentication|api[_ -]?key)|(?:unauthorized|authentication)[^\n]*\b401\b|invalid[_ -]api[_ -]key|incorrect api key|\bauth(?:entication)?[_ -](?:error|failed)\b)/i;
+const MODEL_GONE_RE = /model[_ -]not[_ -]found|(?:\b410\b|\b404\b)[^\n]*\bmodel\b|\bmodel\b[^\n]*(?:\b410\b|\b404\b|does not exist|decommissioned|retired|no longer available)/i;
+const BOUNCE_REASON_MAX = 200;
+// The last non-empty line is often a retry prompt below the actual error, so the built-ins read the last
+// few lines, not only the literal last one. Configured patterns keep their exit-line-only contract above.
+const BUILTIN_TAIL_LINES = 3;
+
+function bounceFromExit(text, exitRecord, patterns) {
+  const line = lastLine(text);
   const structured = Boolean(exitRecord && QUOTA_REASON_RE.test(exitRecord.reason || ''));
   if (structured || USAGE_RE.test(line)) {
     return { state: 'bounced', reason: 'usage limit', bounceUntil: resetText(line) || (exitRecord && exitRecord.resetAt) || null };
@@ -83,6 +98,17 @@ function bounceFromExit(line, exitRecord, patterns) {
   for (const entry of patterns || []) {
     if (entry && entry.pattern && entry.pattern.test(line)) {
       return { state: 'bounced', reason: entry.label, code: entry.code, bounceUntil: resetText(line) || (exitRecord && exitRecord.resetAt) || null };
+    }
+  }
+  const tailLines = String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-BUILTIN_TAIL_LINES);
+  for (const tailLine of tailLines) {
+    if (AUTH_RE.test(tailLine)) {
+      return { state: 'bounced', reason: tailLine.slice(0, BOUNCE_REASON_MAX), code: 'auth_failed', bounceUntil: resetText(tailLine) || (exitRecord && exitRecord.resetAt) || null };
+    }
+  }
+  for (const tailLine of tailLines) {
+    if (MODEL_GONE_RE.test(tailLine)) {
+      return { state: 'bounced', reason: tailLine.slice(0, BOUNCE_REASON_MAX), code: 'model_gone', bounceUntil: null };
     }
   }
   return null;
@@ -171,6 +197,16 @@ export function workerState(basePath, now = Date.now(), options = {}) {
   // A malformed or half-written .exit is not terminal evidence: treat it exactly like no .exit at all —
   // still running, or stalled once .out itself has gone quiet for a long time.
   if (code === null) {
+    // FB2-01.3: a claude stream-json transcript's final {"type":"result"} line is the worker's own last
+    // word. The wrapper can die (or be killed) between printing it and writing .exit — the result must not
+    // wait for stallAfterMinutes in that gap. An error result is a failure with the original text; a
+    // successful one delivers, and the dispatcher turns the extracted text into the missing .md report.
+    // An empty result proves nothing either way and falls through to the ordinary running/stalled rules.
+    if (options.editCounter === 'stream-json') {
+      const found = parseStreamJsonResult(readText(outPath, 20000));
+      if (found && found.isError) return decorate({ state: 'failed', reason: `stream-json 结果报错：${found.result.slice(0, 200)}` });
+      if (found && found.result.trim()) return decorate({ state: 'delivered', streamResult: found.result });
+    }
     if (heartbeat.present) {
       if (heartbeat.malformed) return decorate({ state: 'unknown', reason: '心跳文件格式错误' });
       if (heartbeat.unknownToken) return decorate({ state: 'unknown', reason: '心跳 token 未知' });
@@ -191,7 +227,7 @@ export function workerState(basePath, now = Date.now(), options = {}) {
   }
   const outText = readText(outPath, 4000);
   if (code !== 0) {
-    const bounce = bounceFromExit(lastLine(outText), exitRecord, options.bouncePatterns);
+    const bounce = bounceFromExit(outText, exitRecord, options.bouncePatterns);
     const cancel = exitRecord?.cancelRequestId ? { cancelRequestId: exitRecord.cancelRequestId, cancelScope: exitRecord.cancelScope } : {};
     if (bounce) return decorate({ ...bounce, ...cancel });
     return decorate({ state: 'failed', reason: `exit ${code}`, ...cancel });
@@ -292,7 +328,7 @@ export function laneEvidence(outputDir, now = Date.now(), options = {}) {
     const name = file.slice(0, -4);
     const adventurerId = resolveIdentity(name);
     if (exitRecord.code === 0) { successes.push({ at: terminalAt, adventurerId }); continue; }
-    const bounce = bounceFromExit(lastLine(readText(outPath, 4000)), exitRecord, options.bouncePatterns);
+    const bounce = bounceFromExit(readText(outPath, 4000), exitRecord, options.bouncePatterns);
     if (!bounce) continue;
     const evidence = { ...bounce, at: terminalAt, name, adventurerId: adventurerId || null };
     if (evidence.adventurerId) {

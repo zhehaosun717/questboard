@@ -819,3 +819,124 @@ describe('workers', () => {
     assert.equal(sessionModel([]), null);
   });
 });
+
+describe('FB2-01 outcome recognition', () => {
+  const base = (root, name) => path.join(root, '.work', name);
+
+  it('delivers a stream-json worker whose .out ends in a result line even without .exit (FB2-01.3)', () => {
+    const { root, write } = makeProject();
+    const now = Date.now();
+    const result = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '1. 改完了\n2. 测试全绿' });
+    write('.work/sj.out', ['{"type":"assistant"}', result].join('\n'));
+    const state = workerState(base(root, 'sj'), now, { editCounter: 'stream-json' });
+    assert.equal(state.state, 'delivered');
+    assert.equal(state.streamResult, '1. 改完了\n2. 测试全绿');
+    // An error result is a failure carrying the original text, never a delivery.
+    write('.work/sje.out', JSON.stringify({ type: 'result', is_error: true, result: 'API Error: 401' }));
+    const errored = workerState(base(root, 'sje'), now, { editCounter: 'stream-json' });
+    assert.equal(errored.state, 'failed');
+    assert.match(errored.reason, /API Error: 401/);
+    // No result line: unchanged behaviour (running, then stalled) — content alone is not terminal.
+    write('.work/sjr.out', '{"type":"assistant"}');
+    assert.equal(workerState(base(root, 'sjr'), now, { editCounter: 'stream-json' }).state, 'running');
+    // A non-stream-json lane never reads its .out as a transcript.
+    write('.work/plain.out', result);
+    assert.equal(workerState(base(root, 'plain'), now).state, 'running');
+  });
+
+  it('collector carries the stream-json result onto the row and uses it as the summary (FB2-01.3)', async () => {
+    const { config, write } = makeProject();
+    dispatch(config, { package: 'ART-9', lane: 'claude', model: 'claude-opus-5', name: 'art9' });
+    const result = JSON.stringify({ type: 'result', is_error: false, result: '最终报告：完成了交付' });
+    write('.work/claude/art9.out', ['{"type":"assistant"}', result].join('\n'));
+    const [row] = (await createCollector(config).collect()).packages;
+    assert.equal(row.state, 'delivered');
+    assert.equal(row.streamResult, '最终报告：完成了交付');
+    assert.equal(row.lastText, '最终报告：完成了交付', 'the result text stands in for the missing .md summary');
+    const quest = { id: 'ART-9', status: 'dispatched', assignee: { name: 'art9', at: new Date().toISOString() }, dispatches: [], kind: 'art' };
+    const [transition] = deriveTransitions([quest], [row]);
+    assert.equal(transition.status, 'delivered');
+    assert.equal(transition.streamResult, '最终报告：完成了交付', 'the dispatcher gets the text to write into .md');
+  });
+
+  it('parses the agy VERDICT line at the .out tail into entry.verdict (FB2-01.4)', async () => {
+    const { config, write } = makeProject();
+    dispatch(config, { package: 'SPEC-9', lane: 'agy', model: 'gemini-3.8-flash-high', name: 'spec9' });
+    write('.work/agy/spec9.out', '审查了报告\n发现问题\nVERDICT: PASS WITH FINDINGS\n');
+    write('.work/agy/spec9.exit', '0');
+    write('.work/agy/spec9.md', '# 复核报告');
+    const [row] = (await createCollector(config).collect()).packages;
+    assert.equal(row.state, 'delivered');
+    assert.equal(row.verdict, 'findings');
+    // No VERDICT line: the field is simply absent.
+    dispatch(config, { package: 'SPEC-10', lane: 'agy', model: 'gemini-3.8-flash-high', name: 'spec10' });
+    write('.work/agy/spec10.out', '还在看\n');
+    const rows = (await createCollector(config).collect()).packages;
+    const other = rows.find((r) => r.name === 'spec10');
+    assert.equal(Object.hasOwn(other, 'verdict'), false);
+  });
+
+  it('bounces with code auth_failed and the original line on a 401/invalid_api_key exit (FB2-01.2)', () => {
+    const { root, write } = makeProject();
+    const now = Date.now();
+    const fixtures = [
+      ['a1', 'Error: 401 Unauthorized: invalid api key provided'],
+      ['a2', 'API Error: 401 authentication failed'],
+      ['a3', 'invalid_api_key: sk-...'],
+      ['a4', 'AUTH_ERROR: credentials rejected'],
+    ];
+    for (const [name, line] of fixtures) {
+      write(`.work/${name}.out`, `working...\n${line}`);
+      write(`.work/${name}.exit`, '1');
+      const state = workerState(base(root, name), now);
+      assert.equal(state.state, 'bounced', line);
+      assert.equal(state.code, 'auth_failed', line);
+      assert.equal(state.reason, line, 'the original line is the reason');
+    }
+    // Without a real exit, the same words are not terminal evidence.
+    write('.work/a5.out', 'Error: 401 Unauthorized: invalid api key provided');
+    assert.equal(workerState(base(root, 'a5'), now).state, 'running');
+    // A few lines back from the end still counts (最后几行), not only the literal last line.
+    write('.work/a6.out', 'working\nError 401: invalid api key\n（重试提示）\n');
+    write('.work/a6.exit', '1');
+    assert.equal(workerState(base(root, 'a6'), now).state, 'bounced');
+    assert.equal(workerState(base(root, 'a6'), now).code, 'auth_failed');
+  });
+
+  it('bounces with code model_gone on 410/404/model-not-found (FB2-01.2)', () => {
+    const { root, write } = makeProject();
+    const now = Date.now();
+    const fixtures = [
+      ['m1', 'Error: 410 Gone: model gpt-5.5-luna is decommissioned'],
+      ['m2', '404 model not found: kimi-legacy'],
+      ['m3', 'model_not_found: deepseek-v3-old'],
+      ['m4', 'the model claude-old no longer available'],
+    ];
+    for (const [name, line] of fixtures) {
+      write(`.work/${name}.out`, `working...\n${line}`);
+      write(`.work/${name}.exit`, '1');
+      const state = workerState(base(root, name), now);
+      assert.equal(state.state, 'bounced', line);
+      assert.equal(state.code, 'model_gone', line);
+      assert.equal(state.reason, line);
+      assert.equal(state.bounceUntil, null, 'a dead model has no reset window');
+    }
+    // Negatives: an ordinary 404 mention without a model, and a model remark without a death signal.
+    write('.work/m5.out', 'test failed: expected 404 but got 200');
+    write('.work/m5.exit', '1');
+    assert.equal(workerState(base(root, 'm5'), now).state, 'failed');
+    write('.work/m6.out', 'the model config file was not found in settings');
+    write('.work/m6.exit', '1');
+    assert.equal(workerState(base(root, 'm6'), now).state, 'failed');
+  });
+
+  it('carries auth_failed/model_gone codes through lane evidence the way configured codes already travel', () => {
+    const { root, write } = makeProject();
+    const now = Date.now();
+    write('.work/codex/gone.out', 'Error: 410 Gone: model gpt-5.6-luna is decommissioned');
+    write('.work/codex/gone.exit', '1');
+    const evidence = laneLimit(path.join(root, '.work', 'codex'), now, { identityByName: () => 'codex-luna' });
+    assert.equal(evidence.code, 'model_gone');
+    assert.equal(evidence.cards['codex-luna'].code, 'model_gone');
+  });
+});

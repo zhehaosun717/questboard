@@ -112,7 +112,9 @@ export function deriveTransitions(quests, laneRows, now = Date.now()) {
     // A terminal exit/session result is authoritative even when the row also carries a stale bound reason.
     // Bounds are for non-terminal observations; they must never hide a finished worker from a silent quest.
     if (status && status !== 'stalled') {
-      transitions.push({ id: quest.id, status, detail: detailFor(row) });
+      // A stream-json result row carries the extracted report text (FB2-01.3): the collector stays
+      // read-only, so the write into <outputDir>/<name>.md is the dispatcher's job, keyed off this field.
+      transitions.push({ id: quest.id, status, detail: detailFor(row), ...(row.streamResult ? { streamResult: row.streamResult } : {}) });
       continue;
     }
     const detail = detailFor(row);

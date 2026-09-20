@@ -188,3 +188,45 @@ describe('status parity backend contract', () => {
     assert.deepEqual(limit.cards[otherCard.id], astra);
   });
 });
+
+describe('FB2-01.2 auth/model-gone card status', () => {
+  it('marks the card broke with the original error line when its worker died of model-gone', async () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/G-1-x.md', 'G-1');
+    const store = new QuestStore(config);
+    store.post({ package: 'G-1', brief: 'docs/briefs/G-1-x.md' });
+    store.assign('G-1', { adventurer: card, name: 'g1' });
+    appendJsonLine(config.paths.registry, { at: new Date().toISOString(), event: 'dispatch', package: 'G-1', lane: 'codex', model: card.model, name: 'g1' });
+    write('.work/codex/g1.out', 'working...\nError: 410 Gone: model gpt-5.6-luna is decommissioned');
+    write('.work/codex/g1.exit', '1');
+    const lanes = await createCollector(config).collect();
+    const [shown] = effectiveRoster([card], lanes);
+    assert.equal(shown.status, 'broke', 'a dead model breaks the card, no reset window exists');
+    assert.match(shown.derived.reason, /410 Gone: model gpt-5.6-luna is decommissioned/, "the provider own words are the reason");
+  });
+
+  it('limits the card with the original line on an auth failure, and a later success clears it', async () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/A-1-x.md', 'A-1');
+    const store = new QuestStore(config);
+    store.post({ package: 'A-1', brief: 'docs/briefs/A-1-x.md' });
+    store.assign('A-1', { adventurer: card, name: 'a1' });
+    appendJsonLine(config.paths.registry, { at: new Date().toISOString(), event: 'dispatch', package: 'A-1', lane: 'codex', model: card.model, name: 'a1' });
+    write('.work/codex/a1.out', 'working...\nError: 401 Unauthorized: invalid api key provided');
+    write('.work/codex/a1.exit', '1');
+    const lanes = await createCollector(config).collect();
+    const [shown] = effectiveRoster([card], lanes);
+    assert.equal(shown.status, 'limited', 'an auth failure limits the card until the owner fixes the key');
+    assert.match(shown.derived.reason, /401 Unauthorized: invalid api key provided/);
+  });
+
+  it('keeps a coded bounce in lane evidence across polls (not only the live package row)', async () => {
+    const { config, write } = makeProject();
+    appendJsonLine(config.paths.registry, { at: new Date().toISOString(), event: 'dispatch', package: 'G-2', lane: 'codex', model: card.model, name: 'g2', adventurerId: card.id });
+    write('.work/codex/g2.out', 'model_not_found: gpt-5.6-luna');
+    write('.work/codex/g2.exit', '1');
+    const lanes = await createCollector(config).collect();
+    const [shown] = effectiveRoster([card], lanes);
+    assert.equal(shown.status, 'broke', 'lane evidence alone (no live row) still breaks the card');
+  });
+});

@@ -11,7 +11,7 @@ const MESSAGES = {
   parent_missing: (quest, adventurer, detail) => `父任务 ${detail} 不在板上，先让 coordinator 发布它`,
   lane_missing: (quest, adventurer) => `这个项目没有配置 ${adventurer.lane} 通道`,
   adventurer_limited: (quest, adventurer, detail) => detail ? `这个模型限额中：${detail}` : '这个模型限额中',
-  adventurer_broke: () => '这个供应商余额不足',
+  adventurer_broke: (quest, adventurer, detail) => detail ? `这张卡不能用了：${detail}` : '这个供应商余额不足',
   adventurer_paused: () => '这个模型被暂停使用',
   adventurer_disabled: () => '这个模型已停用',
   model_banned: (quest, adventurer) => `模型 ${adventurer.model} 在禁用名单里`,
@@ -271,7 +271,7 @@ function adventurerReasons(quest, adventurer, policy, env) {
   if (env && env.downLanes && env.downLanes.has(adventurer.lane)) reasons.push(reason('lane_server_down', quest, adventurer, env.downLanes.get(adventurer.lane)));
   if (adventurer.status && adventurer.status !== 'available') {
     const code = MESSAGES[`adventurer_${adventurer.status}`] ? `adventurer_${adventurer.status}` : 'adventurer_disabled';
-    const detail = code === 'adventurer_limited'
+    const detail = code === 'adventurer_limited' || code === 'adventurer_broke'
       ? (adventurer.derived && adventurer.derived.reason) || adventurer.baseReason || adventurer.statusReason || ''
       : undefined;
     reasons.push(reason(code, quest, adventurer, detail));

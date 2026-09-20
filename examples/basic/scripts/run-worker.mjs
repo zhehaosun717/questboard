@@ -542,6 +542,25 @@ function waitForJobGate() {
   });
 }
 
+// Polite-stop signals (FB2-01.6): SIGINT/SIGTERM give the wrapper one last chance to leave terminal
+// evidence — kill the child it spawned and publish a conservative non-zero .exit (the child may not have
+// finished, so this is never a success code), then exit through the same terminalExit path as any other
+// ending. Windows never delivers SIGTERM to a Node process, and taskkill /F kills outright — no handler
+// runs, no .exit can be written; that force-killed case is deliberately NOT covered here and is instead
+// recognized board-side by the job-object process-tree check (src/server/dispatcher.js verifyProcessTree,
+// FB2-01.1). Registering the handlers on Windows is harmless: they simply never fire there.
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    if (settled) return;
+    settled = true;
+    note(`received ${signal}, stopping the worker and publishing a failure exit`);
+    killTree();
+    try { if (child) child.kill(); } catch {}
+    closeOut();
+    terminalExit(1, 1);
+  });
+}
+
 await waitForJobGate();
 startHeartbeat();
 try {

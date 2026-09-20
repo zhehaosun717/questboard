@@ -55,3 +55,58 @@ describe('protocolFor', () => {
     assert.throws(() => protocol.parseDelivery(errored, 'ses_3'), (err) => err.code === undefined && /MessageAbortedError/.test(err.message));
   });
 });
+
+// FB2-01.3/4: file-lane transcript tail parsers. The claude lane's .out is a stream-json tool transcript
+// whose final line is a {"type":"result"} object; the agy lane's ends with a VERDICT line. Both are parsed
+// here, vendor-neutral, so collector.js and workers.js never hand-roll the scan.
+import { parseStreamJsonResult, parseAgyVerdict } from '../../src/lanes/protocols.js';
+
+describe('parseStreamJsonResult (FB2-01.3)', () => {
+  it('returns the final result line text, scanning from the end of the transcript', () => {
+    const wanted = '1. fixed src/a.js\n2. all tests green';
+    const text = [
+      '{"type":"assistant","message":"..."}',
+      JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: wanted }),
+    ].join('\n');
+    assert.deepEqual(parseStreamJsonResult(text), { result: wanted, isError: false });
+  });
+
+  it('keeps the LAST result line when a transcript has more than one', () => {
+    const text = [
+      '{"type":"result","is_error":false,"result":"first, superseded"}',
+      '{"type":"result","is_error":false,"result":"final answer"}',
+    ].join('\n');
+    assert.equal(parseStreamJsonResult(text).result, 'final answer');
+  });
+
+  it('flags an error result instead of treating it as a delivery', () => {
+    const text = '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"API Error: 401"}';
+    assert.deepEqual(parseStreamJsonResult(text), { result: 'API Error: 401', isError: true });
+  });
+
+  it('returns null when no result line exists, and never throws on garbage lines', () => {
+    assert.equal(parseStreamJsonResult('plain text\n{"type":"assistant"}'), null);
+    assert.equal(parseStreamJsonResult('{not json}\n{"type":"result"'), null);
+    assert.equal(parseStreamJsonResult(''), null);
+    assert.equal(parseStreamJsonResult(null), null);
+    // A result-looking line that is not the last word still counts; trailing noise lines do not hide it.
+    const text = '{"type":"result","is_error":false,"result":"done"}\n{"type":"system","msg":"bye"}\n';
+    assert.equal(parseStreamJsonResult(text).result, 'done');
+  });
+});
+
+describe('parseAgyVerdict (FB2-01.4)', () => {
+  it('parses the final VERDICT line, case-insensitively, PASS WITH FINDINGS before PASS', () => {
+    assert.equal(parseAgyVerdict('working...\nVERDICT: PASS\n'), 'PASS');
+    assert.equal(parseAgyVerdict('VERDICT: FAIL, see above\n'), 'FAIL');
+    assert.equal(parseAgyVerdict('verdict: pass with findings\n'), 'findings');
+  });
+
+  it('keeps the last verdict line and returns null when there is none', () => {
+    assert.equal(parseAgyVerdict('VERDICT: FAIL\nmore work\nVERDICT: PASS\n'), 'PASS');
+    assert.equal(parseAgyVerdict('no verdict here'), null);
+    assert.equal(parseAgyVerdict(''), null);
+    // "VERDICT: PASS or FAIL" lists alternatives -- a template, not a verdict -- and does not count.
+    assert.equal(parseAgyVerdict('VERDICT: PASS or FAIL, pick one'), null);
+  });
+});

@@ -133,3 +133,47 @@ export const PROTOCOLS = {
 export function protocolFor(lane) {
   return (lane && lane.protocol && PROTOCOLS[lane.protocol]) || null;
 }
+
+// --- File-lane transcript tail parsers (FB2-01) ---------------------------------------------
+// File lanes have no session API; their .out tail is the only machine-readable word they leave behind.
+// Both parsers are pure, never throw, and scan from the END of the text — the last matching line is the
+// worker's final word, anything earlier is progress chatter.
+
+// claude's stream-json transcript ends with a {"type":"result", "result": "...", "is_error": bool} line.
+// Returns { result, isError } for the last such line, or null when the transcript has none (worker still
+// running, or a non-claude lane). A result with is_error true is a failure, not a delivery — the caller
+// decides the state; this parser only reports what the line says.
+export function parseStreamJsonResult(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index].trim();
+    if (!line.startsWith('{')) continue;
+    let parsed;
+    try { parsed = JSON.parse(line); } catch { continue; }
+    if (parsed && parsed.type === 'result') {
+      return { result: typeof parsed.result === 'string' ? parsed.result : '', isError: parsed.is_error === true };
+    }
+  }
+  return null;
+}
+
+// agy's .out ends with a VERDICT line (FB2-01.4, item 21.1). Case-insensitive on purpose here — unlike the
+// report parser in core/reportEvidence.js, this reads a tool transcript, not a curated report. The value
+// shares reportEvidence's stored names ('findings' for PASS WITH FINDINGS) so downstream consumers see one
+// vocabulary. A line that names more than one verdict word ("VERDICT: PASS or FAIL") is a template, not a
+// verdict, and is skipped. Last genuine line wins; no line at all returns null (not 'unknown' — the
+// collector simply does not set entry.verdict then).
+const AGY_VERDICT_RE = /^\s*VERDICT:\s*(PASS WITH FINDINGS|PASS|FAIL)\b([^\n]*)$/i;
+const ANOTHER_VERDICT_WORD_RE = /\b(?:PASS|FAIL)\b/i;
+
+export function parseAgyVerdict(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const match = AGY_VERDICT_RE.exec(lines[index]);
+    if (!match) continue;
+    if (ANOTHER_VERDICT_WORD_RE.test(match[2])) continue;
+    const raw = match[1].toUpperCase();
+    return raw === 'PASS WITH FINDINGS' ? 'findings' : raw;
+  }
+  return null;
+}

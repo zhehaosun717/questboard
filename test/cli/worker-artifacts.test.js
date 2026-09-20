@@ -615,3 +615,24 @@ describe('worker-artifacts', () => {
     assert.equal(fs.readFileSync(path.join(dir, leftoverTmp), 'utf8'), 'STAGED REPORT');
   });
 });
+
+describe('wrapper polite-stop signals (FB2-01.6)', () => {
+  // SIGTERM/SIGINT never reach a Node process on Windows (and taskkill /F runs no handler at all), so this
+  // test is POSIX-only by design: on Windows the force-killed case is covered board-side by the job-object
+  // process-tree check (test/server/dispatcherWorkerDeath.test.js), not by the wrapper.
+  it('publishes a conservative non-zero .exit when the wrapper receives SIGTERM', { skip: process.platform === 'win32' }, async () => {
+    const root = setup('qb-sigterm-');
+    const child = spawnWrapper(root, 'sig', [], [process.execPath, '-e', 'setTimeout(() => process.exit(0), 60000)']);
+    try {
+      await waitForRegistryRows(root, 'sig', 1);
+      await waitForOutMatch(root, 'sig', /./s).catch(() => {}); // .out may be empty; the exit file is what matters
+      child.kill('SIGTERM');
+      await waitForClose(child);
+      assert.equal(readExit(root, 'sig').trim(), '1', 'a politely stopped wrapper leaves terminal evidence, not silence');
+      const out = fs.readFileSync(path.join(workerDir(root), 'sig.out'), 'utf8');
+      assert.match(out, /SIGTERM/, 'the stop reason is visible in the worker output the board reads');
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }
+  });
+});
