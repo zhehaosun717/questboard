@@ -39,6 +39,22 @@ describe('canDispatch', () => {
     assert.ok(codes(check(quest({ status: 'dispatched' }))).includes('quest_not_open'));
   });
 
+  it('refuses a needs_coordinator quest, saying the coordinator must handle it first (FB2-02)', () => {
+    const result = check(quest({ status: 'needs_coordinator' }));
+    assert.equal(result.ok, false);
+    assert.ok(codes(result).includes('quest_needs_coordinator'));
+    const message = result.reasons.find((r) => r.code === 'quest_needs_coordinator').message;
+    assert.match(message, /coordinator/);
+    assert.ok(!codes(result).includes('quest_not_open'), 'the specific reason replaces the generic status dump');
+  });
+
+  it('refuses to drag an owner_ruled art quest, saying it waits for the coordinator to import (FB2-02)', () => {
+    const result = check(quest({ status: 'owner_ruled', kind: 'art' }));
+    assert.equal(result.ok, false);
+    assert.ok(codes(result).includes('quest_owner_ruled'));
+    assert.match(result.reasons.find((r) => r.code === 'quest_owner_ruled').message, /coordinator/);
+    assert.ok(!codes(result).includes('quest_not_open'));
+  });
   it('refuses owner quests, open rulings and missing parents', () => {
     assert.ok(codes(check(quest({ kind: 'owner' }))).includes('owner_quest'));
     assert.ok(codes(check(quest({ needsOwner: 'which leachate?' }))).includes('needs_owner'));

@@ -8,6 +8,10 @@ const MESSAGES = {
   owner_quest: () => '这是你亲自做的任务，不派给模型',
   quest_not_open: (quest) => `任务状态是「${quest.status}」，不能接`,
   needs_owner: (quest) => `等你先裁决：${quest.needsOwner}`,
+  // FB2-02: both are named states, not raw status dumps — a send-back whose annotations call for the
+  // coordinator waits there, and a ruled art quest waits for the coordinator to import the result.
+  quest_needs_coordinator: () => '退回的批注里点名要 coordinator 处理，等它处理完再派',
+  quest_owner_ruled: (quest) => quest.kind === 'art' ? '评审结论已经保存，等 coordinator 导入结果，不用再派' : '评审结论已经保存，等 coordinator 处理',
   parent_missing: (quest, adventurer, detail) => `父任务 ${detail} 不在板上，先让 coordinator 发布它`,
   lane_missing: (quest, adventurer) => `这个项目没有配置 ${adventurer.lane} 通道`,
   adventurer_limited: (quest, adventurer, detail) => detail ? `这个模型限额中：${detail}` : '这个模型限额中',
@@ -291,7 +295,10 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
   const ownAttempt = isOwnActiveAttempt(quest, selfAttemptId);
   if (quest.kind === 'owner') reasons.push(reason('owner_quest', quest, adventurer));
   if (quest.kind === 'art' && !(adventurer.strengths || []).includes('art')) reasons.push(reason('needs_artist', quest, adventurer));
-  if (!OPEN_STATUSES.has(quest.status) && !ownAttempt) reasons.push(reason('quest_not_open', quest, adventurer));
+  if (quest.status === 'needs_coordinator' && !ownAttempt) reasons.push(reason('quest_needs_coordinator', quest, adventurer));
+  if (quest.status === 'owner_ruled' && !ownAttempt) reasons.push(reason('quest_owner_ruled', quest, adventurer));
+  const specificHold = quest.status === 'needs_coordinator' || quest.status === 'owner_ruled';
+  if (!OPEN_STATUSES.has(quest.status) && !ownAttempt && !specificHold) reasons.push(reason('quest_not_open', quest, adventurer));
   if (quest.status === 'stalled' && quest.assignee && !ownAttempt) reasons.push(reason('worker_unconfirmed', quest, adventurer));
   if (quest.needsOwner) reasons.push(reason('needs_owner', quest, adventurer));
   const missing = (quest.parents || []).find((id) => !byId.has(id));

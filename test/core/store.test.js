@@ -92,6 +92,21 @@ describe('QuestStore', () => {
     assert.equal(events().length, 0, 'nothing is persisted for the refused post');
   });
 
+  it('accepts needs_coordinator and owner_ruled as quest statuses, emits status_ events, and replays them after a restart (FB2-02)', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/NC-1-x.md', 'NC-1');
+    const store = new QuestStore(config);
+    store.post({ package: 'NC-1', brief: 'docs/briefs/NC-1-x.md' });
+    const held = store.setStatus('NC-1', 'needs_coordinator', { detail: '批注里点名要 coordinator', by: 'owner' });
+    assert.equal(held.status, 'needs_coordinator');
+    const ruled = store.setStatus('NC-1', 'owner_ruled', { detail: '通过 2 / 不行 0 / 需要修改 1', by: 'owner' });
+    assert.equal(ruled.status, 'owner_ruled');
+    const events = readEvents(config.paths.events);
+    assert.ok(events.some((e) => e.event === 'status_needs_coordinator'), JSON.stringify(events.map((e) => e.event)));
+    assert.ok(events.some((e) => e.event === 'status_owner_ruled'));
+    const replayed = new QuestStore(config);
+    assert.equal(replayed.get('NC-1').status, 'owner_ruled', 'the new statuses survive a restart replay');
+  });
   it('holds a quest for a ruling and releases it on the ruling', () => {
     const { quest } = store.post({ package: 'ARC-3', brief: 'docs/briefs/ARC-3-x.md', needsOwner: '三个点选哪个' });
     assert.equal(quest.status, 'needs_owner');

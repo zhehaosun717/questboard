@@ -22,6 +22,7 @@ import { validateHookRecord } from './verificationHooks.js';
 
 export const KINDS = new Set(['code', 'review', 'art', 'tool', 'owner']);
 export const QUEST_STATUSES = new Set(['posted', 'dispatched', 'delivered', 'reviewing', 'needs_owner', 'owner_playtest', 'lane_limited',
+  'needs_coordinator', 'owner_ruled',
   'bounced', 'failed', 'stalled', 'done', 'superseded', 'cancelled']);
 const STATUS_EVENTS = { delivered: 'delivered', failed: 'failed', bounced: 'bounced', stalled: 'stalled', cancelled: 'cancelled' };
 // Once one of these is reached for an attempt, a repeat of the exact same status is the same fact arriving
