@@ -256,6 +256,10 @@ export class QuestStore extends EventEmitter {
       // callers do not pass them, preserving every unaffected event's serialized shape.
       ...(fields.annotationCount !== undefined ? { annotationCount: fields.annotationCount } : {}),
       ...(fields.annotationPage !== undefined ? { annotationPage: fields.annotationPage } : {}),
+      // FB2-02 item 3: a re-dispatch's backup of the previous attempts' artifacts, additive like the
+      // annotation provenance above — omitted entirely on a first dispatch.
+      ...(fields.backupCount !== undefined ? { backupCount: fields.backupCount } : {}),
+      ...(fields.backupDirs !== undefined ? { backupDirs: fields.backupDirs } : {}),
       // Cancellation audit fields are additive and only appear on the two cancellation event types.
       ...(fields.quest !== undefined ? { quest: fields.quest } : {}),
       ...(fields.requestId !== undefined ? { requestId: fields.requestId } : {}),

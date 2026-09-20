@@ -13,6 +13,7 @@ import { attemptEvidence } from '../core/cancellation.js';
 import { captureAttemptReport } from '../core/reportEvidence.js';
 import { createNonDurableBindings, sanitizeUnpersistedSession } from '../core/nonDurableBindings.js';
 import { prepareAnnotationSnapshot, writeAnnotationSnapshot, writeAnnotationsMaterial } from '../core/annotationSnapshot.js';
+import { backupPreviousAttempts } from '../core/dispatchBackup.js';
 import { writeRoleCard } from '../core/roleCard.js';
 import { createGenericWrapperAdapter, createOpenCodeSessionAdapter } from './workerControlAdapters.js';
 import { createVerificationHookRunner } from '../core/verificationHooks.js';
@@ -105,6 +106,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     safeguard('announceStarted', detail, () => store.emitEvent(current, 'dispatched', {
       by: 'board', detail,
       ...(annotation ? { annotationCount: annotation.count, annotationPage: annotation.page } : {}),
+      ...(attempt.redoBackups?.length ? { backupCount: attempt.redoBackups.length, backupDirs: attempt.redoBackups.map((b) => b.backup) } : {}),
     }));
   }
 
@@ -536,7 +538,27 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         }
       }
     }
-    const attempt = { ...assignedAttempt, roleCard, ...(annotationSnapshot ? { annotationSnapshot } : {}) };
+    // FB2-02 item 3: a redo must never bury what came back last time. Earlier attempts' artifacts are
+    // copied aside before any step of this plan may run; if the backup cannot be made, the attempt
+    // settles as failed here and nothing spawns.
+    let redoBackups = [];
+    if ((quest.dispatches || []).length) {
+      try {
+        redoBackups = backupPreviousAttempts({ config, quest, lane: config.lanes[adventurer.lane] });
+      } catch (error) {
+        const detail = '旧交付备份失败，重派没有启动：' + (error && error.message ? error.message : String(error));
+        try {
+          store.setStatus(quest.id, 'failed', {
+            detail, by: 'board', source: 'dispatcher',
+            evidence: { kind: 'dispatcher', attempt: attemptEvidence(assignedAttempt) },
+          });
+          return { status: 503, body: { error: 'backup_failed_after_assign', attemptId: assignedAttempt.attemptId, settled: true, reasons: [{ code: error.code || 'dispatch_backup', message: error.message }] } };
+        } catch (settleError) {
+          return { status: 503, body: { error: 'backup_failed_after_assign', attemptId: assignedAttempt.attemptId, settled: false, reasons: [{ code: error.code || 'dispatch_backup', message: error.message }, { code: 'settlement_failed', message: settleError.message }] } };
+        }
+      }
+    }
+    const attempt = { ...assignedAttempt, roleCard, ...(annotationSnapshot ? { annotationSnapshot } : {}), ...(redoBackups.length ? { redoBackups } : {}) };
     const controlToken = config.lanes[adventurer.lane]?.control?.type === 'generic-wrapper' ? randomUUID() : null;
     if (controlToken) controlHandles.set(attempt.attemptId, { token: controlToken, child: null, lane: attempt.lane, name: attempt.name });
     // Snapshot of exactly what the plan above was built from, immutable for the life of this attempt — every
