@@ -17,3 +17,6 @@ local/
 # executor scratch state must never be committed
 .omo/
 .codex/
+
+# agent-teams runtime state
+.agent-teams/
