@@ -456,5 +456,5 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     clients.clear();
   }
 
-  return { handle, start, stop, applyLanes, snapshot, refreshLaneHealth };
+  return { handle, start, stop, applyLanes, snapshot, refreshLaneHealth, verifyProcessTree: (candidate) => dispatcher.verifyProcessTree(candidate) };
 }

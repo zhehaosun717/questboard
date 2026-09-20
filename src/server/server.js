@@ -26,10 +26,15 @@ export function createServer({ config, home = homePaths(), runners, getLanes, ev
   const boardStore = new BoardStore(config.paths.data);
   const store = new QuestStore(config);
   const statusLog = new StatusLog(home.status);
-  const collector = createCollector(config, { fetchImpl });
+  // The dispatcher owns the job objects; the collector only asks. Late-bound because the dispatcher is
+  // created below, after the collector — a missing/unknown verdict (no job for this attempt) leaves the
+  // collector's normal stall behaviour untouched.
+  let verifyProcessTree = () => Promise.resolve('unknown');
+  const collector = createCollector(config, { fetchImpl, verifyProcessTree: (candidate) => verifyProcessTree(candidate) });
   let lanesCache = null;
   const lanes = getLanes || (() => lanesCache);
   const quests = createQuestRoutes({ config, store, boardStore, statusLog, rosterFile: home.roster, getLanes: lanes, runners, evidenceWaitMs, writeDelivery, ...(checkLaneServers ? { checkLaneServers } : {}) });
+  verifyProcessTree = quests.verifyProcessTree;
   const routes = [createPageRoutes({ config, ...(webDist ? { webDist } : {}) }), quests, createBoardRoutes({ config, boardStore }), createUsageRoutes({ usage }), omo, createSettingsRoutes({ config, home, ...(settingsEnv ? { env: settingsEnv } : {}) })];
 
   const server = http.createServer(async (request, response) => {

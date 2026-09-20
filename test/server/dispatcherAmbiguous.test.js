@@ -91,7 +91,12 @@ describe('dispatcher.assign queued-start recheck: ambiguous outcomes preserve th
     assert.equal(quest.assignee.unresolved, true);
   });
 
-  it('preserves the reservation, not failed, when a run-only lane\'s run step exits nonzero with no evidence by the deadline (P7a)', async () => {
+  // FB2-01.5 (条目 17.2) replaces the old P7a preserve: a genuine non-zero wrapper exit with no registry
+  // row and no .out is verified startup failure — the quest fails at once with the wrapper log tail as
+  // lastDetail, instead of keeping a slot until someone notices the stall. Only a thrown runner (P7b) or
+  // a known/unknown session binding (P7c/P7d, settleAmbiguousSession) stays ambiguous-preserved, since
+  // those carry no proof about what ran.
+  it('fails at once, with the wrapper log tail, when the run step exits nonzero and nothing started (FB2-01.5)', async () => {
     const { config: realConfig, write } = makeProject();
     write('docs/briefs/P-7A-x.md', 'brief');
     const store = new QuestStore(realConfig);
@@ -100,13 +105,28 @@ describe('dispatcher.assign queued-start recheck: ambiguous outcomes preserve th
     dispatcher.assign('P-7A', card('codex-luna'), 'owner');
     await new Promise((r) => setTimeout(r, 300));
     const quest = store.get('P-7A');
-    assert.equal(quest.status, 'dispatched', 'a run step\'s own nonzero exit, with no evidence either way, must not be treated as verified never-started');
-    assert.ok(quest.assignee, 'the slot must stay reserved');
-    assert.equal(quest.assignee.unresolved, true);
+    assert.equal(quest.status, 'failed', 'wrapper exited nonzero, no registry row, no .out — startup failure is terminal now');
+    assert.equal(quest.assignee, null, 'a verified never-started attempt frees the slot');
+    assert.match(quest.lastDetail, /wrapper exit/, 'the wrapper detail is the lastDetail');
     const events = readJsonLines(realConfig.paths.events);
-    assert.ok(events.some((e) => e.event === 'status_note' && /手动确认/.test(e.detail)), 'the ambiguity is surfaced with the current wording, not silently resolved either way');
+    assert.ok(events.some((e) => e.event === 'failed'), 'the failure reaches the events file');
   });
 
+  it('includes the real wrapper log tail in lastDetail when the spawned script fails before registering (FB2-01.5)', async () => {
+    const { config: realConfig, write } = makeProject({ lanes: { failer: { run: ['node', 'tools/fail.mjs', '{name}'], outputDir: '.work/failer' } } });
+    write('docs/briefs/P-7E-x.md', 'brief');
+    write('tools/fail.mjs', "process.stderr.write('boom: cannot find module foo');\nprocess.exit(1);\n".split(String.fromCharCode(92) + 'n').join(String.fromCharCode(10)));
+    const store = new QuestStore(realConfig);
+    store.post({ package: 'P-7E', brief: 'docs/briefs/P-7E-x.md', by: 'owner' });
+    const dispatcher = createDispatcher({ config: realConfig, store });
+    dispatcher.assign('P-7E', card('codex-luna', { lane: 'failer' }), 'owner');
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline && store.get('P-7E').status !== 'failed') await new Promise((r) => setTimeout(r, 50));
+    const quest = store.get('P-7E');
+    assert.equal(quest.status, 'failed');
+    assert.match(quest.lastDetail, /boom: cannot find module foo/, 'the wrapper log file tail lands in lastDetail');
+    assert.equal(quest.assignee, null);
+  });
   it('preserves the reservation the same way when a run-only lane\'s run step throws instead of resolving nonzero (P7b)', async () => {
     const { config: realConfig, write } = makeProject();
     write('docs/briefs/P-7B-x.md', 'brief');

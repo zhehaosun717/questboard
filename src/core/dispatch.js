@@ -263,7 +263,7 @@ export async function executePlan(config, plan, { name, runners = {}, recheck, o
       // neverStarted only ever comes from runScript's own spawn-level catch (see dispatch.js above) — a
       // caught throw from an arbitrary runner (a test double, a third-party override) is exactly as
       // ambiguous as a plain nonzero exit and must never be folded into this signal.
-      return { ok: false, logFile, detail: `${step.command[0]} ${label}${result.error ? `：${result.error}` : ''}\n${tail(logFile)}`.trim(), phase, session: sessionBinding, neverStarted: result.neverStarted === true };
+      return { ok: false, logFile, detail: `${step.command[0]} ${label}${result.error ? `：${result.error}` : ''}\n${tail(logFile)}`.trim(), phase, session: sessionBinding, neverStarted: result.neverStarted === true, ...(result.thrown === true ? { thrown: true } : {}) };
     }
   }
   return { ok: true, logFile, detail: tail(logFile, 400), session: sessionBinding };

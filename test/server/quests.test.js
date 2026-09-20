@@ -59,17 +59,21 @@ describe('quest API', () => {
     assert.deepEqual(fx.events().slice(-2).map((e) => e.event), ['assigned', 'dispatched']);
   });
 
-  it('holds a refused script unresolved instead of freeing it, and a review by the author family is refused', async () => {
+  it('fails a refused wrapper script at once (FB2-01.5), and a review by the author family is refused', async () => {
     await fx.api('/api/quests', 'POST', { package: 'REVIEW-26', kind: 'review', brief: 'docs/briefs/REVIEW-26-review-run-4.md', parents: 'RUN-4' });
     assert.equal((await fx.api('/api/quests/REVIEW-26/assign', 'POST', { adventurer: 'codex-luna' })).status, 409, 'the author family is refused');
     assert.equal((await fx.api('/api/quests/REVIEW-26/assign', 'POST', { adventurer: 'agy-gemini' })).status, 200);
     await tick();
     const review = (await fx.api('/api/quests')).body.quests.find((q) => q.id === 'REVIEW-26');
-    assert.equal(review.status, 'dispatched', 'no evidence the script never started, so the slot is held, not freed');
-    assert.equal(review.assignee.name, 'review26', 'the same attempt still holds the quest');
-    assert.equal(review.assignee.phase, 'launching');
-    assert.equal(review.assignee.unresolved, true);
-    assert.match(fx.events().at(-1).detail, /退出码 3/);
+    // FB2-01.5 (条目 17.2): a genuine non-zero wrapper exit with no registry row and no .out is verified
+    // startup failure now — the quest fails at once with the wrapper log tail, instead of holding the slot
+    // unresolved until someone notices. (Thrown runners and session bindings still preserve, see
+    // dispatcherAmbiguous.test.js P7b–P7d.)
+    assert.equal(review.status, 'failed', 'wrapper exit 3, nothing registered, no .out — startup failure is terminal');
+    assert.equal(review.assignee, null, 'a verified never-started attempt frees the slot');
+    assert.match(review.lastDetail, /退出码 3/);
+    assert.match(review.lastDetail, /启动即败/);
+
   });
 
   it('adopts once, rules, and only lets dispatch happen through assign', async () => {

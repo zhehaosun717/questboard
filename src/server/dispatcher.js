@@ -1,4 +1,5 @@
 // Turns owner picks into running workers and lane results into quest statuses.
+import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { canDispatch, OPEN_STATUSES } from '../core/rules.js';
@@ -261,7 +262,14 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // out. Folding it into the same "no evidence this iteration" path a clean miss takes keeps the one honest
   // fallback (preserveRunAmbiguous, once the deadline passes) as the only outcome a read fault can ever reach.
   function readWorkerEvidence(laneId, name, sinceIso) {
-    try { return workerEvidence(config, laneId, name, sinceIso); } catch (error) { reportPersistenceFailure('workerEvidence read', `${laneId}/${name}`, error, '读取失败'); return null; }
+    try {
+      return { evidence: workerEvidence(config, laneId, name, sinceIso), readFailed: false };
+    } catch (error) {
+      reportPersistenceFailure('workerEvidence read', `${laneId}/${name}`, error, '读取失败');
+      // F3: a read fault is "we don't know", never "verified not started" — callers must not treat it
+      // like a clean miss.
+      return { evidence: null, readFailed: true };
+    }
   }
 
   // A wrapper's exit code is not the truth about its worker; wait for the registry row or output first.
@@ -270,10 +278,30 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     // some other layer — see dispatch.js) is the one signal strong enough to free the slot outright: nothing
     // could have started, so there is no evidence worth waiting for.
     if (result.neverStarted) { failIfStillOurs(quest.id, attempt, result.detail); return; }
+    const started = (evidence) => announceStarted(quest.id, attempt, withWarnings(`脚本报错但 worker 已启动（${evidence}）：${result.detail.split('\n')[0]}`, warnings));
+    // FB2-01.5 (条目 17.2): a genuine non-zero wrapper exit settles immediately. The wrapper appends its
+    // registry row synchronously before it ever launches the worker, so once the wrapper process itself
+    // has exited, the row and the .out it would have produced are either already there or never coming —
+    // a single check is decisive, not a guess: no stall wait, no evidence deadline. Nothing there means
+    // verified startup failure; fail now, with the wrapper log's own tail (result.detail already carries
+    // tail(logFile)) as lastDetail.
+    if (!result.thrown) {
+      const read = readWorkerEvidence(laneId, attempt.name, quest.assignee.at);
+      if (read.evidence) { started(read.evidence); return; }
+      if (!read.readFailed) {
+        failIfStillOurs(quest.id, attempt, `启动即败：包装脚本非零退出，注册表没有新登记、.out 也没出现。\n${result.detail}`);
+        return;
+      }
+      // A registry read fault (F3) is not the clean absence FB2-01.5 needs: fall through to the bounded
+      // wait below, where a recovering read can still find the row; preserve unresolved if none appears.
+    }
+    // A caught throw from a runner override (never runScript itself — its spawn failure arrives as
+    // neverStarted) proves nothing about whether something started: keep the bounded evidence wait, and
+    // preserve the reservation as unresolved if none appears.
     const deadline = Date.now() + evidenceWaitMs;
     for (;;) {
-      const evidence = readWorkerEvidence(laneId, attempt.name, quest.assignee.at);
-      if (evidence) { announceStarted(quest.id, attempt, withWarnings(`脚本报错但 worker 已启动（${evidence}）：${result.detail.split('\n')[0]}`, warnings)); return; }
+      const read = readWorkerEvidence(laneId, attempt.name, quest.assignee.at);
+      if (read.evidence) { started(read.evidence); return; }
       if (Date.now() >= deadline) break;
       await delay(Math.min(2000, Math.max(0, deadline - Date.now())));
     }
@@ -530,10 +558,13 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       if (handle) {
         controlHandles.set(attempt.attemptId, { ...handle, child });
         child.once?.('exit', () => {
-          if (controlHandles.get(attempt.attemptId)?.child !== child) return;
+          // The job object stays open after the wrapper's own exit: it is the only process-tree evidence
+          // the collector's death check can count later (a taskkill'd tree leaves no .exit behind). The
+          // child handle is dropped so a later cancel request correctly reports "no live control channel",
+          // and the job itself is closed only once the attempt settles (see closeSettledJobs in applyLanes).
           const current = controlHandles.get(attempt.attemptId);
-          if (current?.jobId) { closeJobObject(current.jobId).catch(() => {}); }
-          controlHandles.delete(attempt.attemptId);
+          if (!current || current.child !== child) return;
+          controlHandles.set(attempt.attemptId, { ...current, child: null });
         });
       }
       if (typeof child.on === 'function' && process.platform === 'win32') {
@@ -788,6 +819,45 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       .finally(() => pendingDeliveries.delete(key));
   }
 
+  // FB2-01.3: the collector found a claude stream-json result line but no .exit and no .md. Write the
+  // extracted result as the attempt's report, then run the ordinary delivered transition. The worker's own
+  // .md always wins — never overwrite it. A write that fails is reported exactly like an API-lane delivery
+  // write failure: the quest fails with the reason, never a fake delivered.
+  function deliverStreamResult(quest, transition, lane) {
+    const attempt = quest.assignee;
+    if (!attempt || !stillOurs(quest.id, attempt)) return;
+    const mdRel = `${lane.outputDir}/${attempt.name}.md`;
+    const mdPath = path.join(config.root, mdRel);
+    if (!fs.existsSync(mdPath)) {
+      try {
+        fs.mkdirSync(path.dirname(mdPath), { recursive: true });
+        fs.writeFileSync(mdPath, transition.streamResult, 'utf8');
+      } catch (error) {
+        safeguard('deliverStreamResult delivery_write_failed', error.message, () => store.emitEvent(quest, 'delivery_write_failed', { by: 'board', detail: `交付报告没写成：${error.message}` }));
+        const current = stillOurs(quest.id, attempt);
+        if (!current) return;
+        const report = captureReportFor(current);
+        safeguard('deliverStreamResult setStatus failed', error.message, () => store.setStatus(quest.id, 'failed', {
+          detail: `交差文件没写成：${error.message}`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
+          ...(report ? { report } : {}),
+        }));
+        return;
+      }
+    }
+    const note = `交付报告已写入 ${mdRel}（来自 stream-json 的 result 行）`;
+    const detail = [note, transition.detail].filter(Boolean).join(' | ');
+    const current = stillOurs(quest.id, attempt);
+    if (!current) return;
+    const report = captureReportFor(current);
+    safeguard('deliverStreamResult setStatus delivered', detail, () => {
+      const next = store.setStatus(quest.id, 'delivered', {
+        detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
+        ...(report ? { report } : {}),
+      });
+      if (next) triggerDeliveredHooks(next);
+    });
+  }
+
   // pendingDeliveries is checked against the quest's *current* assignee's attempt key, not the transition's
   // quest id alone — a hung write for an old, superseded attempt must never block a new attempt's own
   // delivery from ever starting (see attemptKey above); it can only ever block a second write for that same
@@ -801,6 +871,9 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         if (quest.assignee && pendingDeliveries.has(attemptKey(quest.assignee))) continue;
         const lane = quest.assignee && config.lanes[quest.assignee.lane];
         if (transition.status === 'delivered' && lane && lane.api && lane.deliveryDir) { deliverFromApi(quest, transition); continue; }
+        // A stream-json result the collector read out of .out (FB2-01.3) arrives without a .md on disk;
+        // the write is the dispatcher's job (the collector stays read-only), before the delivered status.
+        if (transition.status === 'delivered' && transition.streamResult && lane && lane.outputDir) { deliverStreamResult(quest, transition, lane); continue; }
         // Only an ending binds a report reference; stalled/dispatched pass through untouched.
         const current = store.get(transition.id);
         if (transition.cancellationResult && current?.cancelRequest) {
@@ -826,6 +899,15 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         try { process.stderr.write(`questboard: lane transition skipped for ${transition.id}: ${error.message}\n`); } catch {}
       }
     }
+    // Job objects deliberately outlive their wrapper for the collector's death check (see onChild above):
+    // close them here once the attempt they belong to is no longer live (settled, released, reassigned),
+    // so they neither accumulate nor keep breakaway processes contained forever.
+    for (const [attemptId, handle] of controlHandles) {
+      const quest = store.list().find((q) => q.assignee && q.assignee.attemptId === attemptId);
+      if (quest && (quest.status === 'dispatched' || quest.status === 'stalled')) continue;
+      if (handle.jobId) closeJobObject(handle.jobId).catch(() => {});
+      controlHandles.delete(attemptId);
+    }
   }
 
   // Read-only diagnostic surface for an HTTP consumer (requirement 5/R3): a quest's own detail/snapshot can
@@ -841,5 +923,18 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     return controlHandles.get(attemptId) || null;
   }
 
-  return { assign, adopt, release, cancel, resolve, applyLanes, getUnpersistedSession, getControlHandle, cancelHook: verificationHooks.cancel };
+  // The collector's death check (FB2-01): 'empty' only when the board's own job object for this attempt
+  // exists and counts zero processes. A missing job (an adopted worker, a lane without the job gate, a
+  // board restart) or a counting failure is 'unknown' — never proof of death.
+  async function verifyProcessTree({ attemptId } = {}) {
+    const handle = controlHandles.get(attemptId);
+    if (!handle || !handle.jobId) return 'unknown';
+    try {
+      return (await countJobObject(handle.jobId)) === 0 ? 'empty' : 'alive';
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  return { assign, adopt, release, cancel, resolve, applyLanes, getUnpersistedSession, getControlHandle, verifyProcessTree, cancelHook: verificationHooks.cancel };
 }
