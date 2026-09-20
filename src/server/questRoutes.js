@@ -18,6 +18,7 @@ import { buildAcceptance } from '../core/acceptance.js';
 import { canDispatch, reviewUpstreamEvidence } from '../core/rules.js';
 import { hookLogRelativePath, readHookLog } from '../core/verificationHooks.js';
 import { createRosterBulkRoutes } from './rosterBulkRoutes.js';
+import { foldAnnotations, summarizeAnnotations } from '../core/annotationSnapshot.js';
 
 const SYNC_INTERVAL_MS = 5000;
 const HEARTBEAT_MS = 20000;
@@ -321,6 +322,103 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       }
       if (result.errors) { sendJson(response, 400, { error: 'validation failed', fields: result.errors }); return; }
       sendJson(response, 200, { quest: result.quest });
+      return;
+    }
+    if (parts[3] === 'send-back') {
+      // FB2-02 item 2: one decision route for 退回重做. An annotation (or the owner's checkbox) calling for
+      // the coordinator parks the quest in needs_coordinator with an inbox thread; anything else is the
+      // ordinary ruling + back-to-posted the drawer used to do as two separate calls.
+      const quest = store.get(questId);
+      if (!quest) { sendJson(response, 404, { error: 'quest not found' }); return; }
+      const reason = String(body.reason || '').trim().slice(0, 2000);
+      if (!reason) { sendJson(response, 400, { error: '退回原因不能为空' }); return; }
+      if (!['delivered', 'reviewing', 'needs_owner'].includes(quest.status)) {
+        sendJson(response, 409, { error: 'refused', reasons: [{ code: 'send_back_status', message: `${questId} 现在是 ${quest.status}，只有已交差或复核中的任务能退回重做` }] });
+        return;
+      }
+      const page = String(quest.reviewPage || '').trim();
+      let items = [];
+      if (page && config.reviewPages) {
+        try {
+          items = foldAnnotations(config, page);
+        } catch (error) {
+          sendJson(response, 409, { error: 'refused', reasons: [{ code: error.code || 'annotation_read', message: error.message }] });
+          return;
+        }
+      }
+      const mentioned = items.some((item) => /coordinator/i.test(`${item.note} ${item.verdict}`));
+      const wantsCoordinator = body.needsCoordinator === true || mentioned;
+      const rulingText = `退回重做：${reason}${wantsCoordinator ? '（需要 coordinator 处理）' : ''}`;
+      store.rule(questId, { text: rulingText, by });
+      replyOnThreads(questId, rulingText);
+      if (wantsCoordinator) {
+        const next = store.setStatus(questId, 'needs_coordinator', { detail: rulingText, by });
+        if (boardStore) {
+          boardStore.createThread({
+            title: `${questId} 退回需要 coordinator`,
+            body: `任务 ${questId}${page ? `（评审页 ${page}）` : ''}退回重做，需要 coordinator 处理。\n\n退回原因：${reason}${items.length ? `\n\n批注原文：\n${items.map((item) => `- ${item.note || item.verdict || item.id}`).join('\n')}` : ''}`,
+            author: by,
+            tags: ['question', questId],
+          });
+        }
+        sendJson(response, 200, { quest: next, routed: 'needs_coordinator' });
+        return;
+      }
+      const next = store.setStatus(questId, 'posted', { detail: rulingText, by });
+      sendJson(response, 200, { quest: next, routed: 'posted' });
+      return;
+    }
+    if (parts[3] === 'hand-to-coordinator') {
+      // FB2-02 item 4: 交给 coordinator 重写 brief — one question thread naming the card, nothing else moves.
+      const quest = store.get(questId);
+      if (!quest) { sendJson(response, 404, { error: 'quest not found' }); return; }
+      if (!boardStore) { sendJson(response, 503, { error: 'board unavailable' }); return; }
+      const note = String(body.note || '').trim().slice(0, 2000);
+      const created = boardStore.createThread({
+        title: `重写 brief：${questId}`,
+        body: `卡片 ${questId} 的简报需要 coordinator 重写。${note ? `\n\n${note}` : ''}`,
+        author: by,
+        tags: ['question', questId],
+      });
+      if (created.errors) { sendJson(response, 400, { error: 'validation failed', fields: created.errors }); return; }
+      sendJson(response, 200, { thread: created.thread });
+      return;
+    }
+    if (parts[3] === 'owner-ruling') {
+      // FB2-02 item 6: the owner's saved verdict over a review page. needs_owner -> owner_ruled, the counts
+      // and the annotation texts themselves go to the coordinator inbox, and an all-pass art quest then
+      // waits for the coordinator to import (rules.js refuses the drag and says so).
+      const quest = store.get(questId);
+      if (!quest) { sendJson(response, 404, { error: 'quest not found' }); return; }
+      if (quest.status !== 'needs_owner') {
+        sendJson(response, 409, { error: 'refused', reasons: [{ code: 'owner_ruling_status', message: `${questId} 现在是 ${quest.status}，只有等你裁决的任务能保存评审结论` }] });
+        return;
+      }
+      const page = String(quest.reviewPage || '').trim();
+      if (!page || !config.reviewPages) {
+        sendJson(response, 409, { error: 'refused', reasons: [{ code: 'owner_ruling_no_page', message: `${questId} 没有评审页，没法按批注下结论` }] });
+        return;
+      }
+      let items;
+      try {
+        items = foldAnnotations(config, page);
+      } catch (error) {
+        sendJson(response, 409, { error: 'refused', reasons: [{ code: error.code || 'annotation_read', message: error.message }] });
+        return;
+      }
+      const summary = summarizeAnnotations(items);
+      const counts = `通过 ${summary.pass} / 不行 ${summary.fail} / 需要修改 ${summary.fix}${summary.other ? ` / 未表态 ${summary.other}` : ''}`;
+      const detail = `评审结论：${counts}（评审页 ${page}）`;
+      const next = store.setStatus(questId, 'owner_ruled', { detail, by });
+      if (boardStore) {
+        boardStore.createThread({
+          title: `${questId} 评审结论已保存`,
+          body: `任务 ${questId}（评审页 ${page}）的评审结论：${counts}。${items.length ? `\n\n批注原文：\n${items.map((item) => `- [${item.verdict || '未表态'}] ${item.note || item.id}`).join('\n')}` : ''}`,
+          author: by,
+          tags: ['note', questId],
+        });
+      }
+      sendJson(response, 200, { quest: next, summary });
       return;
     }
     if (parts[3] === 'ruling') {

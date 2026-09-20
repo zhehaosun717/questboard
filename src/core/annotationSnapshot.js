@@ -389,3 +389,21 @@ export function prepareAnnotationSnapshot({ config, quest }) {
   }
   return { page, title: resolved.title, capturedAt, items, briefText, content };
 }
+
+// FB2-02 items 2/6: one shared reading of a page's verdicts, used by the send-back route, the owner
+// ruling, and the CLI summary. Order matters: 不通过 contains 通过, so fail is judged first.
+const VERDICT_FAIL = /(不通过|不行|reject|^\s*fail)/i;
+const VERDICT_FIX = /(需要修改|修改|needs[-_ ]?fix|needs[-_ ]?work|^\s*fix)/i;
+const VERDICT_PASS = /(通过|^\s*pass)/i;
+
+export function summarizeAnnotations(items) {
+  const summary = { pass: 0, fail: 0, fix: 0, other: 0, total: items.length };
+  for (const item of items) {
+    const verdict = String(item && item.verdict || '');
+    if (VERDICT_FAIL.test(verdict)) summary.fail += 1;
+    else if (VERDICT_FIX.test(verdict)) summary.fix += 1;
+    else if (VERDICT_PASS.test(verdict)) summary.pass += 1;
+    else summary.other += 1;
+  }
+  return summary;
+}
