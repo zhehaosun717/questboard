@@ -105,6 +105,14 @@ export function questDetailText(quest) {
   } else if (['delivered', 'failed', 'bounced'].includes(quest.status)) {
     lines.push('  报告: 不可用（这次派遣没有留下报告引用）');
   }
+  // FB2-02 item 6: the review page's annotation summary — count, verdict split, first notes.
+  const annotations = quest.annotationSummary || null;
+  if (annotations && annotations.error) lines.push(`  批注: 读取失败（${annotations.error}）`);
+  else if (annotations) {
+    const counts = `通过 ${annotations.pass} / 不行 ${annotations.fail} / 需要修改 ${annotations.fix}${annotations.other ? ` / 未表态 ${annotations.other}` : ''}`;
+    lines.push(`  批注 ${annotations.total} 条（${annotations.page}）: ${counts}`);
+    for (const item of annotations.first || []) lines.push(`    - [${item.verdict || '未表态'}] ${item.note}`);
+  }
   lines.push(`  可改文件: ${(quest.files || []).join(', ') || '无'}`);
   for (const d of quest.dispatches || []) lines.push(`  派单: ${d.at} ${d.model} (${d.name}) 由 ${d.by}${d.adopted ? '（接管已在跑的 worker）' : ''}${d.requestKey ? ` key=${d.requestKey}` : ''}`);
   for (const r of quest.rulings || []) lines.push(`  裁决: ${r.at} ${r.by}: ${r.text}`);

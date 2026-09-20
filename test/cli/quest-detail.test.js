@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startFixture, tick } from '../server/fixture.js';
 import { REPORT_READ_CAP, captureAttemptReport } from '../../src/core/reportEvidence.js';
+import { appendJsonLine } from '../../src/core/jsonl.js';
 
 const run = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'cli', 'questboard.js');
@@ -56,6 +57,32 @@ describe('questboard get', () => {
     assert.equal((await atBoard(['show', 'QD-1'])).status, 0);
   });
 
+  it('prints the annotation summary (count + first notes) for a quest with a review page (FB2-02 item 6)', async () => {
+    fx.project.write('docs/briefs/ART-70-x.md', '# ART-70');
+    const posted = await fx.api('/api/quests', 'POST', { package: 'ART-70', kind: 'art', reviewPage: 'robot8', brief: 'docs/briefs/ART-70-x.md' });
+    assert.equal(posted.status, 201, posted.text);
+    appendJsonLine(path.join(fx.project.config.paths.data, 'annotations', 'robot8.jsonl'), {
+      page: 'robot8',
+      items: [
+        { id: 'a', verdict: 'pass', note: '构图可以', updatedAt: '2026-09-20T00:00:00.000Z' },
+        { id: 'b', verdict: 'fail', note: '颜色不对', updatedAt: '2026-09-20T00:00:00.000Z' },
+        { id: 'c', verdict: 'needs-fix', note: '手再修一下', updatedAt: '2026-09-20T00:00:00.000Z' },
+      ],
+      savedAt: '2026-09-20T00:00:00.000Z',
+    });
+    const result = await atBoard(['get', 'ART-70']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /批注 3 条/);
+    assert.match(result.stdout, /通过 1/);
+    assert.match(result.stdout, /不行 1/);
+    assert.match(result.stdout, /需要修改 1/);
+    assert.match(result.stdout, /构图可以/);
+    assert.match(result.stdout, /颜色不对/);
+    const json = await atBoard(['get', 'ART-70', '--json']);
+    const detail = JSON.parse(json.stdout);
+    assert.equal(detail.annotationSummary.total, 3);
+    assert.equal(detail.annotationSummary.page, 'robot8');
+  });
   it('flags never become the id, and a missing id shows usage', async () => {
     const late = await atBoard(['get', 'QD-1']);
     assert.equal(late.status, 0, late.stderr);

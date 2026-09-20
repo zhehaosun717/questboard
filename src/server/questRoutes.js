@@ -459,6 +459,23 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
           // Additive provenance for feedback 39: the current attempt's immutable review annotation capture.
           // Historical captures remain on their dispatches entries; legacy and non-art attempts answer null.
           annotationSnapshot: quest.assignee?.annotationSnapshot || null,
+          // FB2-02 item 6: the review page's annotation summary rides the detail read so `get` can
+          // print count + first notes. A broken log is loud in-band ({page, error}), never silently absent.
+          annotationSummary: (() => {
+            const page = String(quest.reviewPage || '').trim();
+            if (!page || !config.reviewPages) return null;
+            try {
+              const items = foldAnnotations(config, page);
+              const counts = summarizeAnnotations(items);
+              return {
+                page, ...counts,
+                first: items.slice(0, 3).map((item) => ({ verdict: item.verdict || '', note: String(item.note || '').slice(0, 200) })),
+              };
+            } catch (error) {
+              return { page, error: error.message };
+            }
+          })(),
+
           roleCard: quest.assignee?.roleCard || null,
           live: quest.assignee ? snap.live[quest.assignee.name] || null : null,
           threads: snap.threads[quest.id] || [],
