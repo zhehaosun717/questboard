@@ -318,6 +318,103 @@ describe('collector', () => {
   });
 });
 
+describe('collector worker death (FB2-01.1)', () => {
+  const questRow = (config, id, assigneeName, at, overrides = {}) => {
+    const questFile = path.join(config.paths.data, 'quests.jsonl');
+    fs.mkdirSync(path.dirname(questFile), { recursive: true });
+    fs.writeFileSync(questFile, `${JSON.stringify({
+      id, status: 'dispatched',
+      assignee: { name: assigneeName, at: new Date(at).toISOString(), attemptId: `att-${id}` },
+      dispatches: [], kind: 'code', ...overrides,
+    })}\n`);
+  };
+
+  it('fails a dispatched worker whose process tree is verified empty, with the .out tail as the reason, without waiting for the stall threshold', async () => {
+    const { config, write } = makeProject();
+    const now = Date.now();
+    appendJsonLine(config.paths.registry, { at: new Date(now).toISOString(), event: 'dispatch', variant: '', package: 'DEAD-1', lane: 'codex', model: 'gpt-5.6-luna', name: 'dead1' });
+    write('.work/codex/dead1.out', 'working...\nlast line before the kill');
+    questRow(config, 'DEAD-1', 'dead1', now);
+    const seen = [];
+    const collector = createCollector(config, {
+      verifyProcessTree: async (candidate) => { seen.push(candidate); return 'empty'; },
+    });
+    const { packages } = await collector.collect({ now: now + 1000 });
+    const [row] = packages;
+    assert.equal(row.state, 'failed');
+    assert.match(row.reason, /进程树已空/);
+    assert.match(row.reason, /last line before the kill/);
+    assert.equal(row.lastText, '', 'the .out tail travels in the reason, not duplicated as a summary');
+    assert.deepEqual(seen, [{ attemptId: 'att-DEAD-1', name: 'dead1', lane: 'codex', package: 'DEAD-1' }]);
+    const quest = { id: 'DEAD-1', status: 'dispatched', assignee: { name: 'dead1', at: new Date(now).toISOString(), attemptId: 'att-DEAD-1' }, dispatches: [], kind: 'code' };
+    const [transition] = deriveTransitions([quest], packages, now + 1000);
+    assert.equal(transition.status, 'failed');
+    assert.match(transition.detail, /进程树已空/);
+    assert.match(transition.detail, /last line before the kill/);
+  });
+
+  it('keeps a worker running when the process tree is verified alive, and when the verdict is unknown', async () => {
+    for (const verdict of ['alive', 'unknown']) {
+      const { config, write } = makeProject();
+      const now = Date.now();
+      appendJsonLine(config.paths.registry, { at: new Date(now).toISOString(), event: 'dispatch', variant: '', package: 'DEAD-2', lane: 'codex', model: 'gpt-5.6-luna', name: 'dead2' });
+      write('.work/codex/dead2.out', 'still working');
+      questRow(config, 'DEAD-2', 'dead2', now);
+      const collector = createCollector(config, { verifyProcessTree: async () => verdict });
+      const [row] = (await collector.collect({ now: now + 1000 })).packages;
+      assert.equal(row.state, 'running', `${verdict} is not proof the worker died`);
+      assert.equal(row.reason, '');
+    }
+  });
+
+  it('turns an already-stalled dead worker into failed instead of leaving it stalled', async () => {
+    const { config, write } = makeProject();
+    const now = Date.now();
+    const at = now - 30 * 60 * 1000;
+    appendJsonLine(config.paths.registry, { at: new Date(at).toISOString(), event: 'dispatch', variant: '', package: 'DEAD-3', lane: 'codex', model: 'gpt-5.6-luna', name: 'dead3' });
+    const out = write('.work/codex/dead3.out', 'quiet for a long time');
+    fs.utimesSync(out, new Date(at), new Date(at));
+    questRow(config, 'DEAD-3', 'dead3', at);
+    const collector = createCollector(config, { verifyProcessTree: async () => 'empty' });
+    const [row] = (await collector.collect({ now })).packages;
+    assert.equal(row.state, 'failed', 'a verified-empty tree is terminal, not another stall');
+    assert.match(row.reason, /quiet for a long time/);
+  });
+
+  it('never consults the process tree when terminal evidence already exists (.exit or .md)', async () => {
+    const { config, write } = makeProject();
+    const now = Date.now();
+    appendJsonLine(config.paths.registry, { at: new Date(now).toISOString(), event: 'dispatch', variant: '', package: 'DEAD-4', lane: 'codex', model: 'gpt-5.6-luna', name: 'dead4' });
+    write('.work/codex/dead4.out', 'crashed');
+    write('.work/codex/dead4.exit', '1');
+    questRow(config, 'DEAD-4', 'dead4', now);
+    let consulted = 0;
+    const collector = createCollector(config, { verifyProcessTree: async () => { consulted += 1; return 'empty'; } });
+    const [row] = (await collector.collect({ now: now + 1000 })).packages;
+    assert.equal(row.state, 'failed');
+    assert.equal(row.reason, 'exit 1');
+    assert.equal(consulted, 0, 'an exit file is the terminal fact; the tree check adds nothing');
+  });
+
+  it('does not apply death detection to a quest that is not currently dispatched', async () => {
+    const { config, write } = makeProject();
+    const now = Date.now();
+    appendJsonLine(config.paths.registry, { at: new Date(now).toISOString(), event: 'dispatch', variant: '', package: 'DEAD-5', lane: 'codex', model: 'gpt-5.6-luna', name: 'dead5' });
+    write('.work/codex/dead5.out', 'leftover output');
+    let consulted = 0;
+    const collector = createCollector(config, { verifyProcessTree: async () => { consulted += 1; return 'empty'; } });
+    const [row] = (await collector.collect({ now: now + 1000 })).packages;
+    assert.equal(row.state, 'running', 'a registry row without a dispatched quest is not a death candidate');
+    assert.equal(consulted, 0);
+
+    questRow(config, 'DEAD-5', 'someone-else', now);
+    const [other] = (await createCollector(config, { verifyProcessTree: async () => { consulted += 1; return 'empty'; } }).collect({ now: now + 1000 })).packages;
+    assert.equal(other.state, 'running', 'a row owned by a different assignee is not this attempt\'s evidence');
+    assert.equal(consulted, 0);
+  });
+});
+
+
 describe('workers', () => {
   it('distinguishes running, stalled, failed and unknown from output alone (no .exit is never a bounce)', () => {
     const { root, write } = makeProject();
