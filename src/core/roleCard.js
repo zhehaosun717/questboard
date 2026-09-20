@@ -65,9 +65,10 @@ function reportPathFor(config, attempt) {
   return directory ? path.join(directory, `${attempt.name}.md`).split(path.sep).join('/') : null;
 }
 
-export function renderRoleCard({ packageId, kind, workerName, attemptId, at, lane, briefPath, briefDigest, reportPath }) {
+export function renderRoleCard({ packageId, kind, workerName, attemptId, at, lane, briefPath, briefDigest, reportPath, annotations = null }) {
   const destination = reportPath || '未配置报告位置';
   const statement = `你是委托 ${packageId} 的 worker。只按简报改文件，不改别的文件，不提交，不读其他 worker 的交差文件；完成后把报告写到 ${destination}。`;
+  const annotationNote = annotations ? `本次派遣包含 ${annotations.count} 条批注，原文见 ${annotations.path}，逐条处理后再交差。` : null;
   return [
     '# Role card',
     '',
@@ -80,10 +81,12 @@ export function renderRoleCard({ packageId, kind, workerName, attemptId, at, lan
     `- canonical brief: ${briefPath}`,
     `- brief SHA-256: ${briefDigest}`,
     `- report: ${destination}`,
+    ...(annotations ? [`- annotations: ${annotations.path}`] : []),
     '',
     '## 角色说明',
     '',
     statement,
+    ...(annotationNote ? ['', annotationNote] : []),
     '',
   ].join('\n');
 }
@@ -103,7 +106,7 @@ export function validateRoleCard(config, questId, attemptId, value) {
   return { path: value.path, digest: value.digest };
 }
 
-export function writeRoleCard({ config, quest, attempt }) {
+export function writeRoleCard({ config, quest, attempt, annotations = null }) {
   const brief = readCanonicalBrief(config, quest);
   const reportPath = reportPathFor(config, attempt);
   const content = renderRoleCard({
@@ -116,6 +119,7 @@ export function writeRoleCard({ config, quest, attempt }) {
     briefPath: brief.path,
     briefDigest: brief.digest,
     reportPath,
+    annotations,
   });
   const target = safeAttemptTarget(config, quest.id, attempt.attemptId, '.role.md', ROLE_CARD_FAILURES);
   try {

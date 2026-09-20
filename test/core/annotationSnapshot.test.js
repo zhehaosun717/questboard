@@ -8,8 +8,7 @@ import { planDispatch } from '../../src/core/dispatch.js';
 import { packageFromFileName } from '../../src/core/patterns.js';
 import {
   MAX_ANNOTATION_LOG_BYTES, foldAnnotations, prepareAnnotationSnapshot, renderAnnotationSnapshot,
-  resolveReviewPage, writeAnnotationSnapshot,
-} from '../../src/core/annotationSnapshot.js';
+  resolveReviewPage, writeAnnotationSnapshot, writeAnnotationsMaterial, } from '../../src/core/annotationSnapshot.js';
 
 const iso = '2026-09-16T12:00:00.000Z';
 const manifest = (page, title = '机器人') => `<script type="application/json" id="review-data">${JSON.stringify({ page, title, sections: [{ id: 'a' }] })}</script>`;
@@ -45,6 +44,23 @@ describe('annotationSnapshot core', () => {
     ]);
   });
 
+  it('writes a standalone annotations.md material with the original notes, exclusive per attempt (FB2-02)', () => {
+    const { config } = makeProject();
+    const items = [
+      { id: 'a', verdict: 'fail', note: '色稿太暗' },
+      { id: 'b', verdict: '', note: 'coordinator 看一眼背景' },
+    ];
+    const written = writeAnnotationsMaterial({ config, packageId: 'ART-1', attemptId: 'att1', page: 'robot8', title: '机器人第 8 版', capturedAt: '2026-09-20T00:00:00.000Z', items });
+    assert.match(written.path, /dispatch-briefs\/ART-1\/ART-1-att1\.annotations\.md$/);
+    assert.equal(written.digest.length, 64);
+    const absolute = path.join(config.root, written.path);
+    const text = fs.readFileSync(absolute, 'utf8');
+    assert.match(text, /色稿太暗/);
+    assert.match(text, /coordinator 看一眼背景/);
+    assert.match(text, /robot8/);
+    assert.match(text, /2 条批注/);
+    assert.throws(() => writeAnnotationsMaterial({ config, packageId: 'ART-1', attemptId: 'att1', page: 'robot8', title: 't', items }), /已经存在|不会覆盖/);
+  });
   it('renders the original brief first and fences annotation text as quoted data', () => {
     const text = renderAnnotationSnapshot({
       briefText: 'ORIGINAL\r\nbody', page: 'robot8', title: 'Robot', capturedAt: iso,

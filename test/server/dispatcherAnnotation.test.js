@@ -179,4 +179,31 @@ describe('feedback 39 annotation dispatch', () => {
       await unconfigured.close();
     }
   });
+  it('redispatch material includes annotations.md and the role card points at it with the count (FB2-02)', async () => {
+    let fx;
+    fx = await startFixture({ runResult: () => ({ code: 0 }) });
+    try {
+      await postArt(fx, 'ART-55');
+      addLog(fx, 'robot8', [
+        { id: 'a', verdict: 'fail', note: '色稿太暗，重画' },
+        { id: 'b', verdict: 'pass', note: '' },
+      ]);
+      const assigned = await fx.api('/api/quests/ART-55/assign', 'POST', { adventurer: 'codex-astra' });
+      assert.equal(assigned.status, 200, assigned.text);
+      const roleCard = assigned.body.quest.assignee.roleCard;
+      const roleText = fs.readFileSync(path.join(fx.project.root, roleCard.path), 'utf8');
+      const materialMatch = roleText.match(/- annotations: (\S+\.annotations\.md)/);
+      assert.ok(materialMatch, 'the role card lists the annotations material');
+      assert.match(roleText, /本次派遣包含 2 条批注/);
+      const materialPath = path.join(fx.project.root, materialMatch[1]);
+      assert.equal(fs.existsSync(materialPath), true, 'annotations.md exists next to the snapshot');
+      const materialText = fs.readFileSync(materialPath, 'utf8');
+      assert.match(materialText, /色稿太暗，重画/);
+      assert.match(materialText, /2 条批注/);
+      const dispatched = fx.events().find((event) => event.event === 'dispatched');
+      assert.equal(dispatched.annotationCount, 2);
+    } finally {
+      await fx.close();
+    }
+  });
 });

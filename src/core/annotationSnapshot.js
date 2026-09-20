@@ -248,7 +248,7 @@ export function safeAttemptTarget(config, packageId, attemptId, suffix = '.md', 
   const packagePattern = packageIdPattern(config);
   if (!packagePattern.test(packageId)) fail(`委托编号 ${packageId} 不符合这个项目的编号规则`, 'invalid_package');
   if (!ATTEMPT_PATTERN.test(attemptId)) fail('这次派遣的编号格式不对', 'invalid_attempt');
-  if (!['.md', '.role.md'].includes(suffix)) fail('内部错误：不支持的快照文件类型', 'snapshot_write_failed');
+  if (!['.md', '.role.md', '.annotations.md'].includes(suffix)) fail('内部错误：不支持的快照文件类型', 'snapshot_write_failed');
   const directory = path.join(config.paths.data, 'dispatch-briefs', packageId);
   const file = path.join(directory, `${packageId}-${attemptId}${suffix}`);
   const assertContainment = (target) => {
@@ -321,6 +321,47 @@ export function writeAnnotationSnapshot({ config, packageId, attemptId, briefTex
   const relative = path.relative(config.root, target.file).split(path.sep).join('/');
   if (relative === '..' || relative.startsWith('../')) fail('批注快照路径在项目之外', 'snapshot_containment');
   return { page, title, count: items.length, capturedAt, digest: createHash('sha256').update(content, 'utf8').digest('hex'), path: relative };
+}
+
+// FB2-02: the redo material file. The snapshot folds annotations into the brief; this standalone
+// annotations.md carries the same capture as its own artifact so the role card can point at it and the
+// worker can quote it without un-folding the brief. Same capture inputs, same containment guards, same
+// exclusive-write immutability as the snapshot itself.
+export function renderAnnotationsMaterial({ page, title, capturedAt, items }) {
+  const rows = items.map((item, index) => [
+    `### 批注 ${index + 1}（引用数据）`,
+    '',
+    `- id：${quote(item.id)}`,
+    `- verdict：${quote(item.verdict)}`,
+    '- note：',
+    fencedNote(item.note),
+  ].join('\n'));
+  return [
+    `# 批注材料（${items.length} 条批注）`,
+    '',
+    `- 页面编号（引用数据）：${quote(page)}`,
+    `- 页面标题（引用数据）：${quote(title)}`,
+    `- 捕获时间（引用数据）：${quote(capturedAt)}`,
+    '',
+    rows.length ? rows.join('\n\n') : '（当前页面没有已保存批注。）',
+    '',
+  ].join('\n');
+}
+
+export function writeAnnotationsMaterial({ config, packageId, attemptId, page, title, capturedAt = new Date().toISOString(), items }) {
+  const content = renderAnnotationsMaterial({ page, title, capturedAt, items });
+  const bytes = Buffer.byteLength(content, 'utf8');
+  if (bytes > MAX_ANNOTATION_SNAPSHOT_BYTES) fail(`批注材料过大（上限 ${MAX_ANNOTATION_SNAPSHOT_BYTES} 字节）`, 'snapshot_oversized');
+  const target = safeAttemptTarget(config, packageId, attemptId, '.annotations.md');
+  try {
+    writeExclusiveFile(target.file, content);
+  } catch (error) {
+    if (error.code === 'EEXIST') fail('这次派遣的批注材料已经存在，不会覆盖', 'snapshot_exists');
+    fail(`批注材料写入失败：${error.code || error.message}`, 'snapshot_write_failed');
+  }
+  const relative = path.relative(config.root, target.file).split(path.sep).join('/');
+  if (relative === '..' || relative.startsWith('../')) fail('批注材料路径在项目之外', 'snapshot_containment');
+  return { path: relative, digest: createHash('sha256').update(content, 'utf8').digest('hex') };
 }
 
 export function prepareAnnotationSnapshot({ config, quest }) {

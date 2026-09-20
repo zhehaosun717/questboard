@@ -12,7 +12,7 @@ import { sameAttempt } from '../core/store.js';
 import { attemptEvidence } from '../core/cancellation.js';
 import { captureAttemptReport } from '../core/reportEvidence.js';
 import { createNonDurableBindings, sanitizeUnpersistedSession } from '../core/nonDurableBindings.js';
-import { prepareAnnotationSnapshot, writeAnnotationSnapshot } from '../core/annotationSnapshot.js';
+import { prepareAnnotationSnapshot, writeAnnotationSnapshot, writeAnnotationsMaterial } from '../core/annotationSnapshot.js';
 import { writeRoleCard } from '../core/roleCard.js';
 import { createGenericWrapperAdapter, createOpenCodeSessionAdapter } from './workerControlAdapters.js';
 import { createVerificationHookRunner } from '../core/verificationHooks.js';
@@ -450,6 +450,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     let running = store.assign(quest.id, { adventurer, name, by, requestKey });
     const assignedAttempt = { attemptId: running.assignee.attemptId, name: running.assignee.name, lane: running.assignee.lane, at: running.assignee.at };
     let annotationSnapshot = null;
+    let annotationsMaterial = null;
     if (annotationPreparation) {
       try {
         annotationSnapshot = writeAnnotationSnapshot({
@@ -458,6 +459,14 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
           title: annotationPreparation.title, capturedAt: annotationPreparation.capturedAt,
           items: annotationPreparation.items, content: annotationPreparation.content,
         });
+        // FB2-02: the standalone annotations.md the role card points at, written before the snapshot
+        // is recorded so each failure in this block has exactly one state: no snapshot yet, a written
+        // snapshot without its material, or both files written with only the record step left.
+        annotationsMaterial = writeAnnotationsMaterial({
+          config, packageId: quest.id, attemptId: assignedAttempt.attemptId,
+          page: annotationPreparation.page, title: annotationPreparation.title,
+          capturedAt: annotationPreparation.capturedAt, items: annotationPreparation.items,
+        });
         running = store.recordAnnotationSnapshot(quest.id, assignedAttempt, annotationSnapshot);
       } catch (error) {
         // Assignment is already durable, but no child effect has started. Settle this verified
@@ -465,7 +474,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         // The detail names the step that actually failed: the snapshot write itself when no file came out,
         // or the recording of the snapshot's metadata onto the attempt once the file was already written —
         // never one blanket "write failed" for both.
-        const what = annotationSnapshot ? '批注快照记录没写成' : '批注快照没写成';
+        const what = annotationsMaterial ? '批注快照记录没写成' : (annotationSnapshot ? '批注材料没写成' : '批注快照没写成');
         const detail = `${what}（派遣 ${assignedAttempt.attemptId}），worker 没有启动：${error.message}`;
         try {
           store.setStatus(quest.id, 'failed', {
@@ -482,7 +491,10 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     }
     let roleCard = null;
     try {
-      roleCard = writeRoleCard({ config, quest, attempt: { ...assignedAttempt, kind: quest.kind } });
+      roleCard = writeRoleCard({
+        config, quest, attempt: { ...assignedAttempt, kind: quest.kind },
+        annotations: annotationSnapshot && annotationsMaterial ? { path: annotationsMaterial.path, count: annotationSnapshot.count } : null,
+      });
       running = store.recordRoleCard(quest.id, assignedAttempt, roleCard);
     } catch (error) {
       // Same honesty as the snapshot settle above: a failed record of an already-written card is named as
