@@ -7,6 +7,8 @@ export interface LiveWorker {
   edits: number;
   lastText: string;
   tokens: { input: number; output: number } | null;
+  // FB2-10 item 2 (sync.js liveByName): file lanes report the .out mtime, session lanes the last message time.
+  lastActivityMs?: number;
   heartbeat?: WorkerHeartbeat | null;
 }
 

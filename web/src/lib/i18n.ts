@@ -1558,6 +1558,13 @@ export const TRANSLATIONS = {
   // board.ts — relative time units (formatAgo).
   'time.seconds': { zh: '{n}秒', en: '{n}s' },
   'time.minutes': { zh: '{n}分', en: '{n}m' },
+  // FB2-10: the card face's activity and token facts.
+  'questCard.lastActivity': { zh: '上次有动静：{when}前', en: 'last activity {when} ago' },
+  'questCard.usage': { zh: '本次 {messages} 条消息 · 输入 {input} · 缓存命中 {cache}', en: 'this run: {messages} messages · {input} in · {cache} cache hits' },
+  'questCard.usageUnknown': { zh: '用量未知', en: 'usage unknown' },
+  'questCard.bigSystemPrompt': { zh: '系统提示异常大', en: 'unusually large system prompt' },
+  'questCard.startupLog': { zh: '查看启动日志', en: 'View startup log' },
+  'questCard.startupLogFailed': { zh: '启动日志读不到：{error}', en: 'could not read the startup log: {error}' },
   'time.hours': { zh: '{n}时', en: '{n}h' },
 
   // evidence.ts — the dossier's evidence rungs (claimed / reviewed / accepted). Server-matched and

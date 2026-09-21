@@ -80,6 +80,9 @@ export const api = {
   resolveWorker: (questId: string, reason: string) => call<{ quest: Quest }>(`${quest(questId)}/resolve`, 'POST', { reason, ack: true }),
   // FB2-08: the brief shelf's bookkeeping — dismiss one physical copy (brief given) or a whole package,
   // and undo it. Plain jsonl under the project's data dir, never quest events.
+  // FB2-10 item 4: the stalled card's 查看启动日志 — last 100 lines of the dispatch step log.
+  questDispatchLog: (questId: string) =>
+    call<{ name: string; lines: string[]; truncated: boolean }>(`${quest(questId)}/dispatch-log`),
   dismissBrief: (pkg: string, brief?: string, note = '') =>
     call<{ dismissed: { at: string; package: string; brief?: string; by: string; note: string } }>('/api/briefs/dismiss', 'POST', { package: pkg, ...(brief ? { brief } : {}), note, by: 'owner' }),
   undismissBrief: (pkg: string, brief?: string) =>

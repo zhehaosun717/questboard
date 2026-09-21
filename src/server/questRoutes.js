@@ -1,5 +1,6 @@
 // Quest board API: snapshot, roster with status records, quest writes, and the live event stream.
 import fs from 'node:fs';
+import path from 'node:path';
 import { sendJson, readJsonBody, writeRefusal } from './http.js';
 import { buildSnapshot } from '../core/snapshot.js';
 import { envPolicyViolation, loadRoster, loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.js';
@@ -514,6 +515,26 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
           // durable write makes it current again. Never secrets/commands/env/raw error text.
           unpersistedSession: quest.assignee ? dispatcher.getUnpersistedSession(quest.id, quest.assignee.attemptId) : null,
         } });
+      } else if (parts[1] === 'quests' && parts.length === 4 && parts[3] === 'dispatch-log' && request.method === 'GET') {
+        // FB2-10 item 4: the stalled card's 查看启动日志 — the dispatch step's own log (<dataDir>/dispatch/
+        // <name>.log), last 100 lines of at most the last 64 KiB so a huge file never floods the response.
+        const quest = store.get(parts[2]);
+        if (!quest || !quest.assignee) { sendJson(response, 404, { error: 'quest not found or no live attempt' }); return true; }
+        const logFile = path.join(config.paths.data, 'dispatch', quest.assignee.name + '.log');
+        if (!fs.existsSync(logFile)) { sendJson(response, 404, { error: '这次派遣没有启动日志（' + logFile + ' 不存在）' }); return true; }
+        const size = fs.statSync(logFile).size;
+        const cap = 64 * 1024;
+        const fd = fs.openSync(logFile, 'r');
+        let chunk;
+        try {
+          const buffer = Buffer.alloc(Math.min(size, cap));
+          fs.readSync(fd, buffer, 0, buffer.length, Math.max(0, size - buffer.length));
+          chunk = buffer.toString('utf8');
+        } finally { fs.closeSync(fd); }
+        const allLines = chunk.split(/\r?\n/).filter((line, index, arr) => !(index === arr.length - 1 && line === ''));
+        const lines = allLines.slice(-100);
+        sendJson(response, 200, { name: quest.assignee.name, lines, truncated: allLines.length > 100 || size > cap });
+        return true;
       } else if (parts[1] === 'quests' && parts.length === 4 && parts[3] === 'report' && request.method === 'GET') {
         // The full report text of the current attempt, bounded (see core/reportEvidence.js) and served as
         // plain text so it can never execute: no HTML rendering, no scripts, same no-store/nosniff headers

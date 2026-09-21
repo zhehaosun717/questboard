@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { api } from '../api/client';
 import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, isQueueOnly } from '../lib/board';
 import { warningText } from '../lib/graphDrop';
@@ -30,6 +31,8 @@ export function QuestCard({
   onDropCard,
 }: QuestCardProps) {
   const [isOver, setIsOver] = useState(false);
+  // FB2-10 item 4: the on-demand dispatch step log for a stalled card (never polled, fetched on click).
+  const [dispatchLog, setDispatchLog] = useState<{ state: 'loading' } | { state: 'ok'; lines: string[]; truncated: boolean } | { state: 'error'; message: string } | null>(null);
   const t = useT();
 
   const verdict = pickingCardId ? getDropVerdict(snap, quest, pickingCardId) : undefined;
@@ -212,6 +215,47 @@ export function QuestCard({
             {t('questCard.withAnnotations', { count: assignee.annotationSnapshot.count })}
           </div>
         ) : null}
+        {/* FB2-10 item 3: the delivered attempt's token story. null is the honest 用量未知 marker; an
+            absent property means the lane never reports tokens and the card stays quiet. */}
+        {(() => {
+          const usage = assignee && Object.hasOwn(assignee, 'usage')
+            ? assignee.usage
+            : (quest.dispatches?.length && Object.hasOwn(quest.dispatches.at(-1)!, 'usage') ? quest.dispatches.at(-1)!.usage : undefined);
+          if (usage === undefined) return null;
+          if (usage === null) return <div className={`mt-1 font-mono text-[11px] ${softText}`}>{t('questCard.usageUnknown')}</div>;
+          return (
+            <div className={`mt-1 font-mono text-[11px] ${softText}`}>
+              {t('questCard.usage', { messages: usage.messages, input: usage.inputTokens, cache: usage.cacheTokens })}
+              {usage.firstInputTokens !== null && usage.firstInputTokens > 50000 ? (
+                <span className="usage-big-prompt">　⚠ {t('questCard.bigSystemPrompt')}</span>
+              ) : null}
+            </div>
+          );
+        })()}
+        {/* FB2-10 item 4: a stalled card offers the dispatch step log (last 100 lines, capped server-side). */}
+        {quest.status === 'stalled' && assignee ? (
+          <div className="mt-1">
+            <button
+              type="button"
+              className="plate text-[11px]"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDispatchLog({ state: 'loading' });
+                api.questDispatchLog(quest.id)
+                  .then((log) => setDispatchLog({ state: 'ok', lines: log.lines, truncated: log.truncated }))
+                  .catch((error) => setDispatchLog({ state: 'error', message: error instanceof Error ? error.message : String(error) }));
+              }}
+            >
+              {t('questCard.startupLog')}
+            </button>
+            {dispatchLog?.state === 'ok' ? (
+              <pre className="dispatch-log">{dispatchLog.lines.join('\n')}</pre>
+            ) : null}
+            {dispatchLog?.state === 'error' ? (
+              <div className={`mt-1 text-[11px] ${softText}`}>{t('questCard.startupLogFailed', { error: dispatchLog.message })}</div>
+            ) : null}
+          </div>
+        ) : null}
         {/* FB2-03 item 4: a held quest says why on its face; the drag refusal repeats the same reason. */}
         {quest.hold ? (
           <div className={`mt-1.5 border-l-[3px] border-[#9a7ccf] px-2 py-[5px] text-[12px] ${softText}`}>
@@ -258,6 +302,10 @@ export function QuestCard({
             {live ? (
               <span className={`ml-auto font-mono text-[11px] font-normal ${softText}`}>
                 {formatAgo(live.elapsed)} · {live.edits || 0} 改动
+                {live.lastActivityMs ? (
+                  // FB2-10 item 2: file lanes report the .out mtime, session lanes the last message time.
+                  <> · {t('questCard.lastActivity', { when: formatAgo(Math.max(0, Date.now() - live.lastActivityMs)) })}</>
+                ) : null}
               </span>
             ) : null}
           </div>

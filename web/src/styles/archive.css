@@ -72,3 +72,7 @@
   opacity: 0.4;
   cursor: default;
 }
+
+/* FB2-10: the stalled card's dispatch log panel and the oversized-system-prompt warning. */
+.dispatch-log { max-height: 180px; overflow: auto; margin: 4px 0 0; padding: 6px 8px; font-size: 11px; line-height: 1.45; background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.08); border-radius: 4px; white-space: pre-wrap; word-break: break-all; }
+.usage-big-prompt { color: #a8322a; font-weight: bold; }

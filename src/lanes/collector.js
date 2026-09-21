@@ -193,8 +193,9 @@ export function createCollector(config, { fetchImpl = fetch, verifyProcessTree =
     // FB2-10 item 3: the token story rides the delivered row only — a mid-run poll's partial sums would
     // read as the attempt's final usage.
     if (info.state === 'delivered' && typeof protocol.sessionUsage === 'function') {
-      const usage = protocol.sessionUsage(messages);
-      if (usage) entry.usage = usage;
+      // An explicit null marker, not an absent field: the board DID try to read the usage and could not —
+      // the card face says 用量未知 for it, while a lane with no token concept (absent field) shows nothing.
+      entry.usage = protocol.sessionUsage(messages) ?? null;
     }
     if (!TERMINAL_STATES.has(entry.state) && stallForLimit(entry, protocol.sessionLimitReason(messages, entry.elapsed, lane.limits), lane)) return;
     if (TERMINAL_STATES.has(entry.state)) {

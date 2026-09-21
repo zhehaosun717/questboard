@@ -114,7 +114,7 @@ export function deriveTransitions(quests, laneRows, now = Date.now()) {
     if (status && status !== 'stalled') {
       // A stream-json result row carries the extracted report text (FB2-01.3): the collector stays
       // read-only, so the write into <outputDir>/<name>.md is the dispatcher's job, keyed off this field.
-      transitions.push({ id: quest.id, status, detail: detailFor(row), ...(row.streamResult ? { streamResult: row.streamResult } : {}), ...(row.usage ? { usage: row.usage } : {}) });
+      transitions.push({ id: quest.id, status, detail: detailFor(row), ...(row.streamResult ? { streamResult: row.streamResult } : {}), ...(Object.hasOwn(row, 'usage') ? { usage: row.usage } : {}) });
       continue;
     }
     const detail = detailFor(row);
@@ -136,6 +136,8 @@ export function liveByName(laneRows, quests = []) {
     const assignee = assignees.get(row.name);
     if (!assignee || !isCurrentRow(row, assignee)) continue;
     const liveRow = { state: row.state, elapsed: row.elapsed, edits: row.edits, lastText: tailText(row.lastText), tokens: row.tokens || null };
+    // FB2-10 item 2: the card face's 上次有动静 — file lanes report the .out mtime, session lanes the last message time.
+    if (row.lastActivityMs) liveRow.lastActivityMs = row.lastActivityMs;
     if (Object.hasOwn(row, 'heartbeat')) liveRow.heartbeat = row.heartbeat;
     live[row.name] = liveRow;
   }

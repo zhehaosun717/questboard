@@ -86,6 +86,9 @@ const now = () => new Date().toISOString();
 // FB2-10 item 3: the usage shape the card face renders — every field an integer (firstInputTokens may be
 // null when the first turn carried no token block). Anything else is a malformed payload, refused loudly.
 function validateDeliveryUsage(usage) {
+  // null is the honest 用量未知 marker (the lane tried and could not read token data); only null or a
+  // fully shaped payload may be recorded.
+  if (usage === null) return null;
   const fail = () => { throw new Error('usage 形状不对：需要 {messages, firstInputTokens, inputTokens, outputTokens, cacheTokens}（firstInputTokens 可为 null）'); };
   if (!usage || typeof usage !== 'object') fail();
   const ints = ['messages', 'inputTokens', 'outputTokens', 'cacheTokens'];

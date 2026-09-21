@@ -51,6 +51,17 @@ export interface AnnotationSnapshotRef {
   digest: string;
   path: string;
 }
+// FB2-10 item 3 (src/lanes/opencode.js sessionUsage, mirrored by store.recordDeliveryUsage): the
+// delivered attempt's token story. null is the honest 用量未知 marker — the lane tried and could not read
+// token data; an absent property means the lane has no token concept at all and the card shows nothing.
+export interface DeliveryUsage {
+  messages: number;
+  firstInputTokens: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheTokens: number;
+}
+
 export interface Assignee {
   adventurerId: string;
   family: string | null;
@@ -66,6 +77,7 @@ export interface Assignee {
   cancelRequest?: CancelRequest;
   roleCard?: RoleCardRef;
   annotationSnapshot?: AnnotationSnapshotRef;
+  usage?: DeliveryUsage | null;
 }
 
 export interface Ruling {

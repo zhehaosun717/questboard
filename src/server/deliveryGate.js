@@ -138,7 +138,7 @@ export function createDeliveryGate({
     const attempt = quest.assignee;
     // FB2-10 item 3: the delivered attempt's token usage is recorded before any gate outcome, so even a
     // delivery that bounces back for fixes keeps its numbers in the dispatch history.
-    if (transition.usage) {
+    if (Object.hasOwn(transition, 'usage')) {
       safeguard('recordDeliveryUsage', quest.id, () => store.recordDeliveryUsage(quest.id, attempt, transition.usage));
     }
     const gate = config.policy?.postDeliveryCheck;
