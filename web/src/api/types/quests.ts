@@ -109,6 +109,12 @@ export interface Quest {
   // FB2-04 item 5: the batch this quest ships with (includes itself) and the delivery it waits for.
   batch?: string[];
   waitingOn?: string;
+  // FB2-05 item 3: how the delivered work gets reviewed — none (coordinator verifies, lands in
+  // needs_coordinator), mechanical (the board ran mechanicalCheck at delivery and recorded the
+  // conclusion), or model (default; the 待安排复核 shelf). Absent on quests posted before this field.
+  review?: 'none' | 'mechanical' | 'model';
+  mechanicalCheck?: string;
+  mechanicalReview?: { at: string; ok: boolean; exitCode: number | null; summary: string; logPath: string };
   // Detail-route only (FB2-02 item 6): the review-page annotation summary; null/absent elsewhere.
   annotationSummary?: { page: string; total?: number; pass?: number; fail?: number; fix?: number; other?: number; first?: { verdict: string; note: string }[]; error?: string } | null;
   assignee: Assignee | null;

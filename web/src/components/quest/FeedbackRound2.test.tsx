@@ -85,6 +85,51 @@ describe('QuestCard annotation chip (FB2-02)', () => {
   });
 });
 
+describe('QuestCard review mode (FB2-05)', () => {
+  function renderCard(quest: Parameters<typeof makeQuest>[0]) {
+    const q = makeQuest(quest);
+    return renderToStaticMarkup(
+      <QuestCard
+        quest={q}
+        index={0}
+        snap={makeSnapshot({ quests: [q] })}
+        pickingCardId={null}
+        isNew={false}
+        statusChanged={false}
+        onSelect={noop}
+        onDropCard={noop}
+      />,
+    );
+  }
+
+  it('shows the coordinator verification on a review:none quest', () => {
+    const html = renderCard({ id: 'C-21', status: 'needs_coordinator', review: 'none' });
+    expect(html).toContain('复核：等 coordinator 验证');
+  });
+
+  it('shows the mechanical conclusion once the board ran it', () => {
+    const html = renderCard({
+      id: 'C-22',
+      status: 'delivered',
+      review: 'mechanical',
+      mechanicalCheck: 'npm test',
+      mechanicalReview: { at: '2026-09-20T00:00:00.000Z', ok: false, exitCode: 1, summary: 'FAIL src/x.test.js', logPath: '.work/codex/c22.mechanical-check.log' },
+    });
+    expect(html).toContain('机械复核没过');
+    expect(html).toContain('FAIL src/x.test.js');
+  });
+
+  it('announces the pending mechanical self-check before delivery runs it', () => {
+    const html = renderCard({ id: 'C-23', status: 'dispatched', review: 'mechanical', mechanicalCheck: 'npm test' });
+    expect(html).toContain('交付后机械自检（npm test）');
+  });
+
+  it('stays quiet on the default model mode', () => {
+    const html = renderCard({ id: 'C-24', status: 'posted' });
+    expect(html).not.toContain('复核');
+  });
+});
+
 describe('new statuses (FB2-02)', () => {
   it('labels and columns know needs_coordinator and owner_ruled', () => {
     expect(STATUS.needs_coordinator).toBe('等 coordinator');

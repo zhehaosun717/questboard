@@ -84,6 +84,8 @@
         <span class="stamp${previous && previous !== q.status ? ' thunk' : ''}">${esc(STATUS[q.status] || q.status)}</span>
         ${detail}
         ${q.hold ? `<div class="q-ask">⏸ 挂起：${esc(q.hold)}</div>` : ''}
+        ${q.review === 'none' ? `<div class="q-ask">🔍 复核：等 coordinator 验证</div>` : ''}
+        ${q.review === 'mechanical' ? `<div class="q-ask">${q.mechanicalReview ? `🔍 机械复核${q.mechanicalReview.ok ? '通过' : '没过'}：${esc(q.mechanicalReview.summary)}` : `🔍 复核：交付后机械自检（${esc(q.mechanicalCheck || '已配置')}）`}</div>` : ''}
         ${(q.batch || []).length > 1 ? `<div class="q-ask">和 ${esc(q.batch.filter((id) => id !== q.id && id !== q.waitingOn).join('、'))} 一批${q.waitingOn ? ` · 等 ${esc(q.waitingOn)}` : ''}</div>` : ''}
         ${q.needsOwner ? `<div class="q-ask">❓ ${esc(q.needsOwner)}</div>` : ''}
         ${q.supersededBy ? `<div class="q-ask">已被 ${esc(q.supersededBy)} 取代</div>` : ''}

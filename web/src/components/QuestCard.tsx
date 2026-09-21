@@ -229,6 +229,17 @@ export function QuestCard({
             已等 {waitHours >= 24 ? `${Math.floor(waitHours / 24)} 天` : `${waitHours} 小时`}，还没验收
           </div>
         ) : null}
+        {/* FB2-05 item 3: the review mode shows on the card face, and the mechanical conclusion once the
+            board has run it. The default model mode shows nothing — it is the shelf's normal flow. */}
+        {quest.review === 'none' ? (
+          <div className={`mt-1 text-[11px] font-bold ${softText}`}>🔍 复核：等 coordinator 验证</div>
+        ) : quest.review === 'mechanical' ? (
+          <div className={`mt-1 text-[11px] font-bold ${softText}`}>
+            {quest.mechanicalReview
+              ? `🔍 机械复核${quest.mechanicalReview.ok ? '通过' : '没过'}：${quest.mechanicalReview.summary}`
+              : `🔍 复核：交付后机械自检（${quest.mechanicalCheck || '已配置'}）`}
+          </div>
+        ) : null}
         {quest.needsOwner ? (
           <div
             className={`mt-2 border-l-[3px] border-amber-dk px-2 py-[5px] text-[12px] ${
