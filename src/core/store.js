@@ -443,6 +443,22 @@ export class QuestStore extends EventEmitter {
   // Writes the immutable annotation reference after assign() has minted the attempt id and before the
   // dispatcher queues any child effect. The matching dispatch history row is updated too, so a later detail
   // read still has the provenance after this attempt no longer holds the current assignee slot.
+  // FB2-04 item 1: the code-dispatch git-status snapshot, recorded once per attempt, mirrors onto the
+  // assignee and the dispatches entry exactly like the annotation snapshot below.
+  recordPreDispatchChanges(id, attempt, value) {
+    const quest = this.quests.get(id);
+    if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(id + ' 的这次派遣已经不是当前记录了，派出前改动快照没法登记');
+    if (quest.assignee.preDispatchChanges) throw new Error(id + ' 的这次派遣已经登记过派出前改动快照了');
+    const clean = value && value.available === true
+      ? { available: true, files: (value.files || []).map((f) => String(f)) }
+      : { available: false, note: String((value && value.note) || '无 git，无法快照') };
+    const preDispatchChanges = { ...clean, at: now() };
+    const assignee = { ...quest.assignee, preDispatchChanges };
+    const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt)
+      ? { ...dispatch, preDispatchChanges } : dispatch);
+    return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
+  }
+
   recordAnnotationSnapshot(id, attempt, annotationSnapshot) {
     const quest = this.quests.get(id);
     if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(`${id} 的这次派遣已经不是当前记录了，批注快照没法登记`);

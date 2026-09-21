@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { canDispatch, OPEN_STATUSES } from '../core/rules.js';
 import { workerName, planDispatch, executePlan, preflight, workerEvidence, recordedNames } from '../core/dispatch.js';
 import { deriveTransitions } from '../core/sync.js';
@@ -43,7 +44,20 @@ function laneUsesRole(lane) {
   ].some((value) => typeof value === 'string' && value.includes('{role}'))));
 }
 
-export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer, fetchImpl = fetch, genericWrapperAdapter = null }) {
+export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer, fetchImpl = fetch, genericWrapperAdapter = null, gitStatusSync = null }) {
+  // FB2-04 item 1: code dispatches snapshot the worktree before the worker starts (git status
+  // --porcelain) so the reviewer can tell pre-existing edits from the worker's own. Sync on purpose:
+  // assign() is sync all the way down, and this runs once per dispatch, never in a poll loop.
+  const capturePreDispatch = gitStatusSync || ((cfg) => {
+    if (!fs.existsSync(path.join(cfg.root, '.git'))) return { available: false, note: '无 git，无法快照（项目目录没有 .git）' };
+    const out = execFileSync('git', ['-C', cfg.root, 'status', '--porcelain'], { timeout: 10000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    const files = out.split(/\r?\n/).map((line) => line.trimEnd()).filter(Boolean).map((line) => {
+      const body = line.slice(3);
+      const arrow = body.lastIndexOf(' -> ');
+      return arrow === -1 ? body : body.slice(arrow + 4);
+    });
+    return { available: true, files };
+  });
   const queues = new Map();
   const pendingDeliveries = new Set();
   const controlHandles = new Map();
@@ -559,7 +573,24 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         }
       }
     }
-    const attempt = { ...assignedAttempt, roleCard, ...(annotationSnapshot ? { annotationSnapshot } : {}), ...(redoBackups.length ? { redoBackups } : {}) };
+    // FB2-04 item 1: a code dispatch snapshots the worktree before anything spawns. A git failure is
+    // recorded as 无 git，无法快照 — noted for the reviewer, never a reason to stop the dispatch.
+    let preDispatchChanges = null;
+    if (quest.kind === 'code') {
+      try {
+        preDispatchChanges = capturePreDispatch(config);
+      } catch (error) {
+        preDispatchChanges = { available: false, note: '无 git，无法快照（' + (error && error.message ? error.message : String(error)) + '）' };
+      }
+      try {
+        store.recordPreDispatchChanges(quest.id, assignedAttempt, preDispatchChanges);
+      } catch {
+        // A stale attempt or a disk hiccup here must not stop the dispatch either; the reviewer
+        // simply sees no snapshot for this attempt.
+        preDispatchChanges = null;
+      }
+    }
+    const attempt = { ...assignedAttempt, roleCard, ...(annotationSnapshot ? { annotationSnapshot } : {}), ...(redoBackups.length ? { redoBackups } : {}), ...(preDispatchChanges ? { preDispatchChanges: store.get(quest.id)?.assignee?.preDispatchChanges || preDispatchChanges } : {}) };
     const controlToken = config.lanes[adventurer.lane]?.control?.type === 'generic-wrapper' ? randomUUID() : null;
     if (controlToken) controlHandles.set(attempt.attemptId, { token: controlToken, child: null, lane: attempt.lane, name: attempt.name });
     // Snapshot of exactly what the plan above was built from, immutable for the life of this attempt — every
