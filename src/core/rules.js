@@ -13,6 +13,11 @@ const MESSAGES = {
   quest_needs_coordinator: () => '退回的批注里点名要 coordinator 处理，等它处理完再派',
   quest_owner_ruled: (quest) => quest.kind === 'art' ? '评审结论已经保存，等 coordinator 导入结果，不用再派' : '评审结论已经保存，等 coordinator 处理',
   parent_missing: (quest, adventurer, detail) => `父任务 ${detail} 不在板上，先让 coordinator 发布它`,
+  // FB2-03: a parent counts only once it is accepted (done) — delivered/reviewing is still unverified.
+  parent_not_accepted: (quest, adventurer, detail) => `父卡 ${detail} 还没验收`,
+  quest_on_hold: (quest) => `挂起中：${quest.hold}`,
+  quest_superseded: (quest) => `已被 ${quest.supersededBy || '新任务'} 取代，去派那张`,
+  capabilities_missing: (quest, adventurer, detail) => `能力不够：卡和接入方式都没声明 ${detail}`,
   lane_missing: (quest, adventurer) => `这个项目没有配置 ${adventurer.lane} 通道`,
   adventurer_limited: (quest, adventurer, detail) => detail ? `这个模型限额中：${detail}` : '这个模型限额中',
   adventurer_broke: (quest, adventurer, detail) => detail ? `这张卡不能用了：${detail}` : '这个供应商余额不足',
@@ -297,12 +302,28 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
   if (quest.kind === 'art' && !(adventurer.strengths || []).includes('art')) reasons.push(reason('needs_artist', quest, adventurer));
   if (quest.status === 'needs_coordinator' && !ownAttempt) reasons.push(reason('quest_needs_coordinator', quest, adventurer));
   if (quest.status === 'owner_ruled' && !ownAttempt) reasons.push(reason('quest_owner_ruled', quest, adventurer));
-  const specificHold = quest.status === 'needs_coordinator' || quest.status === 'owner_ruled';
+  const specificHold = quest.status === 'needs_coordinator' || quest.status === 'owner_ruled' || quest.status === 'superseded';
+  if (quest.status === 'superseded' && !ownAttempt) reasons.push(reason('quest_superseded', quest, adventurer));
   if (!OPEN_STATUSES.has(quest.status) && !ownAttempt && !specificHold) reasons.push(reason('quest_not_open', quest, adventurer));
   if (quest.status === 'stalled' && quest.assignee && !ownAttempt) reasons.push(reason('worker_unconfirmed', quest, adventurer));
   if (quest.needsOwner) reasons.push(reason('needs_owner', quest, adventurer));
   const missing = (quest.parents || []).find((id) => !byId.has(id));
   if (missing) reasons.push(reason('parent_missing', quest, adventurer, missing));
+  // FB2-03: parents gate a work quest until every parent is accepted; a review of a delivered parent is
+  // exactly the flow a review exists for, so reviews are exempt. Missing parents stay parent_missing.
+  if (quest.kind !== 'review') {
+    for (const parentId of quest.parents || []) {
+      const parent = byId.get(parentId);
+      if (parent && parent.status !== 'done') reasons.push(reason('parent_not_accepted', quest, adventurer, parentId));
+    }
+  }
+  if (quest.hold) reasons.push(reason('quest_on_hold', quest, adventurer));
+  const needs = quest.needs || [];
+  if (needs.length) {
+    const declared = new Set([...(adventurer.capabilities || []), ...((env && env.laneCapabilities && env.laneCapabilities[adventurer.lane]) || [])]);
+    const gaps = needs.filter((n) => !declared.has(n));
+    if (gaps.length) reasons.push(reason('capabilities_missing', quest, adventurer, gaps.join('、')));
+  }
   const upstream = reviewUpstreamMessages(quest, adventurer, quests, policy, env);
   reasons.push(...upstream.reasons);
   reasons.push(...adventurerReasons(quest, adventurer, policy, env));

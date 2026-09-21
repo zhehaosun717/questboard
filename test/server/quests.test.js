@@ -370,6 +370,8 @@ describe('review lineage lock: ancestors beyond the immediate parent, over HTTP'
     await mfx.api('/api/quests/RB-2/assign', 'POST', { adventurer: 'codex-luna' });
     await tick();
     await mfx.api('/api/quests/RB-2/status', 'POST', { status: 'delivered', detail: 'd', ack: true });
+    // FB2-03: a child only dispatches once its parent is accepted — accept RB-2 before RB-3 goes out.
+    await mfx.api('/api/quests/RB-2/status', 'POST', { status: 'done', detail: 'accepted', ack: true });
     await mfx.api('/api/quests', 'POST', { package: 'RB-3', brief: 'docs/briefs/RB-3-x.md', parents: 'RB-2' });
     await mfx.api('/api/quests/RB-3/assign', 'POST', { adventurer: 'oc-mimo' });
     await tick();

@@ -18,6 +18,7 @@ import { writeRoleCard } from '../core/roleCard.js';
 import { createGenericWrapperAdapter, createOpenCodeSessionAdapter } from './workerControlAdapters.js';
 import { createVerificationHookRunner } from '../core/verificationHooks.js';
 import { assignJobObject, closeJobObject, countJobObject, createJobObject, terminateJobObject } from '../core/jobObject.js';
+import { laneCapabilities } from '../core/config.js';
 
 const EVIDENCE_WAIT_MS = 10000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -351,7 +352,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // Builds the env canDispatch needs, fresh each time it's called — once at drop time and again, from a
   // fresh read, for every queued recheck.
   function dispatchEnv(quest) {
-    return { treeLocked: lockPresent(config), briefExists: briefExists(config, quest), briefUnusable: briefUnusable(config, quest), laneIds: new Set(Object.keys(config.lanes)), ...(getDownLanes() ? { downLanes: getDownLanes() } : {}) };
+    return { treeLocked: lockPresent(config), briefExists: briefExists(config, quest), briefUnusable: briefUnusable(config, quest), laneIds: new Set(Object.keys(config.lanes)), laneCapabilities: laneCapabilities(config), ...(getDownLanes() ? { downLanes: getDownLanes() } : {}) };
   }
 
   function roleCardBriefReason(quest, adventurer, quests) {

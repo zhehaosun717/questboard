@@ -152,6 +152,12 @@ function checkOptionalOverlap(id, field, optionalArgs, result) {
   }
 }
 
+// FB2-03: rules.js judges a card+lane union against quest.needs; this is the one place the lane half
+// of that union is gathered, so every env (snapshot, assign, dispatch) sees the same declarations.
+export function laneCapabilities(config) {
+  return Object.fromEntries(Object.entries(config.lanes).map(([id, lane]) => [id, lane.capabilities || []]));
+}
+
 function validateLane(id, lane) {
   const field = `lanes.${id}`;
   if (!LANE_ID.test(id)) fail(`${field}: lane ids must match ${LANE_ID}`);
@@ -161,6 +167,19 @@ function validateLane(id, lane) {
     const saveTo = requireString(lane.session.saveTo, `${field}.session.saveTo`);
     if (saveTo.includes('{role}')) fail(`${field}.session.saveTo cannot use {role}; the role card is not available in a save path`);
     result.session = { run: checkTemplate(lane.session.run, `${field}.session.run`), saveTo };
+  }
+  // FB2-03: capabilities name what this lane can run (runs-node, web, ...); probes are the commands
+  // doctor runs to measure them — one argv list per capability, never a shell string to re-split.
+  if (lane.capabilities !== undefined) {
+    if (!Array.isArray(lane.capabilities) || lane.capabilities.some((c) => typeof c !== 'string' || !c.trim())) fail(`lanes.${id}.capabilities must be an array of non-empty strings`);
+    result.capabilities = [...new Set(lane.capabilities.map((c) => c.trim()))];
+  }
+  if (lane.probes !== undefined) {
+    if (!lane.probes || typeof lane.probes !== 'object' || Array.isArray(lane.probes)) fail(`lanes.${id}.probes must map capability names to command argv lists`);
+    for (const [name, argv] of Object.entries(lane.probes)) {
+      if (!Array.isArray(argv) || !argv.length || argv.some((a) => typeof a !== 'string')) fail(`lanes.${id}.probes.${name} must be a non-empty argv list`);
+    }
+    result.probes = Object.fromEntries(Object.entries(lane.probes).map(([name, argv]) => [name, [...argv]]));
   }
   if (lane.roleInPrompt !== undefined) {
     if (typeof lane.roleInPrompt !== 'boolean') fail(`${field}.roleInPrompt must be a boolean`);

@@ -195,6 +195,8 @@ export function validateAdventurer(entry, where = 'adventurer', { lenientEnv = f
   if (entry.billing !== undefined && !BILLING.includes(entry.billing)) fail(`${at}.billing must be one of ${BILLING.join('|')}`);
   if (entry.maxParallel !== undefined && (!Number.isInteger(entry.maxParallel) || entry.maxParallel < 1)) fail(`${at}.maxParallel must be a positive integer`);
   if (entry.strengths !== undefined && (!Array.isArray(entry.strengths) || entry.strengths.some((s) => typeof s !== 'string'))) fail(`${at}.strengths must be an array of strings`);
+  // FB2-03: measured/declared capabilities are machine facts about the card, like strengths.
+  if (entry.capabilities !== undefined && (!Array.isArray(entry.capabilities) || entry.capabilities.some((s) => typeof s !== 'string' || !s.trim()))) fail(`${at}.capabilities must be an array of non-empty strings`);
   if (entry.notes !== undefined && (typeof entry.notes !== 'string' || entry.notes.length > 300)) fail(`${at}.notes must be a string of at most 300 characters`);
   if (entry.variant !== undefined && typeof entry.variant !== 'string') fail(`${at}.variant must be a string`);
   if (entry.variants !== undefined) {

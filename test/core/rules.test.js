@@ -39,6 +39,49 @@ describe('canDispatch', () => {
     assert.ok(codes(check(quest({ status: 'dispatched' }))).includes('quest_not_open'));
   });
 
+  it('refuses a quest whose parent is not done yet, naming the parent — reviews exempt (FB2-03 item 19)', () => {
+    const parent = quest({ id: 'ART-BLOCK-2', status: 'delivered' });
+    const child = quest({ id: 'ART-BLOCK-3', parents: ['ART-BLOCK-2'] });
+    const result = check(child, luna, [child, parent]);
+    assert.ok(codes(result).includes('parent_not_accepted'));
+    assert.match(result.reasons.find((r) => r.code === 'parent_not_accepted').message, /父卡 ART-BLOCK-2 还没验收/);
+    // done parent passes
+    const done = check(child, luna, [child, quest({ id: 'ART-BLOCK-2', status: 'done' })]);
+    assert.ok(!codes(done).includes('parent_not_accepted'));
+    // a review of a delivered parent is the normal flow — not refused
+    const review = quest({ id: 'REVIEW-9', kind: 'review', parents: ['ART-BLOCK-2'] });
+    const reviewResult = check(review, card('agy-gemini'), [review, parent]);
+    assert.ok(!codes(reviewResult).includes('parent_not_accepted'));
+  });
+
+  it('refuses a held quest, saying why, until the hold is cleared (FB2-03 item 4)', () => {
+    const held = check(quest({ hold: '等设计稿' }));
+    assert.ok(codes(held).includes('quest_on_hold'));
+    assert.match(held.reasons.find((r) => r.code === 'quest_on_hold').message, /等设计稿/);
+    assert.ok(check(quest({ hold: '' })).ok);
+  });
+
+  it('refuses a superseded quest, naming its replacement (FB2-03 item 30)', () => {
+    const result = check(quest({ status: 'superseded', supersededBy: 'ART-BLOCK-3' }));
+    assert.ok(codes(result).includes('quest_superseded'));
+    assert.match(result.reasons.find((r) => r.code === 'quest_superseded').message, /ART-BLOCK-3/);
+    assert.ok(!codes(result).includes('quest_not_open'), 'the specific reason replaces the generic status dump');
+  });
+
+  it('refuses a card when the quest needs capabilities the card and lane do not declare, naming each gap (FB2-03 item 31)', () => {
+    const needy = quest({ needs: ['runs-node', 'web'] });
+    // neither card nor lane declares anything: every need is missing
+    const bare = check(needy);
+    assert.ok(codes(bare).includes('capabilities_missing'));
+    assert.match(bare.reasons.find((r) => r.code === 'capabilities_missing').message, /runs-node/);
+    assert.match(bare.reasons.find((r) => r.code === 'capabilities_missing').message, /web/);
+    // card declares one, lane the other: union satisfies
+    const covered = check(needy, card('codex-luna', { capabilities: ['runs-node'] }), [needy],
+      { ...env, laneCapabilities: { codex: ['web'] } });
+    assert.ok(!codes(covered).includes('capabilities_missing'));
+    // a quest without needs never asks for capabilities
+    assert.ok(!codes(check(quest())).includes('capabilities_missing'));
+  });
   it('refuses a needs_coordinator quest, saying the coordinator must handle it first (FB2-02)', () => {
     const result = check(quest({ status: 'needs_coordinator' }));
     assert.equal(result.ok, false);

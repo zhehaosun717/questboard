@@ -12,6 +12,7 @@ import { isReviewable, reviewEligibility } from './reviewRequest.js';
 import { recentFailuresByCard } from './failureContext.js';
 import { reportSnapshot, attemptOf } from './reportEvidence.js';
 import { questEvidence } from './evidence.js';
+import { laneCapabilities } from './config.js';
 
 // tools/review embeds the manifest as <script type="application/json" id="review-data">.
 const MANIFEST_PATTERN = /<script[^>]*\bid="review-data"[^>]*>([\s\S]*?)<\/script>/;
@@ -154,7 +155,7 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
   // (owner acknowledged, paused/disabled, or removed) survives only as cleared evidence, never as a chip.
   const visibleLimits = visibleLaneLimits((lanes && lanes.laneLimits) || {}, roster, (lanes && lanes.laneEvidence) || {});
   const evidenceOf = makeEvidenceOf(config, rawQuests, (lanes && lanes.verification) || null);
-  const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), evidenceOf, ...(downLanes ? { downLanes } : {}) };
+  const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), evidenceOf, laneCapabilities: laneCapabilities(config), ...(downLanes ? { downLanes } : {}) };
   const byQuest = {};
   for (const quest of quests) {
     byQuest[quest.id] = eligibility({ quest, roster, quests, policy: config.policy, env: { ...env, briefExists: briefExists(config, quest), briefUnusable: briefUnusable(config, quest) } });

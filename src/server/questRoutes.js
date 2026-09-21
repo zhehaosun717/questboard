@@ -19,6 +19,7 @@ import { canDispatch, reviewUpstreamEvidence } from '../core/rules.js';
 import { hookLogRelativePath, readHookLog } from '../core/verificationHooks.js';
 import { createRosterBulkRoutes } from './rosterBulkRoutes.js';
 import { foldAnnotations, summarizeAnnotations } from '../core/annotationSnapshot.js';
+import { laneCapabilities } from '../core/config.js';
 
 const SYNC_INTERVAL_MS = 5000;
 const HEARTBEAT_MS = 20000;
@@ -208,6 +209,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
             const env = {
               treeLocked: lockPresent(config),
               laneIds: new Set(Object.keys(config.lanes)),
+              laneCapabilities: laneCapabilities(config),
               evidenceOf,
               briefExists: briefExists(config, quest),
               briefUnusable: briefUnusable(config, quest),
@@ -271,7 +273,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
         const parent = store.get(questId);
         if (isReviewable(parent)) {
           const evidenceOf = makeEvidenceOf(config, store, snapshot().verification);
-          const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), evidenceOf, ...(downLanes ? { downLanes } : {}) };
+          const env = { treeLocked: lockPresent(config), laneIds: new Set(Object.keys(config.lanes)), evidenceOf, laneCapabilities: laneCapabilities(config), ...(downLanes ? { downLanes } : {}) };
           const quests = withFileSets(config, store.list());
           const verdict = reviewEligibility({ parent, roster: [card], quests, policy: config.policy, env })[card.id];
           if (!verdict.ok) { sendJson(response, 409, { error: 'refused', reasons: verdict.reasons }); return; }
