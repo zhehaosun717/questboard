@@ -1,5 +1,6 @@
 // questboard assign — with no --adventurer the CLI falls back to the 派遣规则 defaultCard (feedback 38), says which
-// card it picked and why, and an explicit card always wins. Run as a real CLI subprocess against a
+// card it picked and why, and an explicit card always wins. --by owner on purpose: FB2-12 item 3 limits the
+// coordinator's own assign to the machine-check fast track, and these cases are the owner dispatching. Run as a real CLI subprocess against a
 // temporary server (see quest-detail.test.js for why this is async, not sync).
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,7 +36,7 @@ after(() => fx.close());
 
 describe('questboard assign default card', () => {
   it('uses the 派遣规则 default card when no --adventurer is given, and says which card and why', async () => {
-    const done = await atBoard(['assign', 'AS-1']);
+    const done = await atBoard(['assign', 'AS-1', '--by', 'owner']);
     assert.equal(done.status, 0, done.stderr);
     assert.match(done.stdout, /没指定卡，用派遣规则里的默认卡「oc-mimo」/);
     const quest = (await fx.api('/api/quests/AS-1')).body.quest;
@@ -43,7 +44,7 @@ describe('questboard assign default card', () => {
   });
 
   it('an explicit --adventurer always wins over the preference', async () => {
-    const done = await atBoard(['assign', 'AS-2', '--adventurer', 'codex-luna']);
+    const done = await atBoard(['assign', 'AS-2', '--adventurer', 'codex-luna', '--by', 'owner']);
     assert.equal(done.status, 0, done.stderr);
     assert.ok(!done.stdout.includes('没指定卡'), 'no preference notice when the owner named a card themselves');
     const quest = (await fx.api('/api/quests/AS-2')).body.quest;
@@ -52,14 +53,14 @@ describe('questboard assign default card', () => {
 
   it('with neither a card flag nor a configured default card the old refusal path stays', async () => {
     fx.project.write('questboard.config.json', JSON.stringify({ name: 'Test Game', lanes: LANES, briefs: { ownerDirs: ['docs/design'] } }, null, 2));
-    const done = await atBoard(['assign', 'AS-3']);
+    const done = await atBoard(['assign', 'AS-3', '--by', 'owner']);
     assert.equal(done.status, 1);
     assert.ok(!done.stdout.includes('没指定卡'));
   });
 
   it('a default card that is not in the roster fails with the same Chinese sentence the header shows', async () => {
     fx.project.write('questboard.config.json', JSON.stringify({ name: 'Test Game', lanes: LANES, briefs: { ownerDirs: ['docs/design'] }, policy: { defaultCard: 'ghost-card' } }, null, 2));
-    const done = await atBoard(['assign', 'AS-3']);
+    const done = await atBoard(['assign', 'AS-3', '--by', 'owner']);
     assert.equal(done.status, 1);
     assert.match(done.stdout, /没指定卡，用派遣规则里的默认卡「ghost-card」/);
     assert.match(done.stderr, /默认卡「ghost-card」不在名册里，去「派遣规则」改掉，或先把卡补进名册。/);

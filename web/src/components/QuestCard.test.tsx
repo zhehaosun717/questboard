@@ -90,3 +90,22 @@ describe('QuestCard — FB2-10 card-face facts', () => {
     expect(html).toContain('本次 2 条消息');
   });
 });
+
+// FB2-12 item 2: a quest a machine check produced says so on its face — the owner should be able to see at
+// a glance which cards the coordinator dispatched without him.
+describe('QuestCard — coordinator fast track (FB2-12 item 2)', () => {
+  it('shows coordinator 快速通道 with the check name', () => {
+    const q = quest({ status: 'posted', origin: 'machine-check', check: 'unity recompile' });
+    expect(render(q, snap({}))).toContain('coordinator 快速通道：unity recompile');
+  });
+
+  it('says nothing about the fast track on a quest that has no origin', () => {
+    expect(render(quest({ status: 'posted' }), snap({}))).not.toContain('快速通道');
+  });
+
+  it('an origin with no recorded check name still shows the origin, never an empty name', () => {
+    const html = render(quest({ status: 'posted', origin: 'post-delivery-check' }), snap({}));
+    expect(html).toContain('coordinator 快速通道');
+    expect(html).not.toContain('：<');
+  });
+});

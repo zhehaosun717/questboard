@@ -381,3 +381,56 @@ describe('post --review none|mechanical|model (FB2-05)', () => {
   });
 });
 
+
+// FB2-12 item 4: when the self-check fails every round, the board posts the small fix quest itself — with
+// origin/check, the failed quest's editable files and a written brief — and never assigns it. A fix that
+// would touch more files than the fast-track limit is never generated: the coordinator gets an inbox note
+// naming them instead.
+describe('the board posts the fix quest after the check fails out (FB2-12 item 4)', () => {
+  const failEverything = (write) => {
+    write('docs/briefs/PX-1-x.md', '# PX-1\n\n## Files you may edit\n\n- `src/a.js`\n- `src/b.js`\n');
+    write('scripts/check.js', COUNTER_CHECK(5));
+  };
+
+  it('posts FIX-<id> with origin, check, the failed quest\'s files and a written brief, unassigned', async () => {
+    const { config, write, store } = gateProject({ run: ['node', 'scripts/check.js'], maxRounds: 2 });
+    failEverything(write);
+    const { runners } = makeRunners();
+    const dispatcher = postAndDispatch({ config, store, dispatcher: createDispatcher({ config, store, runners }) });
+    await wait(40);
+    dispatcher.applyLanes({ packages: deliveredRows(store.get('PX-1'), { lastText: 'v1' }) });
+    await waitFor(() => (store.get('PX-1').assignee.checkResults || []).length === 1, 'round 1');
+    dispatcher.applyLanes({ packages: deliveredRows(store.get('PX-1'), { lastText: 'v2' }) });
+    await waitFor(() => store.get('PX-1').status === 'failed', 'failed after the round cap');
+    const fix = await waitFor(() => store.get('FIX-PX-1'), 'the fix quest');
+    assert.equal(fix.status, 'posted');
+    assert.equal(fix.assignee, null, 'the board never assigns the fix card');
+    assert.equal(fix.origin, 'post-delivery-check');
+    assert.equal(fix.check, 'node scripts/check.js');
+    assert.deepEqual(fix.filesOverride, ['src/a.js', 'src/b.js']);
+    assert.match(fix.title, /PX-1/);
+    assert.ok(fs.existsSync(path.join(config.root, fix.brief)), `the fix brief exists: ${fix.brief}`);
+    assert.ok(eventsOf(config).some((e) => e.event === 'posted' && e.package === 'FIX-PX-1'));
+    assert.ok(eventsOf(config).some((e) => e.event === 'status_note' && /FIX-PX-1/.test(e.detail)));
+  });
+
+  it('with more files than the limit it posts nothing and puts the reminder in the coordinator inbox', async () => {
+    const { config, write, store } = gateProject({ run: ['node', 'scripts/check.js'], maxRounds: 2 });
+    write('docs/briefs/PX-1-x.md', '# PX-1\n\n## Files you may edit\n\n- `a.js`\n- `b.js`\n- `c.js`\n- `d.js`\n');
+    write('scripts/check.js', COUNTER_CHECK(5));
+    const threads = [];
+    const { runners } = makeRunners();
+    const dispatcher = postAndDispatch({ config, store, dispatcher: createDispatcher({ config, store, runners, notifyInbox: (payload) => threads.push(payload) }) });
+    await wait(40);
+    dispatcher.applyLanes({ packages: deliveredRows(store.get('PX-1'), { lastText: 'v1' }) });
+    await waitFor(() => (store.get('PX-1').assignee.checkResults || []).length === 1, 'round 1');
+    dispatcher.applyLanes({ packages: deliveredRows(store.get('PX-1'), { lastText: 'v2' }) });
+    await waitFor(() => store.get('PX-1').status === 'failed', 'failed after the round cap');
+    await waitFor(() => threads.length > 0, 'the inbox note');
+    assert.equal(store.get('FIX-PX-1'), null, 'no fix card for a scope that is too wide');
+    assert.match(threads[0].title, /PX-1/);
+    assert.match(threads[0].body, /4/);
+    assert.match(threads[0].body, /a\.js/);
+    assert.ok(eventsOf(config).some((e) => e.event === 'status_note' && /FIX-PX-1/.test(e.detail) === false && /可改文件/.test(e.detail)));
+  });
+});

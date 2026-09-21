@@ -43,7 +43,7 @@ after(() => fx.close());
 
 describe('questboard assign — review upstream text', () => {
   it('refuses locally with the upstream_unverified text, never calling assign at all', async () => {
-    const done = await atBoard(['assign', 'REVIEW-RUN-1', '--adventurer', 'agy-gemini']);
+    const done = await atBoard(['assign', 'REVIEW-RUN-1', '--adventurer', 'agy-gemini', '--by', 'owner']);
     assert.equal(done.status, 1, done.stdout + done.stderr);
     assert.match(done.stderr, /拒绝派遣/);
     assert.match(done.stderr, /upstream_unverified/);
@@ -54,7 +54,7 @@ describe('questboard assign — review upstream text', () => {
 
   it('prints the warning and actually assigns once a recorded override lifts the block', async () => {
     assert.equal((await fx.api('/api/quests/REVIEW-RUN-1/review-override', 'POST', { reason: '手工确认过' })).status, 200);
-    const done = await atBoard(['assign', 'REVIEW-RUN-1', '--adventurer', 'agy-gemini']);
+    const done = await atBoard(['assign', 'REVIEW-RUN-1', '--adventurer', 'agy-gemini', '--by', 'owner']);
     assert.equal(done.status, 0, done.stderr);
     assert.match(done.stdout, /警告：.*（upstream_unverified）/);
     assert.match(done.stdout, /已记录例外/);
@@ -67,7 +67,7 @@ describe('questboard assign — review upstream text', () => {
   // read as "checked, nothing to warn about". An unreachable --url fails both the detail GET and the
   // eventual assign POST, so this proves the note prints without needing to fabricate a partial-failure server.
   it('F4: notes in Chinese that the local pre-check could not read the quest, when the detail fetch fails', async () => {
-    const done = await cli(['assign', 'REVIEW-RUN-1', '--adventurer', 'agy-gemini', '--project', fx.project.root, '--url', 'http://127.0.0.1:1']);
+    const done = await cli(['assign', 'REVIEW-RUN-1', '--adventurer', 'agy-gemini', '--by', 'owner', '--project', fx.project.root, '--url', 'http://127.0.0.1:1']);
     assert.equal(done.status, 1, done.stdout + done.stderr);
     assert.match(done.stdout, /没能读取委托详情/);
   });

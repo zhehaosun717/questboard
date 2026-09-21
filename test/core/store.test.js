@@ -761,3 +761,44 @@ describe('QuestStore', () => {
     });
   });
 });
+
+// FB2-12 item 2: a quest posted by a machine check carries where it came from and which check failed, so
+// the board (and the owner) can tell a fast-track card from work he dispatched himself. Validated at the
+// boundary: an unknown origin, a check with no origin, and an origin with no check are all refused.
+describe('quest origin/check (FB2-12 item 2)', () => {
+  it('stores origin and check, and refuses half a declaration or an unknown origin', () => {
+    const posted = store.post({ package: 'FIX-45', brief: 'docs/briefs/FIX-45-x.md', origin: 'machine-check', check: 'unity recompile' });
+    assert.equal(posted.quest.origin, 'machine-check');
+    assert.equal(posted.quest.check, 'unity recompile');
+    assert.match(store.post({ package: 'FIX-46', brief: 'docs/briefs/FIX-46-x.md', origin: 'guess' }).errors.origin, /machine-check/);
+    assert.match(store.post({ package: 'FIX-47', brief: 'docs/briefs/FIX-47-x.md', origin: 'machine-check' }).errors.check, /--check/);
+    assert.match(store.post({ package: 'FIX-48', brief: 'docs/briefs/FIX-48-x.md', check: 'unity recompile' }).errors.check, /--origin/);
+  });
+
+  it('a re-post that never mentions them keeps the recorded origin and check', () => {
+    store.post({ package: 'FIX-45', brief: 'docs/briefs/FIX-45-x.md', origin: 'post-delivery-check', check: 'npm test' });
+    const reposted = store.post({ package: 'FIX-45', brief: 'docs/briefs/FIX-45-x.md', title: 'renamed' });
+    assert.equal(reposted.quest.origin, 'post-delivery-check');
+    assert.equal(reposted.quest.check, 'npm test');
+    assert.equal(reposted.quest.title, 'renamed');
+  });
+});
+
+// FB2-12 item 1: the attempt itself records which shared group it occupies, so the group's ceiling can be
+// counted from the quest list alone — no roster lookup, and an attempt keeps the group it was dispatched
+// under even if the card is regrouped later.
+describe('assign records the concurrency group (FB2-12 item 1)', () => {
+  it('writes concurrencyGroup on the assignee row and its dispatch history entry', () => {
+    store.post({ package: 'FIX-45', brief: 'docs/briefs/FIX-45-x.md' });
+    const grouped = card('oc-mimo', { concurrencyGroup: 'lmstudio-box', groupMaxParallel: 1 });
+    const assigned = store.assign('FIX-45', { adventurer: grouped, name: 'fix45_1' });
+    assert.equal(assigned.assignee.concurrencyGroup, 'lmstudio-box');
+    assert.equal(assigned.dispatches.at(-1).concurrencyGroup, 'lmstudio-box');
+  });
+
+  it('a card with no group records nothing, so an ungrouped attempt is not counted into any group', () => {
+    store.post({ package: 'FIX-45', brief: 'docs/briefs/FIX-45-x.md' });
+    const assigned = store.assign('FIX-45', { adventurer: card('codex-luna'), name: 'fix45_1' });
+    assert.equal(Object.hasOwn(assigned.assignee, 'concurrencyGroup'), false);
+  });
+});

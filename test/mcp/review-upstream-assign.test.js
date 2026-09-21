@@ -35,7 +35,9 @@ describe('questboard_assign — F1 upstream-order refusal (real server, real req
     await deliverWithPassReport(fx, 'RUN-1');
     const posted = await fx.api('/api/quests/RUN-1/review', 'POST', { note: '看一下' });
     assert.equal(posted.status, 201, posted.text);
-    tools = createTools({ config: fx.project.config, base: fx.base, author: 'coordinator', home: fx.home, request });
+    // author 'owner' on purpose: FB2-12 item 3 limits the coordinator's own assign to the machine-check
+    // fast track, and this file is about the review upstream policy, i.e. the owner dispatching.
+    tools = createTools({ config: fx.project.config, base: fx.base, author: 'owner', home: fx.home, request });
   });
   after(() => fx.close());
 

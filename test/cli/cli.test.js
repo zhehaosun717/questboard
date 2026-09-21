@@ -8,7 +8,7 @@ import { readNewLines } from '../../src/cli/watch.js';
 import { option } from '../../src/cli/client.js';
 import { loadRoster } from '../../src/core/roster.js';
 import { StatusLog } from '../../src/core/status.js';
-import { tmpDir } from '../helpers.js';
+import { LANES, tmpDir } from '../helpers.js';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'cli', 'questboard.js');
 const run = (args, env) => execFileSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env: { ...process.env, ...env }, timeout: 20000 });
@@ -114,3 +114,28 @@ describe('FB2-06: --help/-h dispatch and card add/edit', () => {
   });
 });
 
+
+// FB2-12 items 2/33: the machine-check fast track. post --origin/--check is validated locally first (the
+// same rule the server applies), so a wrong flag is refused with the reason before any round trip; the
+// usage tables document the flags and the coordinator's assign limit.
+describe('FB2-12: post --origin/--check and the fast-track usage', () => {
+  const runCli = (args, options = {}) => execFileSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env: { ...process.env, ...(options.env || {}) }, ...(options.cwd ? { cwd: options.cwd } : {}) });
+
+  it('refuses an unknown --origin and half a declaration, locally and in Chinese', () => {
+    const bare = tmpDir('fb212-post-');
+    fs.writeFileSync(path.join(bare, 'questboard.config.json'), JSON.stringify({ name: 'T', lanes: LANES }));
+    const post = (extra) => () => runCli(['post', '--package', 'FIX-45', '--brief', 'docs/briefs/FIX-45-x.md', ...extra], { cwd: bare, env: { QUESTBOARD_PROJECT: bare } });
+    assert.throws(post(['--origin', 'guess']), /--origin 只能是 machine-check 或 post-delivery-check/);
+    assert.throws(post(['--origin', 'machine-check']), /--check/);
+    assert.throws(post(['--check', 'unity recompile']), /--origin/);
+  });
+
+  it('the post and assign usage tables document the fast track', () => {
+    const bare = tmpDir('fb212-help-');
+    const postHelp = runCli(['post', '--help'], { cwd: bare, env: { QUESTBOARD_PROJECT: '' } });
+    assert.match(postHelp, /--origin machine-check --check/);
+    const assignHelp = runCli(['assign', '--help'], { cwd: bare, env: { QUESTBOARD_PROJECT: '' } });
+    assert.match(assignHelp, /--max-files/);
+    assert.match(assignHelp, /coordinatorAssignable/);
+  });
+});

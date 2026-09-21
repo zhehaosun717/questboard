@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { canDispatch, classifyEvidenceItem, eligibility, isOwnActiveAttempt, reviewUpstreamEvidence } from '../../src/core/rules.js';
+import { canDispatch, classifyEvidenceItem, coordinatorFastTrackRefusal, eligibility, isOwnActiveAttempt, reviewUpstreamEvidence } from '../../src/core/rules.js';
 import { card, quest } from '../helpers.js';
 
 const policy = { bannedModelPatterns: ['gpt-5\\.5', '-fast(\\b|-)'], bannedAgents: ['Sisyphus'] };
@@ -521,5 +521,96 @@ describe('canDispatch — last broke hint (FB2-07 item 4)', () => {
   it('a card that never broke carries no such warning', () => {
     const result = check(quest(), card('codex-luna', { variants: ['high'] }));
     assert.ok(!(result.warnings || []).some((w) => w.code === 'last_broke'));
+  });
+});
+
+// FB2-12 item 1: several cards can share one machine (five oc-lms-* cards behind one LM Studio), so the
+// concurrency ceiling belongs to the group. Only the cards actually holding a slot count, and the candidate
+// never counts against itself.
+describe('canDispatch — concurrencyGroup shared ceiling (FB2-12 item 1)', () => {
+  const lms = card('oc-mimo', { concurrencyGroup: 'lmstudio-box', groupMaxParallel: 1 });
+  const runningInGroup = (id = 'LOOK-9A') => quest({
+    id, status: 'dispatched',
+    assignee: { adventurerId: 'other-lms-card', name: 'look9a_1', lane: 'opencode', model: 'm', concurrencyGroup: 'lmstudio-box' },
+  });
+
+  it('refuses the drop once the group is full, naming the group-mate that is running', () => {
+    const q = quest({ id: 'FIX-45' });
+    const result = check(q, lms, [q, runningInGroup()]);
+    const reason = result.reasons.find((r) => r.code === 'group_busy');
+    assert.ok(reason, JSON.stringify(result.reasons));
+    assert.match(reason.message, /lmstudio-box/);
+    assert.match(reason.message, /同组的 LOOK-9A 正在跑/);
+    assert.match(reason.message, /排队/);
+  });
+
+  it('allows the drop when the running quest belongs to another group, or when the group has a free slot', () => {
+    const q = quest({ id: 'FIX-45' });
+    const other = runningInGroup();
+    other.assignee.concurrencyGroup = 'other-box';
+    assert.ok(!codes(check(q, lms, [q, other])).includes('group_busy'));
+    const two = card('oc-mimo', { concurrencyGroup: 'lmstudio-box', groupMaxParallel: 2 });
+    assert.ok(!codes(check(q, two, [q, runningInGroup()])).includes('group_busy'));
+    assert.ok(codes(check(q, two, [q, runningInGroup('A-1'), runningInGroup('A-2')])).includes('group_busy'));
+  });
+
+  it('does not count the candidate quest itself, so a queued recheck of the same attempt still passes', () => {
+    const mine = quest({
+      id: 'FIX-45', status: 'dispatched',
+      assignee: { adventurerId: 'oc-mimo', name: 'fix45_1', lane: 'opencode', model: 'm', concurrencyGroup: 'lmstudio-box', attemptId: 'att-1' },
+    });
+    assert.ok(!codes(check(mine, lms, [mine])).includes('group_busy'));
+  });
+
+  it('a grouped card with no declared limit is refused loudly instead of guessing one', () => {
+    const noLimit = card('oc-mimo', { concurrencyGroup: 'lmstudio-box' });
+    const q = quest({ id: 'FIX-45' });
+    const reason = check(q, noLimit, [q]).reasons.find((r) => r.code === 'group_limit_missing');
+    assert.ok(reason, 'the missing group limit must be named');
+    assert.match(reason.message, /lmstudio-box/);
+    assert.match(reason.message, /groupMaxParallel/);
+  });
+
+  it('a card with no group at all is untouched by any of this', () => {
+    const q = quest({ id: 'FIX-45' });
+    assert.ok(!codes(check(q, luna, [q, runningInGroup()])).some((code) => code.startsWith('group_')));
+  });
+});
+
+// FB2-12 items 33/34: only a machine-check fix quest, small enough, on a card the owner marked
+// coordinatorAssignable, may be dispatched under the coordinator's own identity. The owner is never limited.
+describe('coordinatorFastTrackRefusal (FB2-12 items 33/34)', () => {
+  const freeCard = card('oc-mimo', { billing: 'free', coordinatorAssignable: true });
+  const smallFix = () => quest({ id: 'FIX-45', origin: 'machine-check', check: 'unity recompile', files: ['src/a.js', 'src/b.js'] });
+
+  it('lets a small machine-check fix through on a marked card', () => {
+    assert.equal(coordinatorFastTrackRefusal({ quest: smallFix(), adventurer: freeCard }), null);
+    assert.equal(coordinatorFastTrackRefusal({ quest: quest({ ...smallFix(), origin: 'post-delivery-check' }), adventurer: freeCard }), null);
+    assert.equal(coordinatorFastTrackRefusal({ quest: quest({ ...smallFix(), files: ['a', 'b', 'c'] }), adventurer: freeCard }), null);
+  });
+
+  it('refuses a card the owner did not mark, and says so', () => {
+    const reason = coordinatorFastTrackRefusal({ quest: smallFix(), adventurer: card('oc-mimo', { billing: 'metered' }) });
+    assert.equal(reason.code, 'coordinator_card');
+    assert.match(reason.message, /oc-mimo/);
+    assert.match(reason.message, /coordinatorAssignable/);
+  });
+
+  it('refuses a quest that no machine check produced, naming the origin it does have', () => {
+    const plain = coordinatorFastTrackRefusal({ quest: quest({ id: 'RUN-4', files: ['a'] }), adventurer: freeCard });
+    assert.equal(plain.code, 'coordinator_origin');
+    assert.match(plain.message, /machine-check/);
+    assert.match(plain.message, /--origin/);
+    const other = coordinatorFastTrackRefusal({ quest: quest({ id: 'RUN-4', origin: 'post-delivery-check' }), adventurer: freeCard });
+    assert.equal(other, null, 'post-delivery-check is the other allowed origin');
+  });
+
+  it('refuses a fix that touches more files than the limit, and honours --max-files', () => {
+    const big = quest({ ...smallFix(), files: ['a', 'b', 'c', 'd'] });
+    const reason = coordinatorFastTrackRefusal({ quest: big, adventurer: freeCard });
+    assert.equal(reason.code, 'coordinator_files');
+    assert.match(reason.message, /4/);
+    assert.match(reason.message, /3/);
+    assert.equal(coordinatorFastTrackRefusal({ quest: big, adventurer: freeCard, maxFiles: 5 }), null);
   });
 });

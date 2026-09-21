@@ -296,4 +296,30 @@ describe('roster truth fields (FB2-07 item 1)', () => {
     }
     assert.throws(() => validateAdventurer({ ...base(), verified: 'fine' }), /verified/);
   });
+
+  // FB2-12 item 1: a concurrencyGroup is one ceiling shared by the whole group, so the number belongs to
+  // the group, not to one card. Half a declaration (a group with no limit, or a limit with no group) is
+  // not answerable from the file, and two different numbers in one group contradict each other — both fail
+  // loudly at load, naming the cards, instead of the board inventing a limit.
+  it('a concurrencyGroup must carry one groupMaxParallel, and a groupMaxParallel needs its group', () => {
+    assert.throws(() => validateAdventurer({ ...base(), concurrencyGroup: 'lmstudio-box' }), /groupMaxParallel/);
+    assert.throws(() => validateAdventurer({ ...base(), groupMaxParallel: 2 }), /concurrencyGroup/);
+  });
+
+  it('every card of one group declares the same groupMaxParallel', () => {
+    const cards = [
+      { ...base(), id: 'oc-lms-a', concurrencyGroup: 'lmstudio-box', groupMaxParallel: 1 },
+      { ...base(), id: 'oc-lms-b', concurrencyGroup: 'lmstudio-box', groupMaxParallel: 1 },
+      { ...base(), id: 'other-box-card', concurrencyGroup: 'other-box', groupMaxParallel: 2 },
+    ];
+    assert.doesNotThrow(() => validateRoster({ adventurers: cards }));
+    const conflicting = cards.map((card) => (card.id === 'oc-lms-b' ? { ...card, groupMaxParallel: 2 } : card));
+    assert.throws(() => validateRoster({ adventurers: conflicting }), (error) => {
+      assert.match(error.message, /lmstudio-box/);
+      assert.match(error.message, /oc-lms-a/);
+      assert.match(error.message, /oc-lms-b/);
+      assert.match(error.message, /并发上限不一致/);
+      return true;
+    });
+  });
 });

@@ -400,3 +400,29 @@ describe('questboard resolve --reopen (FB2-06 item 3)', () => {
     assert.match(out.stderr, /--reason/);
   });
 });
+
+// FB2-12 item 2: a quest a machine check produced says so on the card and in the dispatch history, so the
+// owner can see at a glance which cards never went through him.
+describe('questboard get — coordinator fast track (FB2-12 item 2)', () => {
+  it('shows the check on the quest and on the coordinator\'s dispatch line', async () => {
+    fx.project.write('docs/briefs/FAST-1-x.md', '# FAST-1\n\n## Files you may edit\n\n- `src/a.js`\n');
+    const posted = await fx.api('/api/quests', 'POST', {
+      package: 'FAST-1', brief: 'docs/briefs/FAST-1-x.md', origin: 'machine-check', check: 'unity recompile', files: 'src/a.js', by: 'coordinator',
+    });
+    assert.equal(posted.status, 201, posted.text);
+    const before = await atBoard(['get', 'FAST-1']);
+    assert.equal(before.status, 0, before.stderr);
+    assert.match(before.stdout, /快速通道: coordinator 快速通道：unity recompile/);
+
+    // The card is the owner's own free local card, marked for the coordinator.
+    const { saveRoster } = await import('../../src/core/roster.js');
+    const { CARDS } = await import('../helpers.js');
+    saveRoster(fx.home.roster, {
+      adventurers: CARDS.map(({ status: _s, ...c }) => c).map((c) => (c.id === 'oc-mimo' ? { ...c, billing: 'free', coordinatorAssignable: true } : c)),
+    });
+    const assigned = await atBoard(['assign', 'FAST-1', '--adventurer', 'oc-mimo', '--by', 'coordinator']);
+    assert.equal(assigned.status, 0, assigned.stderr);
+    const after = await atBoard(['get', 'FAST-1']);
+    assert.match(after.stdout, /派单: .*由 coordinator（快速通道：unity recompile）/);
+  });
+});

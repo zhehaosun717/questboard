@@ -160,8 +160,18 @@ describe('board pure helpers', () => {
     expect(stalledGroup?.cards).toEqual(['c4']);
   });
 
-  it('isQueueOnly true only when every reason is a conflict and false for no reasons', () => {
+  it('isQueueOnly true only when every reason is a conflict or a full concurrency group, and false for no reasons', () => {
     expect(isQueueOnly({ ok: false, reasons: [{ code: 'conflict_running', message: 'wait' }] })).toBe(true);
+    expect(isQueueOnly({ ok: false, reasons: [{ code: 'group_busy', message: '同组的 X 正在跑' }] })).toBe(true);
+    expect(
+      isQueueOnly({
+        ok: false,
+        reasons: [
+          { code: 'group_busy', message: 'w1' },
+          { code: 'conflict_running', message: 'w2' },
+        ],
+      }),
+    ).toBe(true);
     expect(
       isQueueOnly({
         ok: false,
