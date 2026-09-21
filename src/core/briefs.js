@@ -12,7 +12,7 @@ import path from 'node:path';
 import { packageFromFileName, packageIdPattern } from './patterns.js';
 import { realpathContainmentIssue } from './config.js';
 import { holdsSlot } from './rules.js';
-import { readJsonLines, appendJsonLine, writeJsonAtomic } from './jsonl.js';
+import { readJsonLines, appendJsonLine } from './jsonl.js';
 
 const HEADING = /^#{1,6}\s/;
 const PATH_TOKEN = /`([^`\s]+\/[^`\s]*|[^`\s/]+\.(?:cs|md|js|mjs|cjs|ts|tsx|json|asset|shader|uss|uxml|lua|sh|html|gd|tscn|py|rs))`/g;

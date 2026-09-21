@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { BriefDiscovery, UnpostedBrief } from '../api/types';
 import { formatClock } from '../lib/board';
 import { useT } from '../lib/i18n';
+import type { I18nKey } from '../lib/i18n';
 import { api } from '../api/client';
 
 interface BriefShelfProps {
@@ -17,7 +18,7 @@ const BRIEFS_SHOWN = 8;
 
 // FB2-08 item 4: the human name of every exclusion kind, so 「为什么还有 N 个文件没出现」can explain the
 // counts by category instead of one opaque total.
-const KIND_KEY: Record<string, string> = {
+const KIND_KEY: Record<string, I18nKey> = {
   duplicate: 'briefShelf.kind.duplicate',
   badId: 'briefShelf.kind.badId',
   unreadable: 'briefShelf.kind.unreadable',
