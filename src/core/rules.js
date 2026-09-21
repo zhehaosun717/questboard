@@ -21,6 +21,8 @@ const MESSAGES = {
   lane_missing: (quest, adventurer) => `这个项目没有配置 ${adventurer.lane} 通道`,
   adventurer_limited: (quest, adventurer, detail) => detail ? `这个模型限额中：${detail}` : '这个模型限额中',
   adventurer_broke: (quest, adventurer, detail) => detail ? `这张卡不能用了：${detail}` : '这个供应商余额不足',
+  // FB2-07 item 4: a recovered card keeps its history visible at drop time — a warning, never a refusal.
+  last_broke: (quest, adventurer, detail) => `上次 broke：${detail.reason}（${String(detail.at || '').slice(0, 16).replace('T', ' ')}），后来恢复了，派它之前留意一下`,
   adventurer_paused: () => '这个模型被暂停使用',
   adventurer_disabled: () => '这个模型已停用',
   model_banned: (quest, adventurer) => `模型 ${adventurer.model} 在禁用名单里`,
@@ -338,6 +340,10 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
   if (env && env.briefUnusable) reasons.push(reason('brief_unusable', quest, adventurer, env.briefUnusable));
   else if (env && env.briefExists === false) reasons.push(reason('brief_missing', quest, adventurer));
   const allWarnings = [...variantCheck.warnings, ...upstream.warnings];
+  // FB2-07 item 4: broke → available keeps the memory; the drop preview shows when and why it last died.
+  if (adventurer.lastBroke && (!adventurer.status || adventurer.status === 'available')) {
+    allWarnings.push({ code: 'last_broke', message: MESSAGES.last_broke(quest, adventurer, adventurer.lastBroke) });
+  }
   return {
     ok: reasons.length === 0,
     reasons,

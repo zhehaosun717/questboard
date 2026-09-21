@@ -503,3 +503,23 @@ describe('canDispatch — review upstream warning/refusal (S3)', () => {
     assert.ok(!(verdict.warnings || []).some((w) => w.code === 'upstream_unverified'));
   });
 });
+
+describe('canDispatch — last broke hint (FB2-07 item 4)', () => {
+  it('an available card with a past broke record warns 上次 broke with reason and time, and still allows', () => {
+    const result = check(quest(), card('codex-luna', {
+      variants: ['high'],
+      lastBroke: { reason: 'HTTP 410 model decommissioned', at: '2026-09-18T02:00:00.000Z' },
+    }));
+    assert.equal(result.ok, true);
+    const warning = (result.warnings || []).find((w) => w.code === 'last_broke');
+    assert.ok(warning, 'warning present');
+    assert.match(warning.message, /上次 broke/);
+    assert.match(warning.message, /HTTP 410 model decommissioned/);
+    assert.match(warning.message, /2026-09-18 02:00/);
+  });
+
+  it('a card that never broke carries no such warning', () => {
+    const result = check(quest(), card('codex-luna', { variants: ['high'] }));
+    assert.ok(!(result.warnings || []).some((w) => w.code === 'last_broke'));
+  });
+});

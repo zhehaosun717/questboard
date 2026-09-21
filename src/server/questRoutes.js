@@ -97,7 +97,17 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
   };
   // A card's status is project-scoped (owner decision 2026-09-17): the board reads only records written in
   // this project plus machine-level records that carry no project id.
-  const adventurers = () => applyStatuses(loadRosterOrEmpty(rosterFile).adventurers, statusLog.current(projectId(config.root))).map(withEnvPolicy);
+  // FB2-07 item 4: the log is append-only, so a broke → available card still carries its last broke
+  // record; rules.js turns it into a drop-preview warning (never a refusal).
+  const adventurers = () => {
+    const lastBrokeById = new Map();
+    for (const record of statusLog.records()) {
+      if (record.status === 'broke') lastBrokeById.set(record.adventurerId, { reason: record.reason || '', at: record.at });
+    }
+    return applyStatuses(loadRosterOrEmpty(rosterFile).adventurers, statusLog.current(projectId(config.root)))
+      .map(withEnvPolicy)
+      .map((card) => (lastBrokeById.has(card.id) ? { ...card, lastBroke: lastBrokeById.get(card.id) } : card));
+  };
   const snapshot = () => buildSnapshot({ config, store, adventurers: adventurers(), boardStore, lanes: getLanes(), downLanes });
   const findCard = (id) => effectiveRoster(adventurers(), getLanes()).find((a) => a.id === id);
 
