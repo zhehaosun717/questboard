@@ -67,6 +67,30 @@ describe('collector', () => {
     assert.deepEqual([row.model, row.modelSource], ['kimi-for-coding/k3-256k', 'session']);
   });
 
+
+  it('a delivered opencode row carries the session token usage (FB2-10 item 3)', async () => {
+    const { config } = makeProject();
+    dispatch(config, { package: 'USG-1', lane: 'opencode', model: 'unknown', name: 'usg1', session: 'ses_u1' });
+    const messages = [
+      { info: { role: 'user' }, parts: [] },
+      { info: { role: 'assistant', time: { completed: Date.now() }, tokens: { input: 60000, output: 500, cache: { read: 12000, write: 3000 } } }, parts: [{ type: 'text', text: 'half' }] },
+      { info: { role: 'assistant', time: { completed: Date.now() }, tokens: { input: 9000, output: 300, cache: { read: 8000 } } }, parts: [{ type: 'text', text: 'done' }] },
+    ];
+    const fetchImpl = async (url) => ({ ok: true, json: async () => (url.endsWith('/message') ? messages : {}) });
+    const [row] = (await createCollector(config, { fetchImpl }).collect()).packages;
+    assert.equal(row.state, 'delivered');
+    assert.deepEqual(row.usage, { messages: 2, firstInputTokens: 60000, inputTokens: 69000, outputTokens: 800, cacheTokens: 20000 });
+  });
+
+  it('a non-delivered opencode row carries no usage', async () => {
+    const { config } = makeProject();
+    dispatch(config, { package: 'USG-2', lane: 'opencode', model: 'unknown', name: 'usg2', session: 'ses_u2' });
+    const messages = [{ info: { role: 'assistant', time: { created: Date.now() }, tokens: { input: 10, output: 0 } }, parts: [{ type: 'tool', tool: 'edit' }] }];
+    const fetchImpl = async (url) => ({ ok: true, json: async () => (url.endsWith('/message') ? messages : {}) });
+    const [row] = (await createCollector(config, { fetchImpl }).collect()).packages;
+    assert.equal(row.state, 'running');
+    assert.equal(row.usage, undefined, 'usage belongs to delivery, not a mid-run poll');
+  });
   it('names why a server lane is unreachable instead of going silent (Bundle 3)', async () => {
     const { config } = makeProject();
     dispatch(config, { package: 'MOD-2', lane: 'opencode', model: 'unknown', name: 'mod2', session: 'ses_2' });

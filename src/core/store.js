@@ -83,6 +83,23 @@ function sameCancellationEvidenceScope(left, right) {
 
 const now = () => new Date().toISOString();
 
+// FB2-10 item 3: the usage shape the card face renders — every field an integer (firstInputTokens may be
+// null when the first turn carried no token block). Anything else is a malformed payload, refused loudly.
+function validateDeliveryUsage(usage) {
+  const fail = () => { throw new Error('usage 形状不对：需要 {messages, firstInputTokens, inputTokens, outputTokens, cacheTokens}（firstInputTokens 可为 null）'); };
+  if (!usage || typeof usage !== 'object') fail();
+  const ints = ['messages', 'inputTokens', 'outputTokens', 'cacheTokens'];
+  for (const key of ints) if (!Number.isInteger(usage[key]) || usage[key] < 0) fail();
+  if (usage.firstInputTokens !== null && !(Number.isInteger(usage.firstInputTokens) && usage.firstInputTokens >= 0)) fail();
+  return {
+    messages: usage.messages,
+    firstInputTokens: usage.firstInputTokens === undefined ? null : usage.firstInputTokens,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheTokens: usage.cacheTokens,
+  };
+}
+
 function splitList(value) {
   if (value === undefined || value === null || value === '') return [];
   const list = Array.isArray(value) ? value : String(value).split(',');
@@ -479,6 +496,19 @@ export class QuestStore extends EventEmitter {
   // FB2-05 items 2/5: one self-check round's outcome on the attempt (assignee + dispatches entry), so the
   // dispatch history carries every round's summary and exitCode. A miss emits check_failed — the event a
   // coordinator tails to see a delivery was held back, not lost.
+  // FB2-10 item 3: the delivered attempt's token usage, mirrored onto the live assignee and the matching
+  // dispatch history row (派单史). Shape-validated; a malformed payload is refused so a bogus write can
+  // never overwrite real numbers. Recording again for the same attempt replaces, never stacks.
+  recordDeliveryUsage(id, attempt, usage) {
+    const quest = this.quests.get(id);
+    if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(id + ' 的这次派遣已经不是当前记录了，用量没法登记');
+    const clean = validateDeliveryUsage(usage);
+    const assignee = { ...quest.assignee, usage: clean };
+    const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt)
+      ? { ...dispatch, usage: clean } : dispatch);
+    return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
+  }
+
   appendCheckResult(id, attempt, result) {
     const quest = this.quests.get(id);
     if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(id + ' 的这次派遣已经不是当前记录了，自检结果没法登记');

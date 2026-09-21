@@ -190,6 +190,12 @@ export function createCollector(config, { fetchImpl = fetch, verifyProcessTree =
     const info = protocol.sessionState(messages, now, { stallAfterMinutes: config.policy?.stallAfterMinutes });
     if (info.lastActivityMs) lastSeen.set(entry.session, info.lastActivityMs);
     Object.assign(entry, info);
+    // FB2-10 item 3: the token story rides the delivered row only — a mid-run poll's partial sums would
+    // read as the attempt's final usage.
+    if (info.state === 'delivered' && typeof protocol.sessionUsage === 'function') {
+      const usage = protocol.sessionUsage(messages);
+      if (usage) entry.usage = usage;
+    }
     if (!TERMINAL_STATES.has(entry.state) && stallForLimit(entry, protocol.sessionLimitReason(messages, entry.elapsed, lane.limits), lane)) return;
     if (TERMINAL_STATES.has(entry.state)) {
       const observed = info.observedAt || info.lastActivityMs || now;

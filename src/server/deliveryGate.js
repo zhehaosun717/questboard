@@ -136,6 +136,11 @@ export function createDeliveryGate({
   // gate holds delivery on a miss and bounces/fails; the mechanical check never bounces, it only records.
   async function settleWithCheck(quest, transition, lane) {
     const attempt = quest.assignee;
+    // FB2-10 item 3: the delivered attempt's token usage is recorded before any gate outcome, so even a
+    // delivery that bounces back for fixes keeps its numbers in the dispatch history.
+    if (transition.usage) {
+      safeguard('recordDeliveryUsage', quest.id, () => store.recordDeliveryUsage(quest.id, attempt, transition.usage));
+    }
     const gate = config.policy?.postDeliveryCheck;
     if (!gate) return settleDelivered(quest, transition, lane);
     if (!stillOurs(quest.id, attempt)) return;

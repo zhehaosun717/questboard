@@ -3,7 +3,7 @@
 // recognizing a different vendor's session protocol only ever means adding an entry here — including the
 // URL shapes (messagesUrl, sessionUrl) and the delivery transport (fetchMessages), so collector.js and
 // deliveries.js never hard-code one vendor's paths (M2).
-import { fetchJson, sessionLimitReason, sessionModel, sessionState } from './opencode.js';
+import { fetchJson, sessionLimitReason, sessionModel, sessionState, sessionUsage } from './opencode.js';
 
 function transientDeliveryError(message, code) {
   const error = new Error(message);
@@ -149,6 +149,7 @@ export const PROTOCOLS = {
     sessionLimitReason,
     sessionModel,
     sessionState,
+    sessionUsage,
     parseDelivery: parseOpencodeSessionDelivery,
     messagesUrl,
     sessionUrl,

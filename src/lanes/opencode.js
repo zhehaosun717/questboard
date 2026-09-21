@@ -147,6 +147,31 @@ export function sessionState(messages, now = Date.now(), { stallAfterMinutes } =
   return { state: 'delivered', toolCounts, lastText, edits, lastActivityMs };
 }
 
+// FB2-10 item 3: the token story of one attempt, summed from the assistant messages' own info.tokens
+// blocks ({input, output, reasoning, cache:{read, write}}). firstInputTokens is the FIRST turn's input —
+// the system-prompt size tell; if that turn carried no token block the fact is null, never borrowed from a
+// later turn. cacheTokens counts cache.read only — the UI calls it 缓存命中. No assistant messages means
+// no numbers: null, never invented.
+export function sessionUsage(messages) {
+  const assistant = (messages || []).filter((m) => m && m.info && m.info.role === 'assistant');
+  if (!assistant.length) return null;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheTokens = 0;
+  const firstTokens = assistant[0].info.tokens || {};
+  for (const message of assistant) {
+    const tokens = message.info.tokens || {};
+    inputTokens += tokens.input || 0;
+    outputTokens += tokens.output || 0;
+    cacheTokens += (tokens.cache && tokens.cache.read) || 0;
+  }
+  return {
+    messages: assistant.length,
+    firstInputTokens: typeof firstTokens.input === 'number' ? firstTokens.input : null,
+    inputTokens, outputTokens, cacheTokens,
+  };
+}
+
 export function sessionLimitReason(messages, elapsed, limits = {}) {
   if (limits.maxMessages !== undefined && messages.length > limits.maxMessages) return `超过消息上限 ${limits.maxMessages} 条`;
   if (limits.maxMinutes !== undefined && elapsed > limits.maxMinutes * 60 * 1000) return `超过时长上限 ${limits.maxMinutes} 分钟`;

@@ -116,6 +116,22 @@ describe('QuestStore', () => {
     assert.throws(() => store.appendCheckResult('CR-1', { ...attempt, attemptId: 'stale' }, { ok: true, exitCode: 0, summary: 'x' }), /已经不是当前记录/);
   });
 
+
+  it('recordDeliveryUsage mirrors token usage onto the attempt and its dispatch history (FB2-10 item 3)', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/DU-1-x.md', '# DU-1');
+    const store = new QuestStore(config);
+    store.post({ package: 'DU-1', brief: 'docs/briefs/DU-1-x.md' });
+    const assigned = store.assign('DU-1', { adventurer: card('codex-luna'), name: 'du1' });
+    const attempt = assigned.assignee;
+    const usage = { messages: 2, firstInputTokens: 60000, inputTokens: 69000, outputTokens: 800, cacheTokens: 20000 };
+    const recorded = store.recordDeliveryUsage('DU-1', attempt, usage);
+    assert.deepEqual(recorded.assignee.usage, usage);
+    assert.deepEqual(recorded.dispatches.at(-1).usage, usage, 'the dispatch history row carries it');
+    assert.throws(() => store.recordDeliveryUsage('DU-1', { ...attempt, attemptId: 'stale' }, usage), /已经不是当前记录/);
+    assert.throws(() => store.recordDeliveryUsage('DU-1', attempt, { messages: 'two' }), /usage 形状不对/, 'a malformed usage payload is refused');
+    assert.equal(store.get('DU-1').assignee.usage.messages, 2, 'the refused write kept the real numbers');
+  });
   it('statusAt stamps when the status last changed and survives untouched saves (FB2-04)', () => {
     const { config, write } = makeProject();
     write('docs/briefs/ST-1-x.md', '# ST-1');

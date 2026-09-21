@@ -87,6 +87,16 @@ describe('sync', () => {
     assert.equal(deriveTransitions([running], [{ name: 'run4', state: 'superseded', dispatchedAt: at }], later(1))[0].status, 'bounced');
   });
 
+  it('a delivered row with token usage carries it into the transition (FB2-10 item 3)', () => {
+    const usage = { messages: 2, firstInputTokens: 60000, inputTokens: 69000, outputTokens: 800, cacheTokens: 20000 };
+    const rows = [{ name: 'run4', state: 'delivered', dispatchedAt: at, lastText: 'done', usage }];
+    const transitions = deriveTransitions([running], rows, later(1));
+    assert.equal(transitions.length, 1);
+    assert.deepEqual(transitions[0].usage, usage);
+    const plain = deriveTransitions([running], [{ name: 'run4', state: 'delivered', dispatchedAt: at, lastText: 'done' }], later(1));
+    assert.equal(plain[0].usage, undefined, 'no usage on the row, no usage on the transition');
+  });
+
   it('ignores older rows reusing the name, except for adopted workers', () => {
     const old = [{ name: 'run4', state: 'delivered', dispatchedAt: '2026-09-10T00:00:00.000Z', lastText: 'ok' }];
     assert.deepEqual(deriveTransitions([running], old, later(1)), []);

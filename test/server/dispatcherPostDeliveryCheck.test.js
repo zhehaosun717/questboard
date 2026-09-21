@@ -73,10 +73,11 @@ function postAndDispatch({ config, store, dispatcher = null, runners = null, car
   return d;
 }
 
-function deliveredRows(quest, { lastText = 'done' } = {}) {
+function deliveredRows(quest, { lastText = 'done', usage = null } = {}) {
   return [{
     name: quest.assignee.name, package: quest.id, lane: quest.assignee.lane, model: quest.assignee.model,
     state: 'delivered', dispatchedAt: quest.assignee.at, lastText,
+    ...(usage ? { usage } : {}),
   }];
 }
 
@@ -101,6 +102,19 @@ describe('dispatcher postDeliveryCheck gate (FB2-05)', () => {
     assert.ok(quest.assignee.checkResults[0].evidence, 'the checked delivery evidence is remembered');
     assert.equal(eventsOf(config).filter((e) => e.event === 'check_failed').length, 0, 'a pass emits no check_failed');
     assert.ok(eventsOf(config).some((e) => e.event === 'delivered'));
+  });
+
+  it('records the delivered attempt token usage onto the assignee and dispatch history (FB2-10 item 3)', async () => {
+    const { config, write, store, dispatcher } = gateProject({ run: ['node', 'scripts/check.js'] });
+    write('scripts/check.js', "process.exit(0)");
+    postAndDispatch({ config, store, dispatcher });
+    await wait(40);
+    const usage = { messages: 2, firstInputTokens: 60000, inputTokens: 69000, outputTokens: 800, cacheTokens: 20000 };
+    dispatcher.applyLanes({ packages: deliveredRows(store.get('PX-1'), { usage }) });
+    await waitFor(() => store.get('PX-1').status === 'delivered', 'delivered');
+    const quest = store.get('PX-1');
+    assert.deepEqual(quest.assignee.usage, usage, 'live attempt carries the usage');
+    assert.deepEqual(quest.dispatches.at(-1).usage, usage, 'dispatch history carries the usage');
   });
 
   it('a failPattern hit holds the delivery: check_failed, no delivered, and one identical poll does not re-check', async () => {

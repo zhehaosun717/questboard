@@ -7,7 +7,7 @@
 // timestamps; and a turn without any timestamp stays uncertain with a reason instead of being guessed.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { fetchJson, sessionState } from '../../src/lanes/opencode.js';
+import { fetchJson, sessionState, sessionUsage } from '../../src/lanes/opencode.js';
 import { STALE_MS } from '../../src/lanes/workers.js';
 
 const now = () => Date.now();
@@ -190,5 +190,26 @@ describe('sessionState — no assistant message yet (FB2-10 item 1)', () => {
     const state = sessionState([], now(), { stallAfterMinutes: 20 });
     assert.equal(state.state, 'unknown');
     assert.equal(state.lastActivityMs, undefined);
+  });
+});
+
+describe('sessionUsage (FB2-10 item 3)', () => {
+  const tok = (input, output, read = 0, write = 0) => ({ tokens: { input, output, reasoning: 0, cache: { read, write } } });
+  const amsg = (info, parts = [txt('done')]) => ({ info: { role: 'assistant', ...info }, parts });
+
+  it('sums tokens across assistant turns and keeps the first turn\'s input separately', () => {
+    const usage = sessionUsage([
+      { info: { role: 'user', time: { created: 1 } }, parts: [] },
+      amsg(completed({ finish: 'stop', ...tok(60000, 500, 12000) })),
+      { info: { role: 'user', time: { created: 2 } }, parts: [] },
+      amsg(completed({ finish: 'stop', ...tok(9000, 300, 8000, 2000) })),
+    ]);
+    assert.deepEqual(usage, { messages: 2, firstInputTokens: 60000, inputTokens: 69000, outputTokens: 800, cacheTokens: 20000 });
+  });
+
+  it('returns null when there are no assistant messages, and tolerates missing token blocks', () => {
+    assert.equal(sessionUsage([{ info: { role: 'user' }, parts: [] }]), null);
+    const usage = sessionUsage([amsg(completed({ finish: 'stop' })), amsg(completed({ finish: 'stop', ...tok(100, 10) }))]);
+    assert.deepEqual(usage, { messages: 2, firstInputTokens: null, inputTokens: 100, outputTokens: 10, cacheTokens: 0 });
   });
 });
