@@ -147,3 +147,84 @@ export function importPlanText(plan) {
   }
   return lines.join('\n');
 }
+
+// --- FB2-07 item 2: opencode models --verbose import ----------------------------------------------
+// The verbose listing is a header line (`provider/model`) followed by one pretty-printed JSON record
+// per model. We parse the JSON blocks; a header line whose block fails to parse fails the whole import
+// loudly rather than guessing.
+export function parseOpencodeModelsVerbose(text) {
+  const models = [];
+  let buffer = [];
+  let depth = 0;
+  const flush = () => {
+    if (!buffer.length) return;
+    const raw = buffer.join(String.fromCharCode(10));
+    buffer = [];
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { throw new Error('opencode models --verbose 里有一段 JSON 解析不了：' + raw.slice(0, 80)); }
+    if (parsed && typeof parsed === 'object' && parsed.id) models.push(parsed);
+  };
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const opens = (line.match(/[{[]/g) || []).length;
+    const closes = (line.match(/[}\]]/g) || []).length;
+    if (!depth && !line.trim().startsWith('{')) continue; // a header like "opencode/big-pickle"
+    buffer.push(line);
+    depth += opens - closes;
+    if (depth <= 0) { depth = 0; flush(); }
+  }
+  flush();
+  if (!models.length) throw new Error('opencode models --verbose 的输出里没有解析到任何模型记录');
+  return models;
+}
+
+// capability truth: text in, text out, tool calls. A record without a capabilities block is not proof of
+// inability — it is kept and marked unverified instead of being silently dropped.
+function capabilitiesOf(record) {
+  const caps = record && record.capabilities;
+  if (!caps || typeof caps !== 'object') return null;
+  const input = caps.input || {};
+  const output = caps.output || {};
+  return { textIn: input.text === true, textOut: output.text === true, toolcall: caps.toolcall === true };
+}
+
+function opencodeCardId(record) {
+  const raw = String(record.providerID || 'opencode') + '-' + String(record.id || '');
+  const cleaned = raw.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '');
+  return cleaned.slice(0, 48);
+}
+
+// planOpencodeImport turns parsed records into roster cards. filter=true keeps only text/text/toolcall
+// models; retired (non-active) models import as verified:broken so the board never offers them as
+// healthy; the caller decides what merge to do with the kept list.
+export function planOpencodeImport({ models, lane, filter = true }) {
+  if (!Array.isArray(models)) throw new Error('planOpencodeImport 需要 models 数组');
+  if (typeof lane !== 'string' || !lane) throw new Error('planOpencodeImport 需要 --lane：卡得落在某个接入方式上');
+  const kept = [];
+  const filteredOut = [];
+  const seen = new Set();
+  for (const record of models) {
+    const id = opencodeCardId(record);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const retired = record.status !== undefined && record.status !== 'active';
+    const caps = capabilitiesOf(record);
+    const usable = caps && caps.textIn && caps.textOut && caps.toolcall;
+    if (filter && !retired && caps && !usable) { filteredOut.push(String(record.id)); continue; }
+    const cost = record.cost || {};
+    const free = Number(cost.input || 0) === 0 && Number(cost.output || 0) === 0;
+    kept.push({
+      id,
+      name: String(record.name || record.id),
+      provider: String(record.providerID || 'opencode'),
+      // The opencode-level model id is what an oc lane's {model} template must fill; the upstream
+      // api.id is kept as a note fact, never silently swapped in.
+      model: String(record.id),
+      family: String(record.family || record.id),
+      lane,
+      billing: free ? 'free' : 'metered',
+      verified: retired ? 'broken' : (caps ? 'ok' : 'unverified'),
+      importedFrom: 'opencode',
+    });
+  }
+  return { kept, filteredOut };
+}

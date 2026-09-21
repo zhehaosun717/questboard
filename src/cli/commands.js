@@ -9,7 +9,8 @@ import { validateBoardPort, DEFAULT_PORT, CONFIG_FILE, readRawConfig, saveProjec
 import { homePaths } from '../core/home.js';
 import { splitLegacyRoster } from '../core/legacy.js';
 import { loadRosterOrEmpty, saveRoster, upsertAdventurer } from '../core/roster.js';
-import { planRosterImport, importPlanText, importDetailLines } from '../core/rosterImport.js';
+import { execFileSync } from 'node:child_process';
+import { planRosterImport, importPlanText, importDetailLines, parseOpencodeModelsVerbose, planOpencodeImport } from '../core/rosterImport.js';
 import { StatusLog, foldStatuses } from '../core/status.js';
 import { appendJsonLine, readJsonLines } from '../core/jsonl.js';
 import { projectId } from '../core/snapshot.js';
@@ -657,7 +658,35 @@ export const commands = {
       if (policy.bannedModelPatterns.length || policy.bannedAgents.length) out(`policy for the project config: ${policy.bannedModelPatterns.length} banned model pattern(s), ${policy.bannedAgents.length} banned agent(s) — add them to questboard.config.json by hand if still wanted`);
       return;
     }
-    throw new Error('usage: questboard roster init [--force] | roster path | roster import <old roster.json> [--dry-run | --force | --replace --force]');
+    // FB2-07 item 2: import from `opencode models --verbose` (or a saved copy of it). The capability
+    // filter is on by default (text in/out + tool calls); --no-filter keeps everything. Merges by card id
+    // through the same planRosterImport as a legacy file, so local env/variants never get clobbered.
+    if (sub === 'import-opencode') {
+      const lane = option(args, '--lane');
+      if (!lane) throw new Error('usage: questboard roster import-opencode --lane <接入方式> [--file models.txt] [--no-filter] [--dry-run]　缺 --lane：每张卡都得落在某个接入方式上，不猜');
+      let text;
+      const file = option(args, '--file');
+      if (file) {
+        if (!fs.existsSync(file)) throw new Error(`no models file at ${file}`);
+        text = fs.readFileSync(file, 'utf8');
+      } else {
+        text = execFileSync('opencode', ['models', '--verbose'], { encoding: 'utf8', timeout: 30000 });
+      }
+      const models = parseOpencodeModelsVerbose(text);
+      const plan0 = planOpencodeImport({ models, lane, filter: !args.includes('--no-filter') });
+      const existing = readExistingRoster(home.roster);
+      const plan = planRosterImport({ existing, incoming: { adventurers: plan0.kept }, statusRecords: [], currentStatus: foldStatuses(readJsonLines(home.status)) });
+      const summary = `解析 ${models.length} 个模型：留下 ${plan0.kept.length} 张（ok ${plan0.kept.filter((c) => c.verified === 'ok').length}、未验证 ${plan0.kept.filter((c) => c.verified === 'unverified').length}、broken ${plan0.kept.filter((c) => c.verified === 'broken').length}）${plan0.filteredOut.length ? `，过滤掉 ${plan0.filteredOut.length} 个（${plan0.filteredOut.join(', ')}）` : ''}`;
+      out(summary);
+      if (args.includes('--dry-run')) { out(importPlanText(plan)); out('dry run: nothing was written'); return; }
+      const rosterChanges = plan.added.length > 0 || plan.updated.length > 0;
+      if (rosterChanges && fs.existsSync(home.roster)) out(`merging by card id; backup of the current roster: ${backupRosterFile(home.roster, false)}`);
+      if (rosterChanges) saveRoster(home.roster, plan.roster, { lenientEnv: true });
+      for (const line of importDetailLines(plan)) out(line);
+      out(`imported ${plan.roster.adventurers.length} cards into ${home.roster}${rosterChanges ? '' : ' (roster unchanged)'}`);
+      return;
+    }
+    throw new Error('usage: questboard roster init [--force] | roster path | roster import <old roster.json> [--dry-run | --force | --replace --force] | roster import-opencode --lane <lane> [--file models.txt] [--no-filter] [--dry-run]');
   },
 
   async board(args) {

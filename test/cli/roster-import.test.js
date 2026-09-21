@@ -363,3 +363,77 @@ describe('roster import through the real CLI process (not just the in-process he
     assert.throws(() => runCli([file], env), /pass --force/, 'a second run through the real process still needs --force');
   });
 });
+
+describe('roster import-opencode (FB2-07 item 2)', () => {
+  const verboseFile = (records) => {
+    const file = path.join(tmpDir('qb-oc-models-'), 'models.txt');
+    fs.writeFileSync(file, records.map((r) => `${r.providerID || 'opencode'}/${r.id}\n${JSON.stringify(r, null, 2)}`).join('\n'));
+    return file;
+  };
+  const ocRec = (over = {}) => ({
+    id: 'm1', providerID: 'opencode', name: 'M One', family: 'm',
+    status: 'active', cost: { input: 0, output: 0 },
+    capabilities: { toolcall: true, input: { text: true }, output: { text: true } },
+    ...over,
+  });
+  async function importOpencode(home, args) {
+    const previousHome = process.env.QUESTBOARD_HOME;
+    const previousWrite = process.stdout.write;
+    const lines = [];
+    process.env.QUESTBOARD_HOME = home.dir;
+    process.stdout.write = (chunk) => { lines.push(String(chunk)); return true; };
+    try {
+      await commands.roster(['import-opencode', ...args]);
+      return { output: lines.join(''), error: undefined };
+    } catch (error) {
+      return { output: lines.join(''), error };
+    } finally {
+      process.stdout.write = previousWrite;
+      if (previousHome === undefined) delete process.env.QUESTBOARD_HOME;
+      else process.env.QUESTBOARD_HOME = previousHome;
+    }
+  }
+
+  it('imports with the capability filter on by default and reports kept/dropped counts', async () => {
+    const home = homeFixture([]);
+    const file = verboseFile([
+      ocRec(),
+      ocRec({ id: 'img', name: 'Img', capabilities: { toolcall: false, input: { text: true }, output: { image: true } } }),
+      ocRec({ id: 'old', name: 'Old', status: 'deprecated' }),
+    ]);
+    const { output, error } = await importOpencode(home, ['--file', file, '--lane', 'oc']);
+    assert.equal(error, undefined, output);
+    assert.match(output, /留下 2 张/);
+    assert.match(output, /过滤掉 1 个/);
+    assert.match(output, /img/);
+    assert.equal(home.card('opencode-m1').verified, 'ok');
+    assert.equal(home.card('opencode-m1').billing, 'free');
+    assert.equal(home.card('opencode-old').verified, 'broken');
+    assert.equal(home.card('opencode-img'), undefined, 'filtered out');
+  });
+
+  it('--no-filter keeps the non-tool model', async () => {
+    const home = homeFixture([]);
+    const file = verboseFile([ocRec({ id: 'img', capabilities: { toolcall: false, input: { text: true }, output: { image: true } } })]);
+    const { error } = await importOpencode(home, ['--file', file, '--lane', 'oc', '--no-filter']);
+    assert.equal(error, undefined);
+    assert.ok(home.card('opencode-img'));
+  });
+
+  it('refuses without --lane and names what is missing', async () => {
+    const home = homeFixture([]);
+    const { error } = await importOpencode(home, ['--file', verboseFile([ocRec()])]);
+    assert.ok(error);
+    assert.match(String(error.message), /--lane/);
+  });
+
+  it('re-importing never clobbers a local env or variant on the same card id', async () => {
+    const home = homeFixture([card('opencode-m1', { env: { OC_BASE_URL: 'https://gw.example.com' }, variant: 'high' })]);
+    const { error } = await importOpencode(home, ['--file', verboseFile([ocRec()]), '--lane', 'oc']);
+    assert.equal(error, undefined);
+    const merged = home.card('opencode-m1');
+    assert.deepEqual(merged.env, { OC_BASE_URL: 'https://gw.example.com' });
+    assert.equal(merged.variant, 'high');
+    assert.equal(merged.verified, 'ok', 'the fresh verification fact still lands');
+  });
+});
