@@ -211,6 +211,17 @@ export function validateAdventurer(entry, where = 'adventurer', { lenientEnv = f
   }
   if (entry.concurrencyGroup !== undefined && !CONCURRENCY_GROUP_PATTERN.test(entry.concurrencyGroup)) fail(`${at}.concurrencyGroup must match ${CONCURRENCY_GROUP_PATTERN}`);
   if (entry.groupMaxParallel !== undefined && (!Number.isInteger(entry.groupMaxParallel) || entry.groupMaxParallel < 1)) fail(`${at}.groupMaxParallel must be a positive integer`);
+  // FB2-12 item 1: a concurrencyGroup is one shared ceiling (five oc-lms-* cards behind one LM Studio),
+  // so the number belongs to the group. Half a declaration cannot be answered from the file — a group with
+  // no limit says nothing about how many may run at once, and a limit with no group has nothing to limit —
+  // and both are refused here, loudly, instead of the board picking a number. validateRoster below checks
+  // the other half of the same rule: every card of one group declares the SAME number.
+  if (entry.concurrencyGroup !== undefined && entry.groupMaxParallel === undefined) {
+    fail(`${at}.groupMaxParallel 是必需的：写了 concurrencyGroup 就要写这一组共用的并发上限（比如 groupMaxParallel: 1）`);
+  }
+  if (entry.groupMaxParallel !== undefined && entry.concurrencyGroup === undefined) {
+    fail(`${at}.groupMaxParallel 只有写了 concurrencyGroup 的卡才能写：并发上限是整组共用的，先写 concurrencyGroup`);
+  }
   if (entry.verified !== undefined && !VERIFIED.includes(entry.verified)) fail(`${at}.verified must be one of ${VERIFIED.join('|')}`);
   if (entry.maxParallel !== undefined && (!Number.isInteger(entry.maxParallel) || entry.maxParallel < 1)) fail(`${at}.maxParallel must be a positive integer`);
   if (entry.strengths !== undefined && (!Array.isArray(entry.strengths) || entry.strengths.some((s) => typeof s !== 'string'))) fail(`${at}.strengths must be an array of strings`);
@@ -244,7 +255,26 @@ export function validateRoster(value, { lenientEnv = false, cardEnvAllow = [] } 
   const ids = value.adventurers.map((a) => a.id);
   const duplicate = ids.find((id, index) => ids.indexOf(id) !== index);
   if (duplicate) fail(`duplicate adventurer id ${duplicate}`);
+  assertGroupLimitsAgree(value.adventurers);
   return value;
+}
+
+// FB2-12 item 1: every card of one concurrencyGroup must declare the same groupMaxParallel, because the
+// number is that group's single shared ceiling. Two different numbers in one group contradict each other —
+// there is no "which one wins" that is not a guess, so the roster is refused (by name, with both values)
+// rather than the board enforcing whichever card it happened to look at first. The cards themselves have
+// already been checked to carry both fields together (validateAdventurer above).
+function assertGroupLimitsAgree(adventurers) {
+  const seen = new Map();
+  for (const entry of adventurers) {
+    const group = entry.concurrencyGroup;
+    if (group === undefined) continue;
+    const previous = seen.get(group);
+    if (!previous) { seen.set(group, entry); continue; }
+    if (previous.groupMaxParallel !== entry.groupMaxParallel) {
+      fail(`concurrencyGroup ${group} 的并发上限不一致：${previous.id} 写了 ${previous.groupMaxParallel}，${entry.id} 写了 ${entry.groupMaxParallel}；整组共用一个上限，改成一样再加载`);
+    }
+  }
 }
 
 // A roster file that does not exist yet is a new machine, not missing data: the board opens with no cards so

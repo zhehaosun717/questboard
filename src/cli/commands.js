@@ -14,7 +14,7 @@ import { planRosterImport, importPlanText, importDetailLines, parseOpencodeModel
 import { StatusLog, foldStatuses } from '../core/status.js';
 import { appendJsonLine, readJsonLines } from '../core/jsonl.js';
 import { projectId } from '../core/snapshot.js';
-import { QUEST_STATUSES } from '../core/store.js';
+import { QUEST_ORIGINS, QUEST_STATUSES } from '../core/store.js';
 import { watchEvents } from './watch.js';
 
 const out = (text) => process.stdout.write(`${text}\n`);
@@ -146,8 +146,12 @@ export function questDetailText(quest, { truncate = true } = {}) {
   else if ((quest.supersedes || []).length) lines.push(`  取代: 取代了 ${quest.supersedes.join('、')}`);
   if (quest.hold) lines.push(`  挂起: ${quest.hold}`);
   if ((quest.needs || []).length) lines.push(`  需要能力: ${quest.needs.join(', ')}`);
+  if (quest.origin) lines.push(`  快速通道: coordinator 快速通道：${quest.check || quest.origin}`);
   lines.push(`  可改文件: ${(quest.files || []).join(', ') || '无'}`);
-  for (const d of quest.dispatches || []) lines.push(`  派单: ${d.at} ${d.model} (${d.name}) 由 ${d.by}${d.adopted ? '（接管已在跑的 worker）' : ''}${d.requestKey ? ` key=${d.requestKey}` : ''}`);
+  // FB2-12 item 2: a dispatch the coordinator made under the fast track is marked as such in the history,
+  // with the check that produced the card.
+  const fastTrack = quest.origin ? `（快速通道：${quest.check || quest.origin}）` : '';
+  for (const d of quest.dispatches || []) lines.push(`  派单: ${d.at} ${d.model} (${d.name}) 由 ${d.by}${d.by === 'coordinator' && quest.origin ? fastTrack : ''}${d.adopted ? '（接管已在跑的 worker）' : ''}${d.requestKey ? ` key=${d.requestKey}` : ''}`);
   for (const r of quest.rulings || []) lines.push(`  裁决: ${r.at} ${r.by}: ${r.text}`);
   if ((quest.threads || []).length) lines.push(`  相关消息: ${quest.threads.map((t) => `${t.id} ${t.title}${t.closed ? '（已关）' : ''}`).join('；')}`);
   const eligibility = quest.eligibility || {};
@@ -262,17 +266,28 @@ export const commands = {
     const mechanicalCheck = option(args, '--mechanical-check');
     if (review === 'mechanical' && !mechanicalCheck) throw new Error('--review mechanical 需要 --mechanical-check "命令"（交付后自动跑一次的命令）');
     if (review !== 'mechanical' && mechanicalCheck) throw new Error('--mechanical-check 只在 --review mechanical 时有效');
+    // FB2-12 item 2: where this quest came from. Validated here with the same rule the server applies, so a
+    // typo is refused before the round trip instead of coming back as a refusal at assign time.
+    const origin = option(args, '--origin');
+    const check = option(args, '--check');
+    if (origin !== undefined && !QUEST_ORIGINS.includes(origin)) {
+      throw new Error(`--origin 只能是 machine-check 或 post-delivery-check（例：--origin machine-check --check "unity recompile"）`);
+    }
+    if (origin !== undefined && check === undefined) throw new Error('--origin 需要 --check "哪条检查失败"：卡面要显示是哪个检查触发的');
+    if (check !== undefined && origin === undefined) throw new Error('--check 只在给了 --origin 时才有意义（例：--origin machine-check --check "unity recompile"）');
     const { quest } = await request(base, '/api/quests', 'POST', {
       package: option(args, '--package'), brief: option(args, '--brief'), kind: option(args, '--kind'),
       parents: option(args, '--parents'), conflicts: option(args, '--conflicts'), allowedLanes: option(args, '--lanes'),
       priority: option(args, '--priority'), needsOwner: option(args, '--needs-owner'), reviewPage: option(args, '--review-page'),
       title: option(args, '--title'), supersedes: option(args, '--supersedes'), hold: option(args, '--hold'),
       needs: option(args, '--needs'), files: option(args, '--files'), by: option(args, '--by') || 'coordinator',
-      review, mechanicalCheck,
+      review, mechanicalCheck, origin, check,
     });
     out(questLine(quest));
     if (quest.review === 'mechanical') out('  复核方式：交付后自动跑机械自检并记录结论');
     if (quest.review === 'none') out('  复核方式：交付后等 coordinator 验证');
+    // FB2-12 item 2: the poster sees that this card is on the fast track, exactly as the card face shows it.
+    if (quest.origin) out(`  快速通道: coordinator 快速通道：${quest.check || quest.origin}`);
     // FB2-03 item 30: the poster sees the file set they signed up for, right here.
     if (quest.files !== undefined) out('  可改文件（' + (quest.filesSource === 'override' ? '显式指定' : 'brief 抽取') + '）: ' + (quest.files.join(', ') || '无'));
   },
@@ -397,9 +412,19 @@ export const commands = {
     // X12: the header tells the owner in Chinese when the default card is not in the roster and where to fix
     // it; the CLI is the same owner-facing surface, so when that fallback card is the one the server refuses
     // by name, say the same sentence instead of the bare English `no adventurer <id>` line.
+    // FB2-12 item 3: the coordinator's own fast-track limit (default 3). Refused locally when it is not a
+    // positive integer — the limit decides whether the coordinator may dispatch at all, so a typo must not
+    // quietly fall back to the default.
+    const maxFilesRaw = option(args, '--max-files');
+    let maxFiles;
+    if (maxFilesRaw !== undefined) {
+      maxFiles = Number(maxFilesRaw);
+      if (!Number.isInteger(maxFiles) || maxFiles < 1) throw new Error(`--max-files 要是正整数，收到「${maxFilesRaw}」（coordinator 直接派的小修复最多能改几个文件，默认 3）`);
+    }
     const body = await request(base, `/api/quests/${encodeURIComponent(args[0])}/assign`, 'POST', {
       adventurer, by: option(args, '--by') || 'coordinator',
       requestKey: option(args, '--request-key'), ifRevision: option(args, '--if-revision'),
+      ...(maxFiles === undefined ? {} : { maxFiles }),
     }).catch((error) => {
       if (requested === undefined && adventurer !== undefined
         && error instanceof Error && error.message === `no adventurer ${adventurer}`) {

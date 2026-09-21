@@ -74,7 +74,13 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
   // findCard is defined below; this closure is only ever called later, from a queued recheck, by which
   // point it's assigned — passing it lets the recheck re-resolve the adventurer's roster status, lane and
   // policy fresh at spawn time instead of trusting the object captured at drop time.
-  const dispatcher = createDispatcher({ config, store, runners, evidenceWaitMs, writeDelivery, getDownLanes: () => downLanes, getAdventurer: (id) => findCard(id) });
+  // FB2-12 item 4: the delivery gate needs a way to reach the coordinator's inbox when it cannot open the
+  // fix card by itself (a scope wider than the fast-track limit). A board without a message store simply has
+  // no inbox: the gate still records the same sentence as a status_note, so nothing is silent either way.
+  const notifyInbox = boardStore
+    ? (payload) => { boardStore.createThread(payload); }
+    : null;
+  const dispatcher = createDispatcher({ config, store, runners, evidenceWaitMs, writeDelivery, getDownLanes: () => downLanes, getAdventurer: (id) => findCard(id), notifyInbox });
   // The project's extra allowed card env names (policy.cardEnvAllow); fixed for the server's lifetime,
   // since a config change needs a restart.
   const cardEnvAllow = config.policy?.cardEnvAllow || [];
@@ -236,7 +242,16 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
           }
         }
       }
-      const options = { requestKey, ifRevision };
+      // FB2-12 item 3: --max-files is the caller's own fast-track limit (the CLI's default is 3). A value
+      // that is not a positive integer is refused here rather than silently ignored — the limit decides
+      // whether the coordinator may dispatch by itself, so a typo must not read as "the default".
+      const maxFilesRaw = body.maxFiles;
+      let maxFiles;
+      if (maxFilesRaw !== undefined && maxFilesRaw !== null && maxFilesRaw !== '') {
+        maxFiles = Number(maxFilesRaw);
+        if (!Number.isInteger(maxFiles) || maxFiles < 1) { sendJson(response, 400, { error: 'maxFiles must be a positive integer' }); return; }
+      }
+      const options = { requestKey, ifRevision, ...(maxFiles === undefined ? {} : { maxFiles }) };
       const result = parts[3] === 'assign' ? dispatcher.assign(questId, card, by, options) : dispatcher.adopt(questId, card, body.name, by, options);
       sendJson(response, result.status, result.body);
       return;

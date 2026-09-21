@@ -61,6 +61,19 @@ const MESSAGES = {
   variant_unsupported: (quest, adventurer, detail) => detail.accepted.length
     ? `这张卡的模型不支持变体「${detail.variant}」，只支持：${detail.accepted.join('、')}`
     : `这张卡的模型不支持变体「${detail.variant}」：到名册里清空这张卡的变体，或换一张支持它的卡`,
+  // FB2-12 item 1: several cards behind one machine (five oc-lms-* cards on one LM Studio) share a ceiling,
+  // so the refusal reads as a queue, not an error — and it names the group-mates actually holding the slots.
+  group_busy: (quest, adventurer, detail) => `并发组 ${detail.group} 满了（${detail.running}/${detail.limit} 在跑）：同组的 ${detail.holders.join('、')} 正在跑，先排队等一个结束`,
+  // A grouped card whose limit could not be read: guessing a number would either over-dispatch the shared
+  // machine or silently block work, so the drop is refused and the missing field is named.
+  group_limit_missing: (quest, adventurer, detail) => `这张卡在并发组 ${detail.group} 里，但没写 groupMaxParallel，说不清整组能同时跑几个：先到名册里补上`,
+  // FB2-12 items 33/34: the coordinator may only dispatch the machine-check fast track. Each refusal names
+  // the one thing that is missing and how to get out of it; the owner's own dispatch is never limited.
+  coordinator_origin: (quest, adventurer, detail) => detail.origin
+    ? `coordinator 只能直接派机器检查出来的小修复（origin 是 machine-check 或 post-delivery-check），${quest.id} 的 origin 是「${detail.origin}」；owner 不受这个限制，用 assign --by owner 派它`
+    : `coordinator 只能直接派机器检查出来的小修复，${quest.id} 没有 origin：post 时加 --origin machine-check --check "哪条检查"，或者 owner 用 assign --by owner 派它`,
+  coordinator_card: (quest, adventurer) => `这张卡（${adventurer.id}）没开 coordinatorAssignable：只有 owner 勾了的免费卡能由 coordinator 直接派，换一张卡，或让 owner 用 assign --by owner 派它`,
+  coordinator_files: (quest, adventurer, detail) => `可改文件有 ${detail.count} 个，超过 coordinator 直接派的上限 ${detail.limit} 个（assign --max-files 可调）：让 owner 用 assign --by owner 派它`,
 };
 
 function reason(code, quest, adventurer, detail) {
@@ -331,6 +344,7 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
   reasons.push(...adventurerReasons(quest, adventurer, policy, env));
   const holders = busyQuests(adventurer.id, quests, quest.id);
   if (holders.length >= (adventurer.maxParallel || 1)) reasons.push(reason('adventurer_busy', quest, adventurer, { limit: adventurer.maxParallel || 1, holders: holders.map(({ id, status }) => ({ id, status })) }));
+  reasons.push(...groupReasons(quest, adventurer, quests));
   reasons.push(...laneBusyReasons(quest, adventurer, quests, policy));
   const authored = authoredAncestor(quest, adventurer, byId);
   if (authored) reasons.push(reason('reviewer_coded_parent', quest, adventurer, authored));
@@ -353,6 +367,48 @@ export function canDispatch({ quest, adventurer, quests, policy, env, selfAttemp
 
 export function eligibility({ quest, roster, quests, policy, env }) {
   return Object.fromEntries(roster.map((adventurer) => [adventurer.id, canDispatch({ quest, adventurer, quests, policy, env })]));
+}
+
+// FB2-12 item 1: cards that share one machine carry a concurrencyGroup with that group's single ceiling
+// (roster.js refuses a group whose members disagree, so the candidate's own card carries the number).
+// Counted from the attempts themselves — every slot-holding quest records the group it was dispatched
+// under (store.assign), so this needs no roster lookup and an attempt keeps the group it was started with
+// even if the card is regrouped later. A candidate never counts against its own group slot (same shape as
+// busyQuests), and a card outside any group is untouched by any of it.
+function groupReasons(quest, adventurer, quests) {
+  const group = adventurer.concurrencyGroup;
+  if (!group) return [];
+  const limit = adventurer.groupMaxParallel;
+  if (!Number.isInteger(limit) || limit < 1) return [reason('group_limit_missing', quest, adventurer, { group })];
+  const running = quests.filter((q) => q.id !== quest.id && holdsSlot(q) && q.assignee && q.assignee.concurrencyGroup === group);
+  if (running.length < limit) return [];
+  return [reason('group_busy', quest, adventurer, { group, limit, running: running.length, holders: running.map((q) => q.id) })];
+}
+
+// FB2-12 items 33/34: how many files a machine-check fix may touch and still be dispatched under the
+// coordinator's own identity (the CLI's --max-files default).
+export const COORDINATOR_MAX_FILES = 3;
+const FAST_TRACK_ORIGINS = new Set(['machine-check', 'post-delivery-check']);
+
+/**
+ * The coordinator-identity dispatch gate. The owner approved the fast track for one shape only: a fix a
+ * machine check produced (origin), on a card the owner marked coordinatorAssignable (free cards only,
+ * roster.js enforces the billing half), touching at most `maxFiles` files. Anything else is refused here
+ * with the one reason that is missing — never a silent pass, and never applied to the owner, whose own
+ * dispatch this function is simply not called for. Returns null when the dispatch may proceed.
+ *
+ * The file count is the quest's own editable set (withFileSets: an explicit --files override, else the
+ * brief's file-list section), and an empty set counts as 0 — the rule counts declared files, and a brief
+ * that declares none is a state the project itself wrote. The origin is the coordinator's own claim on the
+ * quest, which is why the card's billing and the file count are the two facts that carry the real weight.
+ */
+export function coordinatorFastTrackRefusal({ quest, adventurer, maxFiles = COORDINATOR_MAX_FILES }) {
+  const origin = quest && quest.origin ? String(quest.origin) : null;
+  if (!origin || !FAST_TRACK_ORIGINS.has(origin)) return reason('coordinator_origin', quest, adventurer, { origin });
+  if (adventurer.coordinatorAssignable !== true) return reason('coordinator_card', quest, adventurer);
+  const count = (quest.files || []).length;
+  if (count > maxFiles) return reason('coordinator_files', quest, adventurer, { count, limit: maxFiles });
+  return null;
 }
 
 // policy.laneConcurrency caps how many attempts one lane may carry at once, on top of each card's own

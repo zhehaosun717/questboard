@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { canDispatch, OPEN_STATUSES } from '../core/rules.js';
+import { canDispatch, coordinatorFastTrackRefusal, OPEN_STATUSES } from '../core/rules.js';
 import { workerName, planDispatch, executePlan, preflight, recordedNames } from '../core/dispatch.js';
 import { deriveTransitions } from '../core/sync.js';
 import { withFileSets, briefUsable } from '../core/briefs.js';
@@ -37,7 +37,7 @@ function laneUsesRole(lane) {
   ].some((value) => typeof value === 'string' && value.includes('{role}'))));
 }
 
-export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer, fetchImpl = fetch, genericWrapperAdapter = null, gitStatusSync = null, runCheck = null, runMechanical = null, verifyTree = null }) {
+export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer, fetchImpl = fetch, genericWrapperAdapter = null, gitStatusSync = null, runCheck = null, runMechanical = null, verifyTree = null, notifyInbox = null }) {
   // FB2-04 item 1: code dispatches snapshot the worktree before the worker starts (git status
   // --porcelain) so the reviewer can tell pre-existing edits from the worker's own. Sync on purpose:
   // assign() is sync all the way down, and this runs once per dispatch, never in a poll loop.
@@ -270,7 +270,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   }
 
   // Synchronous from the fresh read to store.assign, so two quick drops cannot both pass the checks.
-  function assign(questId, adventurer, by, { requestKey = null, ifRevision } = {}) {
+  function assign(questId, adventurer, by, { requestKey = null, ifRevision, maxFiles } = {}) {
     const quests = withFileSets(config, store.list());
     const quest = quests.find((q) => q.id === questId);
     if (!quest) return { status: 404, body: { error: 'quest not found' } };
@@ -279,6 +279,18 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     if (stale) return stale;
     const verdict = canDispatch({ quest, adventurer, quests, policy: config.policy, env: dispatchEnv(quest) });
     if (!verdict.ok) return { status: 409, body: { error: 'refused', reasons: verdict.reasons } };
+    // FB2-12 items 33/34: a dispatch under the coordinator's own identity must be the machine-check fast
+    // track (rules.js coordinatorFastTrackRefusal). Judged AFTER canDispatch on purpose: a card that is
+    // paused, limited or otherwise unusable must still answer with its own, more specific reason first, and
+    // the fast-track rule is the extra condition on top of every ordinary one. `by` is the identity the
+    // request was recorded under (the board sends 'owner' for a drag, the CLI and the MCP tool send
+    // 'coordinator'), so the owner's own dispatch never reaches this line. `maxFiles` is the caller's own
+    // --max-files (the CLI default lives there); anything not a positive integer was already refused by the
+    // route, and the default here keeps direct callers on the same number the CLI advertises.
+    if (by === 'coordinator') {
+      const refusal = coordinatorFastTrackRefusal({ quest, adventurer, ...(maxFiles === undefined ? {} : { maxFiles }) });
+      if (refusal) return { status: 409, body: { error: 'refused', reasons: [refusal] } };
+    }
     const roleBriefReason = roleCardBriefReason(quest, adventurer, quests);
     if (roleBriefReason) return { status: 409, body: { error: 'refused', reasons: [roleBriefReason] } };
     let annotationPreparation = null;
@@ -653,7 +665,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   const deliveryGate = createDeliveryGate({
     config, store, runners, fetchImpl, runCheck, runMechanical,
     stillOurs, attemptKey, attachChild, fixPlans, controlHandles,
-    safeguard, reportPersistenceFailure, captureReportFor, triggerDeliveredHooks,
+    safeguard, reportPersistenceFailure, captureReportFor, triggerDeliveredHooks, notifyInbox,
     deliverFromApi: deliveryWriter.deliverFromApi, deliverStreamResult: deliveryWriter.deliverStreamResult, attemptEvidence,
   });
 

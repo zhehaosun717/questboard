@@ -29,6 +29,9 @@ const STATUS_EVENTS = { delivered: 'delivered', failed: 'failed', bounced: 'boun
 // twice (a duplicate poll, a retried callback), not a second real transition.
 const TERMINAL_STATUSES = new Set(['delivered', 'failed', 'bounced']);
 const MAX_TEXT = 300;
+// FB2-12 item 2: the only origins a quest may declare. Both mean "a machine check produced this", which is
+// exactly what rules.js coordinatorFastTrackRefusal lets the coordinator dispatch by itself.
+export const QUEST_ORIGINS = Object.freeze(['machine-check', 'post-delivery-check']);
 const ANNOTATION_PAGE_PATTERN = /^[a-z0-9_-]{1,64}$/;
 const ANNOTATION_DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 
@@ -221,6 +224,19 @@ export function validatePost(config, payload, quests = []) {
   const allowedLanes = splitList(input.allowedLanes);
   const badLane = allowedLanes.find((lane) => !config.lanes[lane]);
   if (badLane) errors.allowedLanes = `unknown lane ${badLane}; this project defines ${Object.keys(config.lanes).join(', ')}`;
+  // FB2-12 item 2: where this quest came from, and which machine check produced it. Only a machine check may
+  // mark a quest this way — these two origins are the whole point of the fast-track gate (rules.js
+  // coordinatorFastTrackRefusal), so an unknown value is refused here instead of being stored quietly and
+  // later refused at assign time over a typo. The check name is what the card face and the dispatch history
+  // show; an origin with no check has nothing to show, and a check with no origin has nothing that would
+  // read it, so neither half is accepted alone.
+  const origin = input.origin === undefined || input.origin === null || input.origin === '' ? undefined : String(input.origin).trim();
+  if (origin !== undefined && !QUEST_ORIGINS.includes(origin)) {
+    errors.origin = `origin 只能是 ${QUEST_ORIGINS.join(' 或 ')}（例：post --origin machine-check --check "unity recompile"）`;
+  }
+  const check = input.check === undefined || input.check === null || input.check === '' ? undefined : String(input.check).trim().slice(0, 120);
+  if (origin !== undefined && check === undefined) errors.check = '给了 --origin 就要给 --check "哪条检查失败"：卡面要显示是哪个检查触发的';
+  if (check !== undefined && origin === undefined) errors.check = '--check 只在给了 --origin 时才有意义（例：--origin machine-check --check "unity recompile"）';
   const priority = input.priority === undefined || input.priority === '' ? 2 : Number(input.priority);
   if (![1, 2, 3].includes(priority)) errors.priority = 'priority must be 1, 2 or 3';
   const value = {
@@ -238,6 +254,8 @@ export function validatePost(config, payload, quests = []) {
     filesOverride,
     review,
     mechanicalCheck,
+    origin,
+    check,
     by: String(input.by || 'coordinator').trim().slice(0, 40),
   };
   return { errors, value };
@@ -407,7 +425,7 @@ export class QuestStore extends EventEmitter {
     // filesOverride stays out of the plain spread: undefined (no --files given) must not erase an old
     // override. review/mechanicalCheck (FB2-05) get the same treatment: a re-post that never mentions them
     // must not silently reset a quest's review mode to the default.
-    const { by, filesOverride: _filesOverride, review, mechanicalCheck, ...fields } = value;
+    const { by, filesOverride: _filesOverride, review, mechanicalCheck, origin, check, ...fields } = value;
     // A stalled worker is silence, not a confirmed exit (see release()): it still holds its slot and file
     // reservations, so a re-post (say, an updated brief) must not knock it out of that status just because
     // this post also carries a needsOwner question — the question is recorded, but the attempt is not freed.
@@ -418,6 +436,8 @@ export class QuestStore extends EventEmitter {
       ...(value.filesOverride !== undefined ? { filesOverride: value.filesOverride } : {}),
       ...(review !== undefined ? { review } : {}),
       ...(mechanicalCheck !== undefined ? { mechanicalCheck } : {}),
+      ...(origin !== undefined ? { origin } : {}),
+      ...(check !== undefined ? { check } : {}),
       id: value.package,
       title,
       status: value.needsOwner && !owned ? 'needs_owner' : (existing && !['done', 'superseded', 'cancelled'].includes(existing.status) ? existing.status : 'posted'),
@@ -452,6 +472,11 @@ export class QuestStore extends EventEmitter {
       // then 'launching' via recordPhase, before each effect actually runs, never after. An adopted worker
       // was never queued by this board at all; it starts at 'launching' since it is already running by hand.
       phase: adopted ? 'launching' : 'queued',
+      // FB2-12 item 1: which shared group this attempt occupies (absent for a card outside any group). The
+      // group's ceiling is counted from the attempts themselves (rules.js groupReasons), so no roster
+      // lookup is needed and an attempt keeps the group it was dispatched under even if the card is
+      // regrouped later — what is running now is what must be counted.
+      ...(adventurer.concurrencyGroup ? { concurrencyGroup: adventurer.concurrencyGroup } : {}),
       ...(adopted ? { adopted: true } : {}), ...(requestKey ? { requestKey } : {}),
     };
     const next = this.save({ ...quest, status: 'dispatched', assignee, cancelRequest: null, manualResolution: null, dispatches: [...quest.dispatches, assignee], updatedAt: at });

@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { executePlan } from '../core/dispatch.js';
+import { requestFixQuest } from '../core/fixQuest.js';
 import { protocolFor } from '../lanes/protocols.js';
 import { checkLogPath, mechanicalLogPath, readSessionId, runPostDeliveryGate, runMechanicalCheck } from '../core/postDeliveryCheck.js';
 
@@ -48,7 +49,7 @@ function findArtReviewPage(config, lane, workerName) {
 export function createDeliveryGate({
   config, store, runners, fetchImpl, runCheck, runMechanical,
   stillOurs, attemptKey, attachChild, fixPlans, controlHandles,
-  safeguard, reportPersistenceFailure, captureReportFor, triggerDeliveredHooks,
+  safeguard, reportPersistenceFailure, captureReportFor, triggerDeliveredHooks, notifyInbox = null,
   deliverFromApi, deliverStreamResult, attemptEvidence,
 }) {
   // A fingerprint of the delivery evidence this transition judged (its text plus the attempt's artifact
@@ -81,15 +82,50 @@ export function createDeliveryGate({
     return ('自检失败（第 ' + round + ' 轮），错误如下：\n' + (last ? last.summary : '')).slice(0, 1200);
   }
 
+  // FB2-12 item 4: after the last round failed, the board opens the small fix quest itself — the card the
+  // coordinator is allowed to dispatch by hand (rules.js coordinatorFastTrackRefusal), so a one-line compile
+  // error no longer has to wait for the owner. Nothing is assigned here. A fix whose scope is wider than the
+  // fast-track limit (or whose id the project's own pattern cannot express) is never generated: the
+  // coordinator gets an inbox note naming why instead, and a status_note records the same sentence in the
+  // events file, so neither outcome is silent even when no board inbox is attached.
+  function postFixQuest(quest, gate) {
+    // The check's argv array, joined for display only — the command that actually ran stays the array from
+    // the project config (never joined and re-split on whitespace; see CLAUDE.md's lane-args rule).
+    const checkCommand = (gate.run || []).join(' ').slice(0, 120) || 'postDeliveryCheck';
+    let result;
+    try {
+      result = requestFixQuest({ config, store, failedId: quest.id, checkCommand, by: 'board' });
+    } catch (error) {
+      result = { ok: false, reason: 'write_failed', detail: '开修复卡时出错：' + error.message, files: [] };
+    }
+    const failed = store.get(quest.id) || quest;
+    if (result.ok) {
+      const note = '自检没过，已自动开小修复卡 ' + result.quest.id + '（可改文件 ' + (result.files || []).length + ' 个，检查：' + checkCommand + '），等 coordinator 派它';
+      noteCheck(failed, note);
+      return;
+    }
+    const note = '自检没过，没能自动开修复卡：' + result.detail;
+    noteCheck(failed, note);
+    if (notifyInbox) {
+      notifyInbox({
+        title: quest.id + ' 自检没过，需要人工开修复卡',
+        body: [note, '', '可改文件：' + ((result.files || []).length ? (result.files || []).map((f) => '`' + f + '`').join('、') : '（没有列出）'), '', '小修复卡由 owner 派，或按快速通道规则处理。'].join('\n'),
+        author: 'board',
+        tags: ['note', quest.id],
+      });
+    }
+  }
+
   // maxRounds reached: the quest fails with every round's summary and exit code in lastDetail — the whole
   // history a coordinator reads without opening the check log.
-  function failWithCheckHistory(quest) {
+  function failWithCheckHistory(quest, gate) {
     const results = quest.assignee.checkResults || [];
     const rounds = results.map((r) => '第 ' + r.round + ' 轮（exit ' + (r.exitCode ?? '—') + '）：' + r.summary).join('\n');
     safeguard('postDeliveryCheck setStatus failed', quest.id, () => store.setStatus(quest.id, 'failed', {
       detail: '自检连续 ' + results.length + ' 轮没过，任务失败：\n' + rounds,
       by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(quest.assignee) },
     }));
+    safeguard('postDeliveryCheck fix quest', quest.id, () => postFixQuest(quest, gate));
   }
 
   // One failed round's bounce: the same worker, the same session, the same attempt. A server lane gets a
@@ -190,7 +226,7 @@ export function createDeliveryGate({
     }
     if (!outcome.ok) {
       const rounds = withResult.assignee.checkResults.length;
-      if (rounds >= gate.maxRounds) failWithCheckHistory(withResult);
+      if (rounds >= gate.maxRounds) failWithCheckHistory(withResult, gate);
       else await bounceFix(withResult);
       return;
     }
