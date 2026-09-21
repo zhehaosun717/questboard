@@ -4,7 +4,7 @@
 // reusable from store.js without either side owning the other's concerns.
 import { packageIdPattern, briefPathAllowed } from './patterns.js';
 
-export const METADATA_FIELDS = ['title', 'brief', 'parents', 'conflicts', 'allowedLanes', 'needsOwner', 'hold', 'needs', 'files'];
+export const METADATA_FIELDS = ['title', 'brief', 'parents', 'conflicts', 'allowedLanes', 'needsOwner', 'hold', 'needs', 'files', 'batch', 'waitingOn'];
 // The only other keys a metadata-update payload may carry: transport, not a field to correct. Everything
 // else (status, kind, id, assignee, revision, dispatches, ...) is rejected outright — see validateMetadataUpdate.
 const METADATA_TRANSPORT_FIELDS = new Set(['by', 'ifRevision']);
@@ -168,6 +168,26 @@ export function validateMetadataUpdate(config, quest, quests, payload) {
   if (input.files !== undefined) {
     const files = splitList(input.files);
     if (!sameList(files, quest.filesOverride || [])) { value.filesOverride = files; changes.files = { from: quest.filesOverride || [], to: files }; }
+  }
+
+  // FB2-04 item 5: batch names the whole group this quest ships with (including itself); waitingOn is
+  // the one delivery the group is blocked behind. Both plain metadata — the board reads them for the card
+  // face and the delivery reminder, they never change dispatch rules.
+  if (input.batch !== undefined) {
+    const idPattern = packageIdPattern(config);
+    const batch = splitList(input.batch);
+    const bad = batch.find((id) => !idPattern.test(id));
+    if (bad) errors.batch = 'batch must be package ids, got ' + bad;
+    else if (!batch.includes(quest.id)) errors.batch = quest.id + ' 的一批名单里得包含它自己';
+    else if (!sameList(batch, quest.batch || [])) { value.batch = batch; changes.batch = { from: quest.batch || [], to: batch }; }
+  }
+
+  if (input.waitingOn !== undefined) {
+    const waitingOn = String(input.waitingOn || '').trim();
+    const idPattern = packageIdPattern(config);
+    if (waitingOn && !idPattern.test(waitingOn)) errors.waitingOn = 'waitingOn must be a package id, got ' + waitingOn;
+    else if (waitingOn === quest.id) errors.waitingOn = quest.id + ' 不能等它自己';
+    else if (waitingOn !== (quest.waitingOn || '')) { value.waitingOn = waitingOn; changes.waitingOn = { from: quest.waitingOn || '', to: waitingOn }; }
   }
 
   if (input.title !== undefined) {

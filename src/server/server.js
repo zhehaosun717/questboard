@@ -3,6 +3,7 @@ import http from 'node:http';
 import { URL } from 'node:url';
 import { localHostRefusal, sendJson, routeParts } from './http.js';
 import { BoardStore } from './boardStore.js';
+import { attachDeliveryNotifications } from './deliveryNotifications.js';
 import { createBoardRoutes } from './boardRoutes.js';
 import { createQuestRoutes } from './questRoutes.js';
 import { createPageRoutes } from './pages.js';
@@ -34,6 +35,8 @@ export function createServer({ config, home = homePaths(), runners, getLanes, ev
   let lanesCache = null;
   const lanes = getLanes || (() => lanesCache);
   const quests = createQuestRoutes({ config, store, boardStore, statusLog, rosterFile: home.roster, getLanes: lanes, runners, evidenceWaitMs, writeDelivery, ...(checkLaneServers ? { checkLaneServers } : {}) });
+  // FB2-04 items 3/5: review deliveries and batch waitingOn landings reach the coordinator inbox.
+  attachDeliveryNotifications({ store, boardStore });
   verifyProcessTree = quests.verifyProcessTree;
   const routes = [createPageRoutes({ config, ...(webDist ? { webDist } : {}) }), quests, createBoardRoutes({ config, boardStore }), createUsageRoutes({ usage }), omo, createSettingsRoutes({ config, home, ...(settingsEnv ? { env: settingsEnv } : {}) })];
 
