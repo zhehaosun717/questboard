@@ -17,6 +17,8 @@ import { executePlan } from '../core/dispatch.js';
 import { requestFixQuest } from '../core/fixQuest.js';
 import { protocolFor } from '../lanes/protocols.js';
 import { checkLogPath, mechanicalLogPath, readSessionId, runPostDeliveryGate, runMechanicalCheck } from '../core/postDeliveryCheck.js';
+import { withFileSets } from '../core/briefs.js';
+import { capturePatch } from '../core/worktrees.js';
 
 // FB2-11 item 2: an art worker that produced a review page leaves a manifest.json + matching html in its
 // output directory. The manifest.json is the marker; the html carries the embedded manifest with the page id.
@@ -204,6 +206,21 @@ export function createDeliveryGate({
     // delivery that bounces back for fixes keeps its numbers in the dispatch history.
     if (Object.hasOwn(transition, 'usage')) {
       safeguard('recordDeliveryUsage', quest.id, () => store.recordDeliveryUsage(quest.id, attempt, transition.usage));
+    }
+    // FB2-13: a worktree attempt's delivery is the copy's diff against its pinned base, captured before any
+    // gate outcome (a bounced-back delivery keeps its patch, same reasoning as the usage above). The
+    // out-of-scope list is judged only when the brief names an editable set — no set, no invented boundary.
+    if (attempt.worktree) {
+      safeguard('recordDeliveryPatch', quest.id, () => {
+        const allowed = new Set(withFileSets(config, [quest])[0]?.files || []);
+        const captured = capturePatch({ config, attempt });
+        const files = captured ? captured.files : [];
+        store.recordDeliveryPatch(quest.id, attempt, {
+          patchPath: captured ? captured.patchPath : null,
+          files,
+          outOfScope: allowed.size ? files.filter((file) => !allowed.has(file.path)).map((file) => file.path) : [],
+        });
+      });
     }
     const gate = config.policy?.postDeliveryCheck;
     if (!gate) return settleDelivered(quest, transition, lane);

@@ -88,6 +88,23 @@ const now = () => new Date().toISOString();
 
 // FB2-10 item 3: the usage shape the card face renders — every field an integer (firstInputTokens may be
 // null when the first turn carried no token block). Anything else is a malformed payload, refused loudly.
+// FB2-13: the worktree attempt's delivery patch. patchPath null + empty lists is the honest 没有改动
+// record — never an absent field, so the card and integrate can tell "no changes" from "never captured".
+function validateDeliveryPatch(patch) {
+  const fail = () => { throw new Error('patch 形状不对：需要 {patchPath: string|null, files: [{status, path}], outOfScope: [string]}'); };
+  if (!patch || typeof patch !== 'object') fail();
+  if (patch.patchPath !== null && typeof patch.patchPath !== 'string') fail();
+  if (!Array.isArray(patch.files) || !Array.isArray(patch.outOfScope)) fail();
+  return {
+    patchPath: patch.patchPath,
+    files: patch.files.map((file) => {
+      if (!file || typeof file.status !== 'string' || typeof file.path !== 'string') fail();
+      return { status: file.status, path: file.path };
+    }),
+    outOfScope: patch.outOfScope.map((file) => String(file)),
+  };
+}
+
 function validateDeliveryUsage(usage) {
   // null is the honest 用量未知 marker (the lane tried and could not read token data); only null or a
   // fully shaped payload may be recorded.
@@ -531,10 +548,22 @@ export class QuestStore extends EventEmitter {
     if (!worktree || typeof worktree.path !== 'string' || !worktree.path || typeof worktree.base !== 'string' || !/^[0-9a-f]{40}$/.test(worktree.base)) {
       throw new Error(id + ' 的 worktree 记录缺 path 或 base（40 位 sha），不能编造');
     }
-    const clean = { path: worktree.path, base: worktree.base };
+    const clean = { path: worktree.path, base: worktree.base, ...(typeof worktree.brief === 'string' && worktree.brief ? { brief: worktree.brief } : {}) };
     const assignee = { ...quest.assignee, worktree: clean };
     const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt)
       ? { ...dispatch, worktree: clean } : dispatch);
+    return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
+  }
+
+  // FB2-13: the worktree attempt's delivery patch, mirrored onto the live assignee and the matching
+  // dispatch history row. Shape-validated; recording again for the same attempt replaces, never stacks.
+  recordDeliveryPatch(id, attempt, patch) {
+    const quest = this.quests.get(id);
+    if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(id + ' 的这次派遣已经不是当前记录了，patch 没法登记');
+    const clean = { ...validateDeliveryPatch(patch), at: now() };
+    const assignee = { ...quest.assignee, patch: clean };
+    const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt)
+      ? { ...dispatch, patch: clean } : dispatch);
     return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
   }
 

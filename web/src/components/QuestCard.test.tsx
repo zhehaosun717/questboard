@@ -108,4 +108,28 @@ describe('QuestCard — coordinator fast track (FB2-12 item 2)', () => {
     expect(html).toContain('coordinator 快速通道');
     expect(html).not.toContain('：<');
   });
+
+  it('a worktree delivery shows 改动 N 个文件 with out-of-scope flagged red (FB2-13)', () => {
+    const q = quest({
+      status: 'delivered',
+      assignee: { ...worker, patch: { patchPath: '/data/patches/w1.patch', files: [{ status: 'M', path: 'src/app.js' }, { status: 'A', path: 'src/evil.js' }], outOfScope: ['src/evil.js'], at: '2026-09-20T00:00:00Z' } },
+    });
+    const html = render(q, snap({}));
+    expect(html).toContain('改动 2 个文件');
+    expect(html).toContain('越界：src/evil.js');
+    expect(html).toContain('usage-big-prompt');
+  });
+
+  it('an empty patch record says 本次没有文件改动', () => {
+    const q = quest({ status: 'delivered', assignee: { ...worker, patch: { patchPath: null, files: [], outOfScope: [], at: '2026-09-20T00:00:00Z' } } });
+    const html = render(q, snap({}));
+    expect(html).toContain('本次没有文件改动');
+  });
+
+  it('a non-worktree attempt (patch absent) shows nothing about patches', () => {
+    const q = quest({ status: 'delivered', assignee: { ...worker } });
+    const html = render(q, snap({}));
+    expect(html).not.toContain('个文件');
+    expect(html).not.toContain('越界');
+  });
 });

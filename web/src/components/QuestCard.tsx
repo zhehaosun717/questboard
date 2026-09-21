@@ -244,6 +244,21 @@ export function QuestCard({
             </div>
           );
         })() : null}
+        {/* FB2-13: the worktree delivery patch — how many files, and anything beyond the brief's
+            editable set flagged red. Absent property = not a worktree attempt, the card stays quiet. */}
+        {(() => {
+          const patch = assignee?.patch ?? (quest.dispatches?.length ? quest.dispatches.at(-1)!.patch : undefined);
+          if (!patch) return null;
+          if (!patch.files.length) return <div className={`mt-1 font-mono text-[11px] ${softText}`}>{t('questCard.patchEmpty')}</div>;
+          return (
+            <div className={`mt-1 font-mono text-[11px] ${softText}`} title={patch.patchPath || undefined}>
+              {t('questCard.patch', { count: patch.files.length })}
+              {patch.outOfScope.length ? (
+                <span className="usage-big-prompt">　⚠ {t('questCard.patchOutOfScope', { files: patch.outOfScope.join('、') })}</span>
+              ) : null}
+            </div>
+          );
+        })()}
         {/* FB2-10 item 4: a stalled card offers the dispatch step log (last 100 lines, capped server-side). */}
         {quest.status === 'stalled' && assignee ? (
           <div className="mt-1">

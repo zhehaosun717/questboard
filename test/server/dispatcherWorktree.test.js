@@ -131,3 +131,75 @@ describe('dispatcher worktree dispatch (FB2-13 item 1)', () => {
     assert.ok(!fs.existsSync(path.join(root, '.work')), 'the main tree has no artifacts at all');
   });
 });
+
+const waitFor = async (predicate, what, timeoutMs = 6000) => {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error('timed out waiting for ' + what);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+};
+
+const deliveredRow = (quest) => [{
+  name: quest.assignee.name, package: quest.id, lane: quest.assignee.lane, model: quest.assignee.model,
+  state: 'delivered', dispatchedAt: quest.assignee.at, lastText: 'done',
+}];
+
+async function dispatchWithWorktree({ id, briefText }) {
+  const { root, config, write } = gitProject();
+  const store = new QuestStore(config);
+  const { runners } = runnersSpy();
+  const dispatcher = createDispatcher({ config, store, runners });
+  write('docs/briefs/' + id + '-x.md', briefText);
+  store.post({ package: id, brief: 'docs/briefs/' + id + '-x.md', by: 'owner' });
+  assert.equal(dispatcher.assign(id, card('codex-luna'), 'owner').status, 200);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  return { root, config, write, store, dispatcher };
+}
+
+describe('worktree delivery patch (FB2-13 items 1/2)', () => {
+  it('delivery records the patch main-side: changed list, patch file, out-of-scope vs the brief 可改文件', async () => {
+    const { root, config, store, dispatcher } = await dispatchWithWorktree({
+      id: 'WT-6', briefText: '# WT-6\n\n## 可改文件\n- `src/app.js`\n',
+    });
+    const quest = store.get('WT-6');
+    const copy = quest.assignee.worktree.path;
+    fs.writeFileSync(path.join(copy, 'src', 'app.js'), 'export const v = 2;\n');
+    fs.writeFileSync(path.join(copy, 'src', 'evil.js'), 'out of scope\n');
+    dispatcher.applyLanes({ packages: deliveredRow(quest) });
+    await waitFor(() => store.get('WT-6').status === 'delivered', 'delivered');
+    const done = store.get('WT-6');
+    const patch = done.assignee.patch;
+    assert.ok(patch, 'the attempt carries the patch record');
+    assert.ok(patch.patchPath.startsWith(config.paths.data), 'the patch lives in the MAIN project data dir');
+    assert.ok(patch.patchPath.endsWith('.patch'));
+    const text = fs.readFileSync(patch.patchPath, 'utf8');
+    assert.match(text, /evil\.js/, "the patch covers the new file in the copy too");
+    assert.deepEqual(patch.files.map((file) => file.path).sort(), ['src/app.js', 'src/evil.js']);
+    assert.deepEqual(patch.outOfScope, ['src/evil.js'], 'beyond the brief 可改文件 gets flagged');
+    assert.deepEqual(done.dispatches.at(-1).patch, patch, 'dispatch history mirrors the record');
+    assert.equal(fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8'), 'export const v = 1;\n', 'the main tree stays untouched');
+  });
+
+  it('a brief without an editable set flags nothing as out of scope (never invents a boundary)', async () => {
+    const { store, dispatcher } = await dispatchWithWorktree({ id: 'WT-7', briefText: '# WT-7\n' });
+    const quest = store.get('WT-7');
+    fs.writeFileSync(path.join(quest.assignee.worktree.path, 'src', 'app.js'), 'export const v = 3;\n');
+    dispatcher.applyLanes({ packages: deliveredRow(quest) });
+    await waitFor(() => store.get('WT-7').status === 'delivered', 'delivered');
+    const patch = store.get('WT-7').assignee.patch;
+    assert.deepEqual(patch.outOfScope, []);
+    assert.deepEqual(patch.files.map((file) => file.path), ['src/app.js']);
+  });
+
+  it('a delivery with no changes records an explicit empty patch, never an invented file list', async () => {
+    const { store, dispatcher } = await dispatchWithWorktree({ id: 'WT-8', briefText: '# WT-8\n' });
+    dispatcher.applyLanes({ packages: deliveredRow(store.get('WT-8')) });
+    await waitFor(() => store.get('WT-8').status === 'delivered', 'delivered');
+    const patch = store.get('WT-8').assignee.patch;
+    assert.ok(patch, 'the record exists and says empty, not absent');
+    assert.equal(patch.patchPath, null);
+    assert.deepEqual(patch.files, []);
+    assert.deepEqual(patch.outOfScope, []);
+  });
+});

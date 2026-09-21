@@ -62,6 +62,15 @@ export interface DeliveryUsage {
   cacheTokens: number;
 }
 
+// FB2-13 (store.recordDeliveryPatch): the worktree attempt's delivery patch. patchPath null + empty
+// lists is the honest 没有改动 record; absent means the attempt never ran in a worktree.
+export interface DeliveryPatch {
+  patchPath: string | null;
+  files: { status: string; path: string }[];
+  outOfScope: string[];
+  at: string;
+}
+
 export interface Assignee {
   adventurerId: string;
   family: string | null;
@@ -78,6 +87,7 @@ export interface Assignee {
   roleCard?: RoleCardRef;
   annotationSnapshot?: AnnotationSnapshotRef;
   usage?: DeliveryUsage | null;
+  patch?: DeliveryPatch;
 }
 
 export interface Ruling {

@@ -1565,6 +1565,10 @@ export const TRANSLATIONS = {
   'questCard.bigSystemPrompt': { zh: '系统提示异常大', en: 'unusually large system prompt' },
   'questCard.startupLog': { zh: '查看启动日志', en: 'View startup log' },
   'questCard.startupLogFailed': { zh: '启动日志读不到：{error}', en: 'could not read the startup log: {error}' },
+  // FB2-13: the worktree delivery patch on the card face.
+  'questCard.patch': { zh: '改动 {count} 个文件', en: '{count} files changed' },
+  'questCard.patchEmpty': { zh: '本次没有文件改动', en: 'no files changed this run' },
+  'questCard.patchOutOfScope': { zh: '越界：{files}', en: 'out of scope: {files}' },
   'questCard.openReviewPage': { zh: '打开评审页', en: 'Open review page' },
   // FB2-12 item 2: a quest a machine check produced, and which check it was.
   'questCard.fastTrack': { zh: 'coordinator 快速通道：{check}', en: 'coordinator fast track: {check}' },

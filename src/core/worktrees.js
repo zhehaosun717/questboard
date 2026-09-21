@@ -48,7 +48,7 @@ export function prepareWorktree({ config, name, brief }) {
     removeWorktree({ config, copyPath });
     throw error;
   }
-  return { path: copyPath, base: baseSha };
+  return { path: copyPath, base: baseSha, ...(brief ? { brief } : {}) };
 }
 
 // Removes a copy; failure (already gone, git hiccup) is only ever cleanup, so it is ignored.
@@ -63,7 +63,10 @@ export function removeWorktree({ config, copyPath }) {
 // an empty patch is a fact the caller reports, not a file worth writing.
 export function capturePatch({ config, attempt }) {
   const { path: copyPath, base } = attempt.worktree;
-  run(copyPath, ['add', '-A']);
+  // The copied config and brief are dispatch scaffolding, not the worker's edits — excluded from the patch
+  // (a config change must go through the owner / the settings page, never ride a delivery).
+  const excludes = [':(exclude)' + CONFIG_FILE, ...(attempt.worktree.brief ? [':(exclude)' + attempt.worktree.brief] : [])];
+  run(copyPath, ['add', '-A', '--', '.', ...excludes]);
   const patch = run(copyPath, ['-c', 'core.fileMode=false', 'diff', '--cached', base]);
   const names = run(copyPath, ['-c', 'core.fileMode=false', 'diff', '--cached', '--name-status', base]);
   const files = names ? names.split('\n').map((line) => {
