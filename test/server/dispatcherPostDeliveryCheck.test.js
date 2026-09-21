@@ -284,6 +284,11 @@ describe('post --review none|mechanical|model (FB2-05)', () => {
     assert.equal(ok.quest.review, 'mechanical');
     assert.equal(ok.quest.mechanicalCheck, 'npm test');
     assert.equal(ok.quest.status, 'posted');
+    // A re-post that never mentions the mode must not silently reset it to the default.
+    const repost = store.post({ package: 'PX-1', brief: 'docs/briefs/PX-1-x.md' });
+    assert.ok(!repost.errors);
+    assert.equal(repost.quest.review, 'mechanical', 're-post keeps the review mode');
+    assert.equal(repost.quest.mechanicalCheck, 'npm test');
   });
 
   it('review none delivers into needs_coordinator, never into delivered', async () => {
