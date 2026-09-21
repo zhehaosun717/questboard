@@ -452,6 +452,26 @@ function validateCardEnvAllow(value) {
 // them resolves to exactly the behaviour from before they existed (stall after 20 minutes, no per-lane
 // limit, no preferred lane or card, no extra bounce patterns). Unknown policy keys are not touched here;
 // saveProjectConfig writes the raw file object back, so they survive a save untouched.
+// FB2-05 item 1: the self-check a worker's delivery must pass before the board writes delivered. Every
+// field is validated at load — a half-written check must fail startup, never silently skip the gate.
+// run stays an argv array end to end; it is never joined and re-split (each element is one argument).
+function validatePostDeliveryCheck(value) {
+  if (value === undefined) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('policy.postDeliveryCheck 必须是对象 { run, timeoutMs, failPattern, maxRounds? }');
+  for (const key of Object.keys(value)) {
+    if (!['run', 'timeoutMs', 'failPattern', 'maxRounds'].includes(key)) fail(`policy.postDeliveryCheck.${key} 不是认识的字段（只收 run/timeoutMs/failPattern/maxRounds）`);
+  }
+  if (!Array.isArray(value.run) || !value.run.length || value.run.some((arg) => typeof arg !== 'string' || !arg)) {
+    fail('policy.postDeliveryCheck.run 必须是非空的参数数组（每个元素是独立的一个 argv）');
+  }
+  if (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 1) fail('policy.postDeliveryCheck.timeoutMs 必须是正整数（毫秒）');
+  if (typeof value.failPattern !== 'string' || !value.failPattern) fail('policy.postDeliveryCheck.failPattern 必须是非空正则字符串');
+  try { new RegExp(value.failPattern); } catch { fail(`policy.postDeliveryCheck.failPattern 不是合法正则：${value.failPattern}`); }
+  const maxRounds = value.maxRounds === undefined ? 2 : value.maxRounds;
+  if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5) fail('policy.postDeliveryCheck.maxRounds 必须是 1 到 5 的整数（默认 2）');
+  return { run: [...value.run], timeoutMs: value.timeoutMs, failPattern: value.failPattern, maxRounds };
+}
+
 function validatePolicyConfig(rawPolicy, laneIds) {
   // X18: a present-but-not-an-object policy (null, a string, an array) is refused instead of silently
   // falling back to defaults — the message is Chinese and says both what is wrong and how to get the
@@ -469,6 +489,7 @@ function validatePolicyConfig(rawPolicy, laneIds) {
     bouncePatterns: [],
     reviewRequires: [],
     cardEnvAllow: validateCardEnvAllow(policy.cardEnvAllow),
+    postDeliveryCheck: validatePostDeliveryCheck(policy.postDeliveryCheck),
   };
   if (policy.stallAfterMinutes !== undefined) {
     if (!Number.isInteger(policy.stallAfterMinutes) || policy.stallAfterMinutes < 1) fail('policy.stallAfterMinutes must be a positive integer (minutes)');
