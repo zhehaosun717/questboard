@@ -1,6 +1,6 @@
 [package]
 name = "questboard-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "questboard desktop shell: starts the local board server and opens it in a native window"
 edition = "2021"
 license = "MIT"
