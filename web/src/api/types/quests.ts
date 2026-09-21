@@ -118,6 +118,11 @@ export interface Quest {
   supersedes?: string[];
   supersededBy?: string;
   filesOverride?: string[];
+  // FB2-12 item 2: where a quest came from. machine-check / post-delivery-check mean a machine check
+  // produced it (the check name rides in `check`), and that is what lets the coordinator dispatch it by
+  // itself (rules.js coordinatorFastTrackRefusal). Absent on quests the owner or the coordinator posted.
+  origin?: 'machine-check' | 'post-delivery-check';
+  check?: string;
   // FB2-04 item 5: the batch this quest ships with (includes itself) and the delivery it waits for.
   batch?: string[];
   waitingOn?: string;

@@ -296,6 +296,13 @@ export function QuestCard({
               : `🔍 复核：交付后机械自检（${quest.mechanicalCheck || '已配置'}）`}
           </div>
         ) : null}
+        {/* FB2-12 item 2: a card a machine check produced says so on its face, so the owner can see at a
+            glance which cards the coordinator dispatched without him. */}
+        {quest.origin ? (
+          <div className={`mt-1 text-[11px] font-bold ${softText}`} title={quest.origin}>
+            ⚡ {t('questCard.fastTrack', { check: quest.check || quest.origin })}
+          </div>
+        ) : null}
         {quest.needsOwner ? (
           <div
             className={`mt-2 border-l-[3px] border-amber-dk px-2 py-[5px] text-[12px] ${

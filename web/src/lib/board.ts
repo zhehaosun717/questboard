@@ -131,10 +131,15 @@ export function groupRefusals(verdicts: Record<string, Verdict>): {
   return { canTake, refused };
 }
 
+// A drop that is only held up by something that will clear on its own is a queue, not a refusal: another
+// worker editing the same files (conflict_running), or a shared concurrency group being full
+// (group_busy, FB2-12 item 1 — several cards behind one machine). Everything else reads as a real refusal.
+const QUEUE_CODES = new Set(['conflict_running', 'group_busy']);
+
 export function isQueueOnly(verdict: Verdict | undefined | null): boolean {
   if (!verdict || verdict.ok) return false;
   if (!verdict.reasons || verdict.reasons.length === 0) return false;
-  return verdict.reasons.every((r) => r.code === 'conflict_running');
+  return verdict.reasons.every((r) => QUEUE_CODES.has(r.code));
 }
 
 export function relatedQuestIds(snap: Snapshot, questId: string): string[] {
