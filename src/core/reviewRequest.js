@@ -53,7 +53,7 @@ export function pickReviewId(config, parentId, takenIds) {
 // Written like the reviews a coordinator hands out: a reviewer who did not write the work, checks it against
 // its brief, changes nothing, and answers in a fixed shape. There is deliberately no "files you may edit"
 // section, so the review holds no files and never queues behind the work it reviews.
-export function buildReviewBrief({ reviewId, parent, note = '' }) {
+export function buildReviewBrief({ config = null, reviewId, parent, note = '' }) {
   const last = (parent.dispatches || []).at(-1);
   const lines = [
     `${reviewId} — Review of ${parent.id}: ${parent.title}. Self-contained brief, written by the quest board.`,
@@ -77,7 +77,21 @@ export function buildReviewBrief({ reviewId, parent, note = '' }) {
     lines.push('- The files that brief allowed it to change:');
     for (const file of parent.files) lines.push(`  - \`${file}\``);
   }
+  // FB2-04 item 2: the full report path comes first — the summary below is only its tail, and the
+  // reviewer is expected to open the file itself for the whole run.
+  const outputDir = config && last ? config.lanes[last.lane]?.outputDir : null;
+  if (outputDir && last?.name) lines.push(`- 完整报告路径：\`${outputDir}/${last.name}.out\`（下面是摘要，全文看这个文件）`);
   if (parent.lastDetail) lines.push('- The worker\'s own summary, as the board recorded it:', '', '~~~text', parent.lastDetail, '~~~');
+  // FB2-04 item 1: whatever was already dirty when the worker started is not the worker's scope violation.
+  const pre = last?.preDispatchChanges || null;
+  if (pre && pre.available === true && (pre.files || []).length) {
+    lines.push('- 派出前就已改动的文件（这些不算越界）:');
+    for (const file of pre.files) lines.push(`  - \`${file}\``);
+  } else if (pre && pre.available === true) {
+    lines.push('- 派出前工作区是干净的（派出时 git status 没有改动）。');
+  } else if (pre) {
+    lines.push(`- 派出前改动快照：${pre.note || '无 git，无法快照'}（哪些改动是派出前就有的，没法从这里分辨）。`);
+  }
   lines.push(
     '',
     '## Check',
@@ -127,7 +141,7 @@ export function requestReview({ config, store, parentId, note = '', by = 'owner'
   const [withFiles] = withFileSets(config, [parent]);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, buildReviewBrief({ reviewId, parent: withFiles, note }), { flag: 'wx' });
+    fs.writeFileSync(file, buildReviewBrief({ config, reviewId, parent: withFiles, note }), { flag: 'wx' });
   } catch (error) {
     if (error.code === 'EEXIST') return { status: 409, body: { error: `简报文件已经存在：${brief}，不会覆盖它` } };
     throw error;

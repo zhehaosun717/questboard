@@ -88,3 +88,46 @@ describe('review requests', () => {
     assert.ok(Object.values(blocked).every((v) => !v.ok && v.reasons[0].code === 'review_open'), 'one open review at a time');
   });
 });
+
+describe('FB2-04 review brief: report path and pre-dispatch changes', () => {
+  const { config } = makeProject();
+  const dispatched = {
+    ...parent,
+    dispatches: [{
+      model: 'gemini-3.8-flash-high', lane: 'agy', name: 'arc2',
+      preDispatchChanges: { available: true, files: ['src/already-dirty.js', 'docs/old-notes.md'], at: '2026-09-20T00:00:00.000Z' },
+    }],
+  };
+
+  it('names the full report path and keeps the summary tail (item 2)', () => {
+    const text = buildReviewBrief({ config, reviewId: 'REVIEW-ARC-2', parent: dispatched });
+    assert.match(text, /完整报告路径：`\.work\/agy\/arc2\.out`/);
+    assert.match(text, /Strictly follow the taxonomy\./, 'the summary tail stays');
+  });
+
+  it('lists pre-existing worktree edits as not out-of-bounds (item 1)', () => {
+    const text = buildReviewBrief({ config, reviewId: 'REVIEW-ARC-2', parent: dispatched });
+    assert.match(text, /派出前就已改动的文件（这些不算越界）/);
+    assert.match(text, /src\/already-dirty\.js/);
+    assert.match(text, /docs\/old-notes\.md/);
+  });
+
+  it('says so when there is no git snapshot, instead of implying a clean tree', () => {
+    const noGit = { ...dispatched, dispatches: [{ ...dispatched.dispatches[0], preDispatchChanges: { available: false, note: '无 git，无法快照（项目目录没有 .git）' } }] };
+    const text = buildReviewBrief({ config, reviewId: 'REVIEW-ARC-2', parent: noGit });
+    assert.match(text, /无 git，无法快照/);
+    assert.ok(!/派出前就已改动的文件/.test(text));
+  });
+
+  it('a clean pre-dispatch tree is stated plainly', () => {
+    const clean = { ...dispatched, dispatches: [{ ...dispatched.dispatches[0], preDispatchChanges: { available: true, files: [] } }] };
+    const text = buildReviewBrief({ config, reviewId: 'REVIEW-ARC-2', parent: clean });
+    assert.match(text, /派出前工作区是干净的/);
+  });
+
+  it('legacy callers without config still get a complete brief, minus the path line', () => {
+    const text = buildReviewBrief({ reviewId: 'REVIEW-ARC-2', parent: dispatched });
+    assert.ok(!/完整报告路径/.test(text));
+    assert.match(text, /Do not edit any file/);
+  });
+});
