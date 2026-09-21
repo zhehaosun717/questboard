@@ -107,12 +107,28 @@
 .attempt-evidence-time { margin: 4px 0 0; font-size: 11px; color: var(--dim); }
 .attempt-evidence-reason { margin: 4px 0 0; font-size: 11px; color: var(--dim); }
 
-/* Feedback 15: the acceptance panel's evidence checkboxes (AcceptancePanel), inside ReviewSection. */
+/* Feedback 15: the acceptance panel's evidence checkboxes (AcceptancePanel), inside ReviewSection. Every row
+   is three fixed columns — checkbox | item name | why it cannot be chosen — so the boxes and the names line up
+   across rows: as a flex row, the app-wide `textarea, select, input { width: 100% }` rule (board.css) stretched
+   each checkbox to the row width (measured 419/400/413px for the three rows at a 1440px window), which pushed
+   each name to a different x (1285/1266/1279) and squeezed the 说明 into an ~83px sliver that wrapped onto two
+   lines. A checkbox is sized by the browser, not by the field layout, so it gets its own size here — that is
+   also what keeps the focus ring around the control alone. */
 .acceptance-panel { margin: 8px 0; }
 .acceptance-panel-items { display: grid; gap: 4px; margin-top: 4px; }
-.acceptance-panel-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cable); }
-.acceptance-panel-item-disabled { color: var(--dim); opacity: .75; }
-.acceptance-panel-reason { font-size: 11px; color: var(--dim); }
+.acceptance-panel-item { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 2px 8px; font-size: 12px; color: var(--cable); }
+.acceptance-panel-item > input[type="checkbox"] { grid-column: 1; width: 13px; height: 13px; margin: 0; padding: 0; }
+.acceptance-panel-label { grid-column: 2; white-space: nowrap; }
+.acceptance-panel-reason { grid-column: 3; font-size: 11px; color: var(--dim); min-width: 0; overflow-wrap: anywhere; }
+/* The whole row reads grey when it cannot be chosen (the disabled checkbox already greys itself); no extra
+   opacity on top of the already-dim text, which is what pushed this line under 4.5:1 in round 1. */
+.acceptance-panel-item-disabled { color: var(--dim); }
+/* Narrow window (the drawer is the full width there): the 说明 drops to the line under its own name instead of
+   being squeezed to a couple of characters per line. */
+@media (max-width: 640px) {
+  .acceptance-panel-item { grid-template-columns: auto 1fr; }
+  .acceptance-panel-reason { grid-column: 2; }
+}
 
 /* S3: the review-order upstream check (UpstreamEvidence) — a review quest's own standing record of its
    parents' evidence, independent of EvidenceSection above (this attempt's own evidence). */

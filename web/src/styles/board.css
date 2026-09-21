@@ -306,6 +306,14 @@ textarea, select, input { width: 100%; padding: 7px 9px; font: 13px var(--body);
 textarea:hover, select:hover, input:hover { border-color: var(--rivet); }
 textarea::placeholder, input::placeholder { color: var(--dim); opacity: .75; }
 textarea:focus, select:focus, input:focus { outline: 2px solid var(--amber); outline-offset: 1px; border-color: var(--rust-dk); }
+/* A checkbox that shares one line with its own label (the brief shelf's two 「也显示…」 toggles, the
+   acceptance panel's evidence rows) — the app-wide rule just above reaches every checkbox too and stretches
+   it to the full row (measured 930px wide at a 1024px window), which drops the label text onto the next line
+   and leaves a focus ring around half the page. A checkbox is sized by the browser, not by the field layout:
+   this is the one place that says so, so every such row only has to name it once. */
+.check-line { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.check-line > input[type="checkbox"] { width: 13px; height: 13px; margin: 0; padding: 0; flex: none; }
+.brief-shelf-reveals { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; }
 .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 .row.end { justify-content: flex-end; }
 .btn { padding: 5px 13px; font: 700 13px var(--body); color: var(--cream); background: var(--steel2); border: 1px solid var(--hall-edge); border-radius: 2px; box-shadow: 0 2px 0 var(--hall-edge); }

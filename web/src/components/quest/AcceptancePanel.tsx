@@ -14,6 +14,21 @@ interface AcceptancePanelProps {
   onChange: (refs: AcceptanceEvidenceRef[]) => void;
 }
 
+// One evidence row: checkbox | item name | why-not (when the item cannot be chosen). The three columns are
+// fixed by CSS (.acceptance-panel-item is a three-column grid, report-evidence.css) so the checkbox and the
+// name stay in line across rows even when one row carries a 说明 — with a bare text node next to a checkbox
+// the app-wide input rule stretched, every row landed at its own x. Exported (like EvidenceSection's
+// EvidenceRow) so the row itself is testable without the on-demand fetch having to settle first.
+export function AcceptanceRow({ item, checked, onToggle }: { item: EvidenceItem; checked: boolean; onToggle: () => void }) {
+  return (
+    <label className={`acceptance-panel-item${item.bound ? '' : ' acceptance-panel-item-disabled'}`}>
+      <input type="checkbox" disabled={!item.bound} checked={checked} onChange={onToggle} />
+      <span className="acceptance-panel-label">{KIND_LABEL[item.kind]}</span>
+      {!item.bound ? <span className="acceptance-panel-reason">（{item.reason ?? '还没绑定到本次尝试'}）</span> : null}
+    </label>
+  );
+}
+
 // Feedback 15: the checkboxes an acceptance's evidenceRefs come from — this quest's current-attempt evidence
 // (src/core/evidence.js), fetched on demand like EvidenceSection above it in the drawer (a second, independent
 // fetch of the same detail route; the two sections do not share a cache). Unbound or missing items are shown
@@ -65,11 +80,7 @@ export function AcceptancePanel({ quest, onChange }: AcceptancePanelProps) {
       {state.status === 'ready' ? (
         <div className="acceptance-panel-items">
           {state.items.map((item) => (
-            <label key={item.kind} className={`acceptance-panel-item${item.bound ? '' : ' acceptance-panel-item-disabled'}`}>
-              <input type="checkbox" disabled={!item.bound} checked={selected.has(item.kind)} onChange={() => toggle(item)} />
-              {KIND_LABEL[item.kind]}
-              {!item.bound ? <span className="acceptance-panel-reason">（{item.reason ?? '还没绑定到本次尝试'}）</span> : null}
-            </label>
+            <AcceptanceRow key={item.kind} item={item} checked={selected.has(item.kind)} onToggle={() => toggle(item)} />
           ))}
         </div>
       ) : null}

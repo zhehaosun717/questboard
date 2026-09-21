@@ -119,16 +119,21 @@ export function BriefShelf({ unpostedBriefs = [], briefDiscovery, onRescan, push
           ⚠ {briefDiscovery.errors.map((e) => t('briefShelf.errorItem', { folder: e.folder, reason: e.reason })).join(t('common.statementSeparator'))}
         </p>
       )}
+      {/* Both toggles are label+.check-line (board.css): the checkbox and its own text share one line, and
+          the text sits in a span so the label can be laid out as a unit instead of a bare text node next to
+          a checkbox the app-wide input rule would otherwise stretch across the whole paragraph. */}
       {(oldCount > 0 || dispatchedCount > 0) && (
-        <p className="hint">
+        <p className="hint brief-shelf-reveals">
           {oldCount > 0 && (
-            <label style={{ marginRight: '12px' }}>
-              <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} /> {t('briefShelf.showOld', { count: oldCount })}
+            <label className="check-line">
+              <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} />
+              <span>{t('briefShelf.showOld', { count: oldCount })}</span>
             </label>
           )}
           {dispatchedCount > 0 && (
-            <label>
-              <input type="checkbox" checked={showDispatched} onChange={(e) => setShowDispatched(e.target.checked)} /> {t('briefShelf.showDispatched', { count: dispatchedCount })}
+            <label className="check-line">
+              <input type="checkbox" checked={showDispatched} onChange={(e) => setShowDispatched(e.target.checked)} />
+              <span>{t('briefShelf.showDispatched', { count: dispatchedCount })}</span>
             </label>
           )}
         </p>

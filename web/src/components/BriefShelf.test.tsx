@@ -135,6 +135,37 @@ describe('BriefShelf dismissal bookkeeping (FB2-08)', () => {
   });
 });
 
+// Feedback 11/15: the two 「也显示…」 toggles were a bare text node after a checkbox that the app-wide input
+// rule stretched across the whole paragraph, so each toggle read as a full-width box with its caption on the
+// next line. Pinned here: the checkbox and its own caption are one .check-line label, the caption sits in a
+// span, and both labels live in one wrapping row container.
+describe('BriefShelf reveal toggles layout (FB2-09)', () => {
+  const withToggles = () => render({
+    unpostedBriefs: [brief('RUN-1')],
+    briefDiscovery: discovery({ excludedTotal: 2, byKind: { old: 1, dispatched: 1 } }),
+  });
+
+  it('puts each 「也显示…」 caption in its own span inside a .check-line label next to its checkbox', () => {
+    const html = withToggles();
+    expect(html).toMatch(/<label class="check-line"><input type="checkbox"[^>]*\/><span>也显示超出时间窗口的 1 份<\/span><\/label>/);
+    expect(html).toMatch(/<label class="check-line"><input type="checkbox"[^>]*\/><span>也显示已在别处派遣过的 1 份<\/span><\/label>/);
+    // No bare caption text node after either checkbox, and no leftover inline margin on the first label.
+    expect(html).not.toMatch(/\/>\s*也显示/);
+    expect(html).not.toContain('margin-right');
+  });
+
+  it('keeps both toggles in one wrapping row so they share a line when there is room', () => {
+    const html = withToggles();
+    const rowAt = html.indexOf('<p class="hint brief-shelf-reveals">');
+    const firstAt = html.indexOf('也显示超出时间窗口的 1 份');
+    const secondAt = html.indexOf('也显示已在别处派遣过的 1 份');
+    expect(rowAt).toBeGreaterThan(-1);
+    expect(firstAt).toBeGreaterThan(rowAt);
+    expect(secondAt).toBeGreaterThan(firstAt);
+    expect(html.slice(secondAt)).toContain('</p>');
+  });
+});
+
 describe('BriefShelf language switch (item 38 follow-up)', () => {
   afterEach(() => {
     setLocale(DEFAULT_LOCALE);

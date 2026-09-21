@@ -207,13 +207,16 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
         value={draft}
         onChange={(e) => onDraftChange(e.target.value)}
       />
-      <label className="row" style={{ gap: 6 }}>
+      {/* .check-line (board.css) sizes the box itself: without it the app-wide input rule stretched this
+          checkbox across the whole row (measured 448px wide) and pushed its caption to the far right. The
+          6px gap stays inline because .row's own gap would otherwise win over .check-line's. */}
+      <label className="row check-line" style={{ gap: 6 }}>
         <input
           type="checkbox"
           checked={needsCoordinator}
           onChange={(e) => setNeedsCoordinator(e.target.checked)}
         />
-        {t('reviewSection.needsCoordinator')}
+        <span>{t('reviewSection.needsCoordinator')}</span>
       </label>
       <div className="row end">
         <button className="btn" type="button" disabled={busy} onClick={handToCoordinator}>
