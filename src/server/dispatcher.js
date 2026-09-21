@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { canDispatch, coordinatorFastTrackRefusal, OPEN_STATUSES } from '../core/rules.js';
 import { workerName, planDispatch, executePlan, preflight, recordedNames } from '../core/dispatch.js';
+import { prepareWorktree } from '../core/worktrees.js';
 import { deriveTransitions } from '../core/sync.js';
 import { withFileSets, briefUsable } from '../core/briefs.js';
 import { writeApiDelivery } from '../core/deliveries.js';
@@ -441,7 +442,28 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         preDispatchChanges = null;
       }
     }
-    const attempt = { ...assignedAttempt, roleCard, ...(annotationSnapshot ? { annotationSnapshot } : {}), ...(redoBackups.length ? { redoBackups } : {}), ...(preDispatchChanges ? { preDispatchChanges: store.get(quest.id)?.assignee?.preDispatchChanges || preDispatchChanges } : {}) };
+    // FB2-13 (条目 29): with policy.worktrees on, the attempt edits its own detached copy of the project.
+    // Created after assign minted the attempt id and before any step may spawn; a creation failure settles
+    // the verified never-started attempt exactly like the role-card failure above, and the copy is removed.
+    let worktree = null;
+    if (config.policy.worktrees?.enabled) {
+      try {
+        worktree = prepareWorktree({ config, name, brief: quest.brief });
+        store.recordWorktree(quest.id, assignedAttempt, worktree);
+      } catch (error) {
+        const detail = `worktree 副本没建成（派遣 ${assignedAttempt.attemptId}，worker 没有启动）：${error.message}`;
+        try {
+          store.setStatus(quest.id, 'failed', {
+            detail, by: 'board', source: 'dispatcher',
+            evidence: { kind: 'dispatcher', attempt: attemptEvidence(assignedAttempt) },
+          });
+          return { status: 503, body: { error: 'worktree_failed_after_assign', attemptId: assignedAttempt.attemptId, settled: true, reasons: [{ code: 'worktree', message: error.message }] } };
+        } catch (settleError) {
+          return { status: 503, body: { error: 'worktree_failed_after_assign', attemptId: assignedAttempt.attemptId, settled: false, reasons: [{ code: 'worktree', message: error.message }, { code: 'settlement_failed', message: settleError.message }] } };
+        }
+      }
+    }
+    const attempt = { ...assignedAttempt, roleCard, ...(annotationSnapshot ? { annotationSnapshot } : {}), ...(redoBackups.length ? { redoBackups } : {}), ...(preDispatchChanges ? { preDispatchChanges: store.get(quest.id)?.assignee?.preDispatchChanges || preDispatchChanges } : {}), ...(worktree ? { worktree } : {}) };
     const controlToken = config.lanes[adventurer.lane]?.control?.type === 'generic-wrapper' ? randomUUID() : null;
     if (controlToken) controlHandles.set(attempt.attemptId, { token: controlToken, child: null, lane: attempt.lane, name: attempt.name });
     // Snapshot of exactly what the plan above was built from, immutable for the life of this attempt — every
@@ -480,7 +502,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         ? { ...step, env: { ...step.env, QUESTBOARD_ATTEMPT_ID: attempt.attemptId, QUESTBOARD_CONTROL_TOKEN: controlToken, ...(process.platform === 'win32' ? { QUESTBOARD_JOB_GATE: '1' } : {}) } }
         : step);
     }
-    enqueue(adventurer.lane, () => executePlan(config, plan, { name, runners, recheck, onPhase, onChild }))
+    enqueue(adventurer.lane, () => executePlan(config, plan, { name, runners, recheck, onPhase, onChild, ...(worktree ? { cwd: worktree.path } : {}) }))
       .then((result) => {
         if (result.blocked) {
           if (result.phase !== 'queued') {

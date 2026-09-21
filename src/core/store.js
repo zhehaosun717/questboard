@@ -521,6 +521,23 @@ export class QuestStore extends EventEmitter {
     return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
   }
 
+  // FB2-13 (条目 29): the worktree this attempt edits, recorded once per attempt and mirrored onto the
+  // dispatch history row, so the collector and the patch/integrate steps can find the copy after restart.
+  // Path and base sha only — everything else is derivable and must not be invented.
+  recordWorktree(id, attempt, worktree) {
+    const quest = this.quests.get(id);
+    if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(id + ' 的这次派遣已经不是当前记录了，worktree 没法登记');
+    if (quest.assignee.worktree) throw new Error(id + ' 的这次派遣已经登记过 worktree 了');
+    if (!worktree || typeof worktree.path !== 'string' || !worktree.path || typeof worktree.base !== 'string' || !/^[0-9a-f]{40}$/.test(worktree.base)) {
+      throw new Error(id + ' 的 worktree 记录缺 path 或 base（40 位 sha），不能编造');
+    }
+    const clean = { path: worktree.path, base: worktree.base };
+    const assignee = { ...quest.assignee, worktree: clean };
+    const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt)
+      ? { ...dispatch, worktree: clean } : dispatch);
+    return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
+  }
+
   // FB2-05 items 2/5: one self-check round's outcome on the attempt (assignee + dispatches entry), so the
   // dispatch history carries every round's summary and exitCode. A miss emits check_failed — the event a
   // coordinator tails to see a delivery was held back, not lost.

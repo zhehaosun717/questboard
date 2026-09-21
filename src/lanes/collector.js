@@ -142,7 +142,10 @@ export function createCollector(config, { fetchImpl = fetch, verifyProcessTree =
   }
 
   async function fileWorker(entry, lane, now, registryToken, quest) {
-    const basePath = path.join(config.root, lane.outputDir, entry.name);
+    // FB2-13: with worktrees on, the worker's cwd is its own copy — every artifact it writes lands there,
+    // not in the main tree. The registry row stays main-side (the copied config points it back).
+    const artifactRoot = quest?.assignee?.worktree?.path || config.root;
+    const basePath = path.join(artifactRoot, lane.outputDir, entry.name);
     Object.assign(entry, workerState(basePath, now, {
       editCounter: lane.editCounter,
       stallAfterMinutes: config.policy.stallAfterMinutes,

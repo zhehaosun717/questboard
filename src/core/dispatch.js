@@ -88,7 +88,8 @@ export function preflight(config, plan) {
   }
 }
 
-function runScript(config, step, logFile, onChild = () => {}) {
+// cwd is FB2-13's worktree copy when policy.worktrees is on — the worker only ever edits the copy.
+function runScript(config, step, logFile, onChild = () => {}, cwd) {
   return new Promise((resolve) => {
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     // 'w', never 'a': Node opens 'a' as an append-only Windows handle, Git Bash cannot write to it, the
@@ -107,7 +108,7 @@ function runScript(config, step, logFile, onChild = () => {}) {
       // stdio to a file, not a pipe: scripts background their worker with `( ... ) &`, and a pipe would stay
       // open until the worker ends. 'exit' fires when the script itself returns.
       child = spawn(file, args, {
-        cwd: config.root, env: { ...process.env, ...step.env },
+        cwd: cwd || config.root, env: { ...process.env, ...step.env },
         stdio: ['ignore', fd, fd, step.control?.type === 'generic-wrapper' ? 'ipc' : 'ignore'],
         windowsHide: true, detached: true,
       });
@@ -127,10 +128,10 @@ function runScript(config, step, logFile, onChild = () => {}) {
   });
 }
 
-function runSession(config, step) {
+function runSession(config, step, cwd) {
   return new Promise((resolve) => {
     const { file, args } = resolveCommand(config, step.command);
-    const child = execFile(file, args, { cwd: config.root, env: { ...process.env, ...step.env }, timeout: 30000, windowsHide: true }, (error, stdout, stderr) => {
+    const child = execFile(file, args, { cwd: cwd || config.root, env: { ...process.env, ...step.env }, timeout: 30000, windowsHide: true }, (error, stdout, stderr) => {
       const id = String(stdout || '').trim().split(/\s+/).pop();
       if (error || !id) {
         resolve({ code: 1, error: (stderr || (error && error.message) || `no session id in output: ${stdout}`).slice(0, 500) });
@@ -199,10 +200,14 @@ function tail(file, bytes = 1500) {
 // (the caller could not durably persist the phase — a stale attempt, a disk error), the step it would have
 // gated never runs: the plan stops there, `blocked: true`, at whatever phase was last durably persisted, so
 // the caller never spawns an effect it could not first write down.
-export async function executePlan(config, plan, { name, runners = {}, recheck, onPhase = () => {}, onChild = () => {} } = {}) {
+// cwd (FB2-13): the worktree copy the steps must run in; absent means the project root, exactly as before.
+// Injected runners receive the resolved value as their second argument so tests can assert where a step ran.
+export async function executePlan(config, plan, { name, runners = {}, recheck, onPhase = () => {}, onChild = () => {}, cwd } = {}) {
   const logFile = path.join(config.paths.data, 'dispatch', `${name}.log`);
-  const run = runners.run || ((step) => runScript(config, step, logFile, onChild));
-  const session = runners.session || ((step) => runSession(config, step));
+  const effectiveCwd = cwd || config.root;
+  const context = { cwd: effectiveCwd };
+  const run = runners.run || ((step) => runScript(config, step, logFile, onChild, effectiveCwd));
+  const session = runners.session || ((step) => runSession(config, step, effectiveCwd));
   let phase = 'queued';
   let sessionBinding = null;
   for (const step of plan) {
@@ -237,7 +242,7 @@ export async function executePlan(config, plan, { name, runners = {}, recheck, o
     // straight past the phase/session bookkeeping below.
     let result;
     try {
-      result = step.kind === 'session' ? await session(step) : await run(step);
+      result = step.kind === 'session' ? await session(step, context) : await run(step, context);
     } catch (error) {
       result = { code: 1, error: error.message, thrown: true };
     }

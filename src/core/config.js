@@ -472,6 +472,26 @@ function validatePostDeliveryCheck(value) {
   return { run: [...value.run], timeoutMs: value.timeoutMs, failPattern: value.failPattern, maxRounds };
 }
 
+// FB2-13 (条目 29): the opt-in worktree mode. Off by default; when enabled, each attempt gets its own
+// detached git worktree under <root>/<dir> and delivery becomes a patch diffed against base. dir must stay
+// a plain relative path inside the project — an absolute or escaping path would scatter copies anywhere.
+function validateWorktrees(value) {
+  if (value === undefined) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('policy.worktrees 必须是对象 { enabled, dir?, base? }');
+  for (const key of Object.keys(value)) {
+    if (!['enabled', 'dir', 'base'].includes(key)) fail(`policy.worktrees.${key} 不是认识的字段（只收 enabled/dir/base）`);
+  }
+  if (typeof value.enabled !== 'boolean') fail('policy.worktrees.enabled 必须是 true 或 false');
+  if (value.enabled === false) return null;
+  const dir = value.dir === undefined ? '.qb-worktrees' : value.dir;
+  if (typeof dir !== 'string' || !dir || path.isAbsolute(dir) || dir.split(/[\\\\/]+/).includes('..')) {
+    fail('policy.worktrees.dir 必须是项目内的相对路径（默认 .qb-worktrees）');
+  }
+  const base = value.base === undefined ? 'HEAD' : value.base;
+  if (typeof base !== 'string' || !base.trim()) fail('policy.worktrees.base 必须是非空的 git 引用（默认 HEAD）');
+  return { enabled: true, dir, base: base.trim() };
+}
+
 function validatePolicyConfig(rawPolicy, laneIds) {
   // X18: a present-but-not-an-object policy (null, a string, an array) is refused instead of silently
   // falling back to defaults — the message is Chinese and says both what is wrong and how to get the
@@ -490,6 +510,7 @@ function validatePolicyConfig(rawPolicy, laneIds) {
     reviewRequires: [],
     cardEnvAllow: validateCardEnvAllow(policy.cardEnvAllow),
     postDeliveryCheck: validatePostDeliveryCheck(policy.postDeliveryCheck),
+    worktrees: validateWorktrees(policy.worktrees),
   };
   if (policy.stallAfterMinutes !== undefined) {
     if (!Number.isInteger(policy.stallAfterMinutes) || policy.stallAfterMinutes < 1) fail('policy.stallAfterMinutes must be a positive integer (minutes)');
