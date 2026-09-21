@@ -459,6 +459,29 @@ export class QuestStore extends EventEmitter {
     return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
   }
 
+  // FB2-05 items 2/5: one self-check round's outcome on the attempt (assignee + dispatches entry), so the
+  // dispatch history carries every round's summary and exitCode. A miss emits check_failed — the event a
+  // coordinator tails to see a delivery was held back, not lost.
+  appendCheckResult(id, attempt, result) {
+    const quest = this.quests.get(id);
+    if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(id + ' 的这次派遣已经不是当前记录了，自检结果没法登记');
+    const round = (quest.assignee.checkResults || []).length + 1;
+    const entry = {
+      round,
+      ok: result.ok === true,
+      exitCode: Number.isInteger(result.exitCode) ? result.exitCode : null,
+      summary: String(result.summary || '').slice(0, 800),
+      at: now(),
+    };
+    const checkResults = [...(quest.assignee.checkResults || []), entry];
+    const assignee = { ...quest.assignee, checkResults };
+    const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt)
+      ? { ...dispatch, checkResults } : dispatch);
+    const next = this.save({ ...quest, assignee, dispatches, updatedAt: now() });
+    if (!entry.ok) this.emitEvent(next, 'check_failed', { by: 'board', detail: '第 ' + round + ' 轮自检没过：' + entry.summary });
+    return next;
+  }
+
   recordAnnotationSnapshot(id, attempt, annotationSnapshot) {
     const quest = this.quests.get(id);
     if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(`${id} 的这次派遣已经不是当前记录了，批注快照没法登记`);

@@ -92,6 +92,30 @@ describe('QuestStore', () => {
     assert.equal(events().length, 0, 'nothing is persisted for the refused post');
   });
 
+  it('appendCheckResult records each round on the attempt and emits check_failed on a miss (FB2-05)', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/CR-1-x.md', '# CR-1');
+    const store = new QuestStore(config);
+    store.post({ package: 'CR-1', brief: 'docs/briefs/CR-1-x.md' });
+    const assigned = store.assign('CR-1', { adventurer: card('codex-luna'), name: 'cr1' });
+    const attempt = assigned.assignee;
+    const events = () => readJsonLines(config.paths.events);
+    const first = store.appendCheckResult('CR-1', attempt, { ok: false, exitCode: 1, summary: 'FAIL src/x.test.js' });
+    assert.equal(first.assignee.checkResults.length, 1);
+    assert.equal(first.assignee.checkResults[0].round, 1);
+    assert.equal(first.assignee.checkResults[0].ok, false);
+    assert.equal(first.assignee.checkResults[0].exitCode, 1);
+    assert.equal(first.dispatches.at(-1).checkResults[0].summary, 'FAIL src/x.test.js');
+    const failed = events().filter((e) => e.event === 'check_failed');
+    assert.equal(failed.length, 1);
+    assert.match(failed[0].detail, /FAIL src\/x\.test\.js/);
+    const second = store.appendCheckResult('CR-1', attempt, { ok: true, exitCode: 0, summary: 'clean' });
+    assert.equal(second.assignee.checkResults.length, 2);
+    assert.equal(second.assignee.checkResults[1].round, 2);
+    assert.equal(events().filter((e) => e.event === 'check_failed').length, 1, 'a pass emits nothing');
+    assert.throws(() => store.appendCheckResult('CR-1', { ...attempt, attemptId: 'stale' }, { ok: true, exitCode: 0, summary: 'x' }), /已经不是当前记录/);
+  });
+
   it('statusAt stamps when the status last changed and survives untouched saves (FB2-04)', () => {
     const { config, write } = makeProject();
     write('docs/briefs/ST-1-x.md', '# ST-1');
