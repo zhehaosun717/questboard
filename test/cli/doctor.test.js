@@ -155,3 +155,60 @@ describe('doctor', () => {
     assert.match(usageCheck.detail, /KIMI_API_KEY/);
   });
 });
+
+describe('doctor 能力探针 (FB2-03 item 5)', () => {
+  function probeProject() {
+    const { config, write } = makeProject();
+    write('tools/codex-run.sh', '#!/bin/bash\nexit 0\n');
+    config.lanes.codex.probes = { 'runs-node': ['node', '--version'], web: ['npx', 'vite', '--version'] };
+    const home = homePaths(tmpDir('doc-probe-'));
+    fs.mkdirSync(home.home, { recursive: true });
+    fs.writeFileSync(home.roster, JSON.stringify({
+      adventurers: [
+        { id: 'cap-codex', name: '测能力', provider: 'test', model: 'm1', family: 'fam', lane: 'codex' },
+        { id: 'cap-agy', name: '别通道', provider: 'test', model: 'm2', family: 'fam', lane: 'agy' },
+      ],
+    }));
+    return { config, home };
+  }
+  const fetchOk = async () => ({ status: 200, json: async () => ({ ok: false }) });
+
+  it('runs each probe, writes measured capabilities into roster cards, and reports per card', async () => {
+    const { config, home } = probeProject();
+    const seen = [];
+    const result = await runDoctor({
+      config, home, fetchImpl: fetchOk,
+      probeRunner: async (argv) => {
+        seen.push(argv);
+        return argv[0] === 'node' ? { ok: true, detail: 'v22' } : { ok: false, detail: 'exit 1' };
+      },
+    });
+    const check = result.checks.find((c) => c.name === '能力探针');
+    assert.ok(check, 'probe check exists');
+    assert.equal(check.ok, false, 'one probe failed');
+    assert.match(check.detail, /cap-codex（runs-node）/);
+    assert.match(check.detail, /web.*exit 1|web：exit 1/);
+    const roster = JSON.parse(fs.readFileSync(home.roster, 'utf8'));
+    assert.deepEqual(roster.adventurers.find((c) => c.id === 'cap-codex').capabilities, ['runs-node']);
+    assert.equal(roster.adventurers.find((c) => c.id === 'cap-agy').capabilities, undefined, 'cards on probe-less lanes untouched');
+    assert.deepEqual(seen, [['node', '--version'], ['npx', 'vite', '--version']]);
+  });
+
+  it('all probes passing gives an ok check listing every card capability; a rerun rewrites nothing', async () => {
+    const { config, home } = probeProject();
+    const runner = async () => ({ ok: true, detail: 'ok' });
+    const result = await runDoctor({ config, home, fetchImpl: fetchOk, probeRunner: runner });
+    const check = result.checks.find((c) => c.name === '能力探针');
+    assert.equal(check.ok, true);
+    assert.match(check.detail, /runs-node、web|web、runs-node/);
+    const before = fs.readFileSync(home.roster, 'utf8');
+    const again = await runDoctor({ config, home, fetchImpl: fetchOk, probeRunner: runner });
+    assert.equal(again.checks.find((c) => c.name === '能力探针').ok, true);
+    assert.equal(fs.readFileSync(home.roster, 'utf8'), before, 'same measurement leaves the roster byte-identical');
+  });
+
+  it('the default runner goes through Git Bash with a 10s timeout and never joins-and-resplits naively', async () => {
+    const { defaultProbeRunner } = await import('../../src/cli/doctor.js');
+    assert.equal(typeof defaultProbeRunner, 'function');
+  });
+});

@@ -2,11 +2,12 @@
 // roster, status log, review pages, usage keys, and running board server.
 import nodeFs from 'node:fs';
 import os from 'node:os';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { bashPath } from '../core/dispatch.js';
 import { DEFAULT_PORT } from '../core/config.js';
 import { homePaths, questboardHome } from '../core/home.js';
-import { loadRoster } from '../core/roster.js';
+import { loadRoster, loadRosterOrEmpty, saveRoster } from '../core/roster.js';
 import { createCredentials } from '../usage/credentials.js';
 import { PROVIDERS } from '../usage/providers.js';
 
@@ -28,6 +29,7 @@ export async function runDoctor({
   env = process.env,
   homedir,
   fetchImpl = fetch,
+  probeRunner = defaultProbeRunner,
   fs = nodeFs,
   platform = process.platform,
 }) {
@@ -175,5 +177,72 @@ export async function runDoctor({
     checks.push({ name: '看板服务', ok: true, detail: '没在跑（questboard serve 可以启动）' });
   }
 
+
+  // 10. FB2-03 item 5: lane probes measure what this machine can actually run. The measured set per lane
+  // is written into the machine roster as those cards' capabilities — facts about the machine, no status,
+  // no dates. A lane without probes leaves its cards' capabilities untouched.
+  const probeLanes = laneEntries.filter(([, lane]) => lane.probes && Object.keys(lane.probes).length);
+  if (probeLanes.length) {
+    const measured = {};
+    const failures = [];
+    for (const [id, lane] of probeLanes) {
+      const caps = [];
+      for (const [name, argv] of Object.entries(lane.probes)) {
+        let result;
+        try {
+          result = await probeRunner(argv, { config, env });
+        } catch (err) {
+          result = { ok: false, detail: err.message || 'probe failed' };
+        }
+        if (result.ok) caps.push(name);
+        else failures.push(`${id}.${name}：${result.detail}`);
+      }
+      measured[id] = caps.sort();
+    }
+    try {
+      const roster = loadRosterOrEmpty(homeObj.roster);
+      let touched = 0;
+      const adventurers = (roster.adventurers || []).map((card) => {
+        if (!(card.lane in measured)) return card;
+        const caps = measured[card.lane];
+        if (JSON.stringify(card.capabilities || []) === JSON.stringify(caps)) return card;
+        touched += 1;
+        return { ...card, capabilities: caps };
+      });
+      if (touched) saveRoster(homeObj.roster, { ...roster, adventurers }, { lenientEnv: true });
+      const perCard = adventurers
+        .filter((card) => card.lane in measured)
+        .map((card) => `${card.id}（${(card.capabilities || []).join('、') || '什么都没测出来'}）`);
+      checks.push({
+        name: '能力探针',
+        ok: failures.length === 0,
+        detail: (perCard.join('；') || '没有卡在有探针的通道上') + (failures.length ? `；没测过：${failures.join('、')}` : ''),
+      });
+    } catch (err) {
+      checks.push({ name: '能力探针', ok: false, detail: `名册写不进去：${err.message}` });
+    }
+  }
+
   return { ok: checks.every((c) => c.ok), checks };
+}
+
+
+// FB2-03 item 5: a probe is one argv list run through Git Bash (never joined and re-split naively —
+// each argument is shell-quoted first), 10s budget, exit 0 means the machine really has the capability.
+const PROBE_TIMEOUT_MS = 10000;
+
+function shellQuote(arg) {
+  return "'" + String(arg).replaceAll("'", "'\\''") + "'";
+}
+
+export async function defaultProbeRunner(argv, { config, env = process.env } = {}) {
+  const bash = bashPath(config || {}, env);
+  const command = argv.map(shellQuote).join(' ');
+  return new Promise((resolve) => {
+    execFile(bash, ['-lc', command], { timeout: PROBE_TIMEOUT_MS, windowsHide: true }, (error, stdout) => {
+      if (!error) resolve({ ok: true, detail: String(stdout || '').trim().split('\n')[0].slice(0, 80) || 'exit 0' });
+      else if (error.killed || error.signal === 'SIGTERM') resolve({ ok: false, detail: `超时（${PROBE_TIMEOUT_MS / 1000}s 没跑完）` });
+      else resolve({ ok: false, detail: `exit ${error.code ?? '?'}` });
+    });
+  });
 }
