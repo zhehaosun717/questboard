@@ -4,7 +4,7 @@
 // reusable from store.js without either side owning the other's concerns.
 import { packageIdPattern, briefPathAllowed } from './patterns.js';
 
-export const METADATA_FIELDS = ['title', 'brief', 'parents', 'conflicts', 'allowedLanes', 'needsOwner'];
+export const METADATA_FIELDS = ['title', 'brief', 'parents', 'conflicts', 'allowedLanes', 'needsOwner', 'hold', 'needs', 'files'];
 // The only other keys a metadata-update payload may carry: transport, not a field to correct. Everything
 // else (status, kind, id, assignee, revision, dispatches, ...) is rejected outright — see validateMetadataUpdate.
 const METADATA_TRANSPORT_FIELDS = new Set(['by', 'ifRevision']);
@@ -149,6 +149,25 @@ export function validateMetadataUpdate(config, quest, quests, payload) {
     if (!METADATA_FIELDS.includes(key) && !METADATA_TRANSPORT_FIELDS.has(key)) {
       errors[key] = `unknown field; metadata update only accepts ${METADATA_FIELDS.join(', ')} (plus by, ifRevision)`;
     }
+  }
+
+  // FB2-03: hold parks the quest until cleared with an empty hold; needs and files are the same fields
+  // post() validates (update is where a hold comes off — post never carries an empty hold on purpose).
+  if (input.hold !== undefined) {
+    const hold = String(input.hold || '').trim().slice(0, MAX_TEXT);
+    if (hold !== (quest.hold || '')) { value.hold = hold; changes.hold = { from: quest.hold || '', to: hold }; }
+  }
+
+  if (input.needs !== undefined) {
+    const needs = splitList(input.needs);
+    const badNeed = needs.find((n) => n.length > 64);
+    if (badNeed) errors.needs = 'needs 里有过长的能力名：' + badNeed.slice(0, 80);
+    else if (!sameList(needs, quest.needs || [])) { value.needs = needs; changes.needs = { from: quest.needs || [], to: needs }; }
+  }
+
+  if (input.files !== undefined) {
+    const files = splitList(input.files);
+    if (!sameList(files, quest.filesOverride || [])) { value.filesOverride = files; changes.files = { from: quest.filesOverride || [], to: files }; }
   }
 
   if (input.title !== undefined) {

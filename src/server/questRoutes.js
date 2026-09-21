@@ -137,7 +137,11 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
     const body = await readJsonBody(request, 256 * 1024);
     if (parts[1] === 'quests' && parts.length === 2) {
       const result = store.post(body);
-      if (result.errors) sendJson(response, 400, { error: 'validation failed', fields: result.errors }); else sendJson(response, 201, result);
+      if (result.errors) { sendJson(response, 400, { error: 'validation failed', fields: result.errors }); return; }
+      // FB2-03 item 30: the poster sees the file set they just signed up for — extracted from the
+      // brief's file-list section, or the explicit --files override — right in the post answer.
+      const [enriched] = withFileSets(config, [result.quest]);
+      sendJson(response, 201, { quest: { ...enriched, filesSource: result.quest.filesOverride !== undefined ? 'override' : 'brief' } });
       return;
     }
     if (parts[1] === 'roster' && parts.length === 2) {

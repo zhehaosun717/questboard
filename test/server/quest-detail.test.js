@@ -251,3 +251,67 @@ describe('GET /api/quests/:id — evidence.project-verification (S2)', () => {
     }
   });
 });
+describe('FB2-03 派单前置检查 over HTTP', () => {
+  it('post echoes the file set the poster is signing up for, extracted or overridden', async () => {
+    fx.project.write('docs/briefs/QD-9-echo.md', '# QD-9\n\n## 可改文件\n\n- `src/qd9/a.js`\n');
+    const extracted = await fx.api('/api/quests', 'POST', { package: 'QD-9', brief: 'docs/briefs/QD-9-echo.md' });
+    assert.equal(extracted.status, 201);
+    assert.deepEqual(extracted.body.quest.files, ['src/qd9/a.js']);
+    assert.equal(extracted.body.quest.filesSource, 'brief');
+    fx.project.write('docs/briefs/QD-10-echo.md', '# QD-10');
+    const overridden = await fx.api('/api/quests', 'POST', { package: 'QD-10', brief: 'docs/briefs/QD-10-echo.md', files: 'src/qd10/only.js' });
+    assert.equal(overridden.status, 201);
+    assert.deepEqual(overridden.body.quest.files, ['src/qd10/only.js']);
+    assert.equal(overridden.body.quest.filesSource, 'override');
+  });
+
+  it('post with supersedes flips the old quest and get shows the relation both ways', async () => {
+    fx.project.write('docs/briefs/QD-11-old.md', '# QD-11');
+    fx.project.write('docs/briefs/QD-12-new.md', '# QD-12');
+    await fx.api('/api/quests', 'POST', { package: 'QD-11', brief: 'docs/briefs/QD-11-old.md' });
+    const posted = await fx.api('/api/quests', 'POST', { package: 'QD-12', brief: 'docs/briefs/QD-12-new.md', supersedes: 'QD-11' });
+    assert.equal(posted.status, 201, posted.text);
+    const old = await fx.api('/api/quests/QD-11');
+    assert.equal(old.body.quest.status, 'superseded');
+    assert.equal(old.body.quest.supersededBy, 'QD-12');
+    const neu = await fx.api('/api/quests/QD-12');
+    assert.deepEqual(neu.body.quest.supersedes, ['QD-11']);
+    const ghost = await fx.api('/api/quests', 'POST', { package: 'QD-12', brief: 'docs/briefs/QD-12-new.md', supersedes: 'NOPE-1' });
+    assert.equal(ghost.status, 400);
+    assert.match(ghost.body.fields.supersedes, /不在板上/);
+  });
+
+  it('post and update carry hold, and an empty hold clears it', async () => {
+    fx.project.write('docs/briefs/QD-13-hold.md', '# QD-13');
+    const posted = await fx.api('/api/quests', 'POST', { package: 'QD-13', brief: 'docs/briefs/QD-13-hold.md', hold: '等设计稿' });
+    assert.equal(posted.body.quest.hold, '等设计稿');
+    const cleared = await fx.api('/api/quests/QD-13/metadata', 'POST', { hold: '' });
+    assert.equal(cleared.status, 200, cleared.text);
+    assert.equal(cleared.body.quest.hold, '');
+    const held = await fx.api('/api/quests/QD-13/metadata', 'POST', { hold: '等 owner 拍板' });
+    assert.equal(held.body.quest.hold, '等 owner 拍板');
+  });
+
+  it('a quest with needs greys out a card that never declared the capability, naming the gap', async () => {
+    fx.project.write('docs/briefs/QD-14-needs.md', '# QD-14');
+    await fx.api('/api/quests', 'POST', { package: 'QD-14', brief: 'docs/briefs/QD-14-needs.md', needs: 'runs-node,web' });
+    const detail = await fx.api('/api/quests/QD-14');
+    const refused = detail.body.quest.eligibility.refused;
+    const capMessage = Object.keys(refused).find((m) => /能力不够/.test(m));
+    assert.ok(capMessage, JSON.stringify(refused));
+    assert.match(capMessage, /runs-node/);
+    assert.match(capMessage, /web/);
+    assert.ok(refused[capMessage].includes('codex-luna'));
+    assert.ok(!detail.body.quest.eligibility.canTake.includes('codex-luna'));
+  });
+
+  it('update --files overrides the extracted set, and get shows the override', async () => {
+    fx.project.write('docs/briefs/QD-15-files.md', '# QD-15\n\n## Files you may edit\n\n- `src/qd15/extracted.js`\n');
+    await fx.api('/api/quests', 'POST', { package: 'QD-15', brief: 'docs/briefs/QD-15-files.md' });
+    const updated = await fx.api('/api/quests/QD-15/metadata', 'POST', { files: 'src/qd15/picked.js' });
+    assert.equal(updated.status, 200, updated.text);
+    assert.deepEqual(updated.body.quest.filesOverride, ['src/qd15/picked.js']);
+    const detail = await fx.api('/api/quests/QD-15');
+    assert.deepEqual(detail.body.quest.files, ['src/qd15/picked.js']);
+  });
+});
