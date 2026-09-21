@@ -205,6 +205,12 @@ export function QuestCard({
             {t('questCard.withAnnotations', { count: assignee.annotationSnapshot.count })}
           </div>
         ) : null}
+        {/* FB2-03 item 4: a held quest says why on its face; the drag refusal repeats the same reason. */}
+        {quest.hold ? (
+          <div className={`mt-1.5 border-l-[3px] border-[#9a7ccf] px-2 py-[5px] text-[12px] ${softText}`}>
+            ⏸ 挂起：{quest.hold}
+          </div>
+        ) : null}
         {quest.needsOwner ? (
           <div
             className={`mt-2 border-l-[3px] border-amber-dk px-2 py-[5px] text-[12px] ${

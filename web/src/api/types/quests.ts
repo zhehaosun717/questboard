@@ -98,6 +98,14 @@ export interface Quest {
   allowedLanes: string[];
   needsOwner: string;
   reviewPage: string;
+  // FB2-03 pre-dispatch gates: a hold with its reason parks the quest, needs lists the capabilities a
+  // card+lane must declare, supersedes/supersededBy record the replacement relation, filesOverride is an
+  // explicit file set that wins over brief extraction. All absent (or empty) on quests that never set them.
+  hold?: string;
+  needs?: string[];
+  supersedes?: string[];
+  supersededBy?: string;
+  filesOverride?: string[];
   // Detail-route only (FB2-02 item 6): the review-page annotation summary; null/absent elsewhere.
   annotationSummary?: { page: string; total?: number; pass?: number; fail?: number; fix?: number; other?: number; first?: { verdict: string; note: string }[]; error?: string } | null;
   assignee: Assignee | null;

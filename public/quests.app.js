@@ -83,7 +83,10 @@
         <h3>${esc(q.title)}</h3>
         <span class="stamp${previous && previous !== q.status ? ' thunk' : ''}">${esc(STATUS[q.status] || q.status)}</span>
         ${detail}
+        ${q.hold ? `<div class="q-ask">⏸ 挂起：${esc(q.hold)}</div>` : ''}
         ${q.needsOwner ? `<div class="q-ask">❓ ${esc(q.needsOwner)}</div>` : ''}
+        ${q.supersededBy ? `<div class="q-ask">已被 ${esc(q.supersededBy)} 取代</div>` : ''}
+        ${(q.supersedes || []).length ? `<div class="q-ask">取代了 ${esc(q.supersedes.join('、'))}</div>` : ''}
         ${q.assignee ? `<div class="q-who"><i class="led ok${q.status === 'dispatched' ? ' run' : ''}"></i><span>${esc(adv ? adv.name : q.assignee.model)}</span>${live ? `<span class="mono">${ago(live.elapsed)} · ${live.edits || 0} 改动</span>` : ''}</div>` : ''}
         ${meta.length ? `<div class="q-meta">${meta.map((m) => `<span>${m}</span>`).join('')}</div>` : ''}
         <div class="q-refuse"></div>
