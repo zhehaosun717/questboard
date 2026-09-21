@@ -7,6 +7,7 @@
 //   questboard port <n> [--project <dir>]                           (改项目配置里的端口；旧配置留一份带时间的备份，重启后生效)
 //   questboard post --package RUN-4 --brief docs/briefs/RUN-4-x.md [--kind code|review|art|tool|owner]
 //        [--parents A-1,B-2] [--conflicts C-3] [--lanes codex,agy] [--priority 1|2|3] [--needs-owner "question"] [--title "..."]
+//        [--review none|mechanical|model] [--mechanical-check "cmd"]   (交付后复核方式：默认 model 进待安排复核)
 //   questboard list [--status posted]
 //   questboard get <id> | show <id> [--json]                        (one quest: revision, worker, dispatch history, detail, files; --json for agents)
 //   questboard release <id> --detail "how you confirmed the worker stopped"   (frees a stalled quest only; never kills or forces anything)

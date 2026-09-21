@@ -80,3 +80,40 @@ describe('questboard status done — acceptance (feedback 15)', () => {
     assert.equal('acceptance' in quest, false);
   });
 });
+
+describe('questboard post --review (FB2-05)', () => {
+  it('posts review=mechanical with its check command and shows the review mode', async () => {
+    const posted = await atBoard(['post', '--package', 'CA-9', '--brief', 'docs/briefs/CA-1-x.md', '--review', 'mechanical', '--mechanical-check', 'npm test']);
+    assert.equal(posted.status, 0, posted.stderr);
+    assert.match(posted.stdout, /CA-9\s+posted/);
+    assert.match(posted.stdout, /复核方式：交付后自动跑机械自检并记录结论/);
+    const quest = (await fx.api('/api/quests/CA-9')).body.quest;
+    assert.equal(quest.review, 'mechanical');
+    assert.equal(quest.mechanicalCheck, 'npm test');
+  });
+
+  it('posts review=none and shows the coordinator handoff', async () => {
+    const posted = await atBoard(['post', '--package', 'CA-10', '--brief', 'docs/briefs/CA-1-x.md', '--review', 'none']);
+    assert.equal(posted.status, 0, posted.stderr);
+    assert.match(posted.stdout, /复核方式：交付后等 coordinator 验证/);
+    const quest = (await fx.api('/api/quests/CA-10')).body.quest;
+    assert.equal(quest.review, 'none');
+  });
+
+  it('refuses --review mechanical without --mechanical-check, before any request', async () => {
+    const before = fx.events().length;
+    const posted = await atBoard(['post', '--package', 'CA-11', '--brief', 'docs/briefs/CA-1-x.md', '--review', 'mechanical']);
+    assert.equal(posted.status, 1);
+    assert.match(posted.stderr, /--review mechanical 需要 --mechanical-check/);
+    assert.equal(fx.events().length, before, 'refused locally, nothing was sent');
+  });
+
+  it('refuses a bogus --review value and a stray --mechanical-check', async () => {
+    const bogus = await atBoard(['post', '--package', 'CA-12', '--brief', 'docs/briefs/CA-1-x.md', '--review', 'sometimes']);
+    assert.equal(bogus.status, 1);
+    assert.match(bogus.stderr, /--review 只能是 none、mechanical 或 model/);
+    const stray = await atBoard(['post', '--package', 'CA-13', '--brief', 'docs/briefs/CA-1-x.md', '--mechanical-check', 'npm test']);
+    assert.equal(stray.status, 1);
+    assert.match(stray.stderr, /--mechanical-check 只在 --review mechanical 时有效/);
+  });
+});

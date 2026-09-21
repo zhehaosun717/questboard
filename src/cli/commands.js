@@ -227,14 +227,26 @@ export const commands = {
 
   async post(args) {
     const { base } = context(args);
+    // FB2-05 item 3: how the delivery gets reviewed. Validated locally first so a wrong flag is refused
+    // with the exact rule before the round trip; the server validates the same fields again.
+    const review = option(args, '--review');
+    if (review !== undefined && !['none', 'mechanical', 'model'].includes(review)) {
+      throw new Error('--review 只能是 none、mechanical 或 model（默认 model）');
+    }
+    const mechanicalCheck = option(args, '--mechanical-check');
+    if (review === 'mechanical' && !mechanicalCheck) throw new Error('--review mechanical 需要 --mechanical-check "命令"（交付后自动跑一次的命令）');
+    if (review !== 'mechanical' && mechanicalCheck) throw new Error('--mechanical-check 只在 --review mechanical 时有效');
     const { quest } = await request(base, '/api/quests', 'POST', {
       package: option(args, '--package'), brief: option(args, '--brief'), kind: option(args, '--kind'),
       parents: option(args, '--parents'), conflicts: option(args, '--conflicts'), allowedLanes: option(args, '--lanes'),
       priority: option(args, '--priority'), needsOwner: option(args, '--needs-owner'), reviewPage: option(args, '--review-page'),
       title: option(args, '--title'), supersedes: option(args, '--supersedes'), hold: option(args, '--hold'),
       needs: option(args, '--needs'), files: option(args, '--files'), by: option(args, '--by') || 'coordinator',
+      review, mechanicalCheck,
     });
     out(questLine(quest));
+    if (quest.review === 'mechanical') out('  复核方式：交付后自动跑机械自检并记录结论');
+    if (quest.review === 'none') out('  复核方式：交付后等 coordinator 验证');
     // FB2-03 item 30: the poster sees the file set they signed up for, right here.
     if (quest.files !== undefined) out('  可改文件（' + (quest.filesSource === 'override' ? '显式指定' : 'brief 抽取') + '）: ' + (quest.files.join(', ') || '无'));
   },
