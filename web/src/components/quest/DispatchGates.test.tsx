@@ -34,3 +34,41 @@ describe('FB2-03 dispatch gates on the board', () => {
     expect(html).not.toContain('⏸');
   });
 });
+
+describe('check column red line (FB2-04 item 4)', () => {
+  const HOUR = 3600 * 1000;
+  it('paints a quest red once it waited past the threshold, and names the wait', () => {
+    const quest = makeQuest({ id: 'CK-9', status: 'delivered', statusAt: new Date(Date.now() - 30 * HOUR).toISOString() });
+    const html = renderToStaticMarkup(
+      <QuestCard
+        quest={quest}
+        index={0}
+        snap={makeSnapshot({ quests: [quest], reviewBacklogRedAfterHours: 12 })}
+        pickingCardId={null}
+        isNew={false}
+        statusChanged={false}
+        onSelect={noop}
+        onDropCard={noop}
+      />,
+    );
+    expect(html).toContain('qb-overdue');
+    expect(html).toContain('已等');
+  });
+
+  it('a fresh delivery is not red', () => {
+    const quest = makeQuest({ id: 'CK-10', status: 'delivered', statusAt: new Date(Date.now() - HOUR).toISOString() });
+    const html = renderToStaticMarkup(
+      <QuestCard
+        quest={quest}
+        index={0}
+        snap={makeSnapshot({ quests: [quest], reviewBacklogRedAfterHours: 12 })}
+        pickingCardId={null}
+        isNew={false}
+        statusChanged={false}
+        onSelect={noop}
+        onDropCard={noop}
+      />,
+    );
+    expect(html).not.toContain('qb-overdue');
+  });
+});

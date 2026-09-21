@@ -186,6 +186,8 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
       defaultCard: config.policy.defaultCard || null,
       defaultCardMissing: Boolean(config.policy.defaultCard) && !roster.some((card) => card.id === config.policy.defaultCard),
     },
+    // FB2-04 item 4: the check column's red-line wait threshold, hours since statusAt.
+    reviewBacklogRedAfterHours: config.policy.reviewBacklogRedAfterHours,
     eligibility: byQuest,
     reviewEligibility: forReview,
     env: { treeLocked: env.treeLocked },

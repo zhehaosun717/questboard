@@ -42,9 +42,13 @@ function standsIn(snap: Snapshot, quest: Quest, column: Column): boolean {
 // length. `column.limit` is a page-size hint for a folding column (see paginate below), never a ceiling
 // on how many quests exist — capping here would make "已完成" or "等会长" undercount their own work.
 export function questsInColumn(snap: Snapshot, column: Column): Quest[] {
-  return snap.quests
-    .filter((q) => standsIn(snap, q, column))
-    .sort((a, b) => (column.limit ? 0 : (a.priority || 2) - (b.priority || 2)) || b.updatedAt.localeCompare(a.updatedAt));
+  const items = snap.quests.filter((q) => standsIn(snap, q, column));
+  // FB2-04 item 4: the check column is a backlog — whoever waited longest (since statusAt) sits on top,
+  // not whoever posted with the highest priority.
+  if (column.key === 'check') {
+    return items.sort((a, b) => (a.statusAt || a.updatedAt).localeCompare(b.statusAt || b.updatedAt));
+  }
+  return items.sort((a, b) => (column.limit ? 0 : (a.priority || 2) - (b.priority || 2)) || b.updatedAt.localeCompare(a.updatedAt));
 }
 
 // A browser-storage key namespaced to the current project, so two projects sharing a browser (same-name

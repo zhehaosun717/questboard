@@ -113,6 +113,9 @@ export interface Quest {
   rulings: Ruling[];
   files: string[];
   lastDetail?: string;
+  // FB2-04 item 4: when the quest entered its current status (store.js statusAt); the check column's
+  // wait time is counted from it. Absent on quests written before this field existed.
+  statusAt?: string;
   // Pruned reference/verdict for the quest's CURRENT dispatch attempt (src/core/reportEvidence.js
   // reportSnapshot, feedback 7/12/34). Present only once an actual report file was found — a quest with no
   // attempt, a stale attempt, or an attempt that left nothing readable simply has no `report` field, and an

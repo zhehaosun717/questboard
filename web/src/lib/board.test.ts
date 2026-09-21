@@ -465,3 +465,15 @@ describe('board pure helpers', () => {
   });
 });
 
+
+  describe('check column backlog order (FB2-04 item 4)', () => {
+    it('sorts the check column by wait time, longest-waiting first, ignoring priority', () => {
+      const snap = makeSnapshot([
+        makeQuest({ id: 'CK-1', status: 'delivered', statusAt: '2026-09-20T10:00:00.000Z', priority: 1 }),
+        makeQuest({ id: 'CK-2', status: 'delivered', statusAt: '2026-09-19T08:00:00.000Z', priority: 3 }),
+        makeQuest({ id: 'CK-3', status: 'reviewing', statusAt: '2026-09-20T01:00:00.000Z', priority: 2 }),
+      ]);
+      const check = COLUMNS.find((col) => col.key === 'check')!;
+      expect(questsInColumn(snap, check).map((q) => q.id)).toEqual(['CK-2', 'CK-3', 'CK-1']);
+    });
+  });

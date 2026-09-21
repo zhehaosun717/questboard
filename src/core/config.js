@@ -474,6 +474,12 @@ function validatePolicyConfig(rawPolicy, laneIds) {
     if (!Number.isInteger(policy.stallAfterMinutes) || policy.stallAfterMinutes < 1) fail('policy.stallAfterMinutes must be a positive integer (minutes)');
     result.stallAfterMinutes = policy.stallAfterMinutes;
   }
+  // FB2-04 item 4: how long a delivered quest may wait in the check column before the board paints it red.
+  result.reviewBacklogRedAfterHours = 12;
+  if (policy.reviewBacklogRedAfterHours !== undefined) {
+    if (!Number.isInteger(policy.reviewBacklogRedAfterHours) || policy.reviewBacklogRedAfterHours < 1) fail('policy.reviewBacklogRedAfterHours must be a positive integer (hours)');
+    result.reviewBacklogRedAfterHours = policy.reviewBacklogRedAfterHours;
+  }
   if (policy.laneConcurrency !== undefined) {
     if (!policy.laneConcurrency || typeof policy.laneConcurrency !== 'object' || Array.isArray(policy.laneConcurrency)) fail('policy.laneConcurrency must be an object of lane limits');
     for (const [lane, limit] of Object.entries(policy.laneConcurrency)) {

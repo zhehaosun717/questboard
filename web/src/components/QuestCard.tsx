@@ -135,6 +135,12 @@ export function QuestCard({
   const inkText = isCounter ? 'text-cream' : 'text-ink';
   const softText = isCounter ? 'text-dim' : 'text-ink-soft';
 
+  // FB2-04 item 4: a quest waiting for verification paints red once it passed the backlog threshold.
+  const overdueHours = snap.reviewBacklogRedAfterHours ?? 12;
+  const waitMs = quest.statusAt ? Date.now() - Date.parse(quest.statusAt) : 0;
+  const overdue = (quest.status === 'delivered' || quest.status === 'reviewing') && waitMs > overdueHours * 3600 * 1000;
+  const waitHours = Math.floor(waitMs / (3600 * 1000));
+
   const classNames = [
     'quest',
     isCounter ? 'counter' : 'notice',
@@ -144,6 +150,7 @@ export function QuestCard({
     isNew ? 'enter' : '',
     dropClass,
     isOver ? 'over' : '',
+    overdue ? 'qb-overdue' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -209,6 +216,11 @@ export function QuestCard({
         {quest.hold ? (
           <div className={`mt-1.5 border-l-[3px] border-[#9a7ccf] px-2 py-[5px] text-[12px] ${softText}`}>
             ⏸ 挂起：{quest.hold}
+          </div>
+        ) : null}
+        {overdue ? (
+          <div className="mt-1 text-[11px] font-bold text-rust">
+            已等 {waitHours >= 24 ? `${Math.floor(waitHours / 24)} 天` : `${waitHours} 小时`}，还没验收
           </div>
         ) : null}
         {quest.needsOwner ? (

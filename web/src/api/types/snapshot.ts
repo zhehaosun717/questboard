@@ -17,6 +17,9 @@ export interface Snapshot {
   roster: Card[];
   // Owner preferences from policy.defaultLane/defaultCard (feedback 38); optional — an older server sends none.
   preferences?: { defaultLane: string | null; defaultCard: string | null; defaultCardMissing: boolean };
+  // FB2-04 item 4: hours a check-column quest may wait before the card paints red. Optional — an older
+  // server sends none, readers fall back to 12.
+  reviewBacklogRedAfterHours?: number;
   eligibility: Record<string, Record<string, Verdict>>;
   // For delivered and reviewing quests: may this card review the work? A drop on returned work sends a review.
   // Optional: the web build is served from disk and can be newer than the running server, which then sends
