@@ -45,7 +45,7 @@ function laneUsesRole(lane) {
   ].some((value) => typeof value === 'string' && value.includes('{role}'))));
 }
 
-export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer, fetchImpl = fetch, genericWrapperAdapter = null, gitStatusSync = null, runCheck = null, runMechanical = null }) {
+export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer, fetchImpl = fetch, genericWrapperAdapter = null, gitStatusSync = null, runCheck = null, runMechanical = null, verifyTree = null }) {
   // FB2-04 item 1: code dispatches snapshot the worktree before the worker starts (git status
   // --porcelain) so the reviewer can tell pre-existing edits from the worker's own. Sync on purpose:
   // assign() is sync all the way down, and this runs once per dispatch, never in a poll loop.
@@ -744,9 +744,28 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     }
   }
 
-  // Frees a stalled quest after someone confirmed its worker is gone; refuses everything else.
-  function release(questId, by, detail, { source = by, ack = false } = {}) {
-    if (!store.get(questId)) return { status: 404, body: { error: 'quest not found' } };
+  // Frees a stalled quest after someone confirmed its worker is gone. A still-dispatched quest is refused
+  // with the cancel-first explanation — except when this board's own process-tree verification says the
+  // worker's tree is empty (FB2-06 item 4): then the verified death stands in for the cancel step and the
+  // release proceeds with the same acknowledgement/detail as any release. A tree that is alive or cannot
+  // be verified still refuses, naming which case it was; the store is never told a tree is empty it did not ask.
+  async function release(questId, by, detail, { source = by, ack = false } = {}) {
+    const quest = store.get(questId);
+    if (!quest) return { status: 404, body: { error: 'quest not found' } };
+    if (quest.status === 'dispatched' && quest.assignee) {
+      const verdict = await (verifyTree || verifyProcessTree)({ attemptId: quest.assignee.attemptId });
+      if (verdict === 'alive') {
+        return { status: 409, body: { error: 'refused', reasons: [{ code: 'tree_alive', message: '进程树里还有活着的进程，先 cancel 再 release' }] } };
+      }
+      if (verdict !== 'empty') {
+        return { status: 409, body: { error: 'refused', reasons: [{ code: 'tree_unknown', message: '无法确认进程树是否为空（看板没有这次派遣的作业对象，或数进程失败），先 cancel 再 release' }] } };
+      }
+      try {
+        return { status: 200, body: { quest: store.release(questId, { by: source, detail, source, ack, verifiedEmpty: true }) } };
+      } catch (error) {
+        return { status: 409, body: { error: error.message } };
+      }
+    }
     try {
       return { status: 200, body: { quest: store.release(questId, { by: source, detail, source, ack }) } };
     } catch (error) {

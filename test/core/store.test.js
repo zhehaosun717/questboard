@@ -273,6 +273,18 @@ describe('QuestStore', () => {
     assert.equal(store.setStatus('RUN-4', 'failed', { detail: 'exit 3' }).assignee, null, 'an exit still clears the worker');
   });
 
+  it('releases a still-dispatched quest when the caller verified the process tree empty (FB2-06)', () => {
+    store.post({ package: 'REL-V-1', brief: 'docs/briefs/RUN-4-x.md' });
+    store.assign('REL-V-1', { adventurer: card('codex-luna'), name: 'relv1' });
+    assert.throws(() => store.release('REL-V-1', { by: 'owner', detail: 'x', verifiedEmpty: true, source: 'dispatcher' }), /确认|ack/, 'the acknowledgement is still required');
+    const freed = store.release('REL-V-1', { by: 'owner', detail: 'tree empty', source: 'ui', ack: true, verifiedEmpty: true });
+    assert.deepEqual([freed.assignee, freed.status], [null, 'dispatched']);
+    assert.equal(freed.dispatches.length, 1, 'the dispatch history stays');
+    assert.deepEqual([events().at(-1).event, events().at(-1).detail], ['released', 'tree empty']);
+    store.post({ package: 'REL-V-2', brief: 'docs/briefs/RUN-4-x.md' });
+    assert.throws(() => store.release('REL-V-2', { by: 'owner', detail: 'x', ack: true, verifiedEmpty: true }), /no worker/);
+  });
+
   it('names the internal limit cancellation source in invalid-source failures', () => {
     store.post({ package: 'RUN-4', brief: 'docs/briefs/RUN-4-x.md' });
     store.assign('RUN-4', { adventurer: card('codex-luna'), name: 'run4' });

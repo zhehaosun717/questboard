@@ -231,7 +231,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       return;
     }
     if (parts[3] === 'release') {
-      const result = dispatcher.release(questId, actorSource, String(body.detail || '').slice(0, 2000), { source, ack: body.ack === true });
+      const result = await dispatcher.release(questId, actorSource, String(body.detail || '').slice(0, 2000), { source, ack: body.ack === true });
       sendJson(response, result.status, result.body);
       return;
     }

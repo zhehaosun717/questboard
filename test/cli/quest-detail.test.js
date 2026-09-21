@@ -139,10 +139,10 @@ describe('questboard release', () => {
     assert.equal(fx.events().length, before, 'a rejected release emits no event');
   });
 
-  it('refuses a running quest with the servers own words and frees it only after a confirmed stall', async () => {
+  it('refuses a running quest whose process tree is not verified empty, and frees it only after a confirmed stall', async () => {
     const tooEarly = await atBoard(['release', 'REL-1', '--detail', 'ps shows nothing']);
     assert.equal(tooEarly.status, 1);
-    assert.match(tooEarly.stderr, /running; cancel it instead of releasing/);
+    assert.match(tooEarly.stderr, /先 cancel 再 release/, 'FB2-06: an unverified tree still refuses, naming the cancel-first path');
     await fx.api('/api/quests/REL-1/status', 'POST', { status: 'stalled', detail: 'no output' });
     const done = await cli(['release', '--project', fx.project.root, '--url', fx.base, '--detail', '进程已确认退出', 'REL-1']);
     assert.equal(done.status, 0, done.stderr);
@@ -342,3 +342,4 @@ describe('FB2-03 post/update flags and get output', () => {
     assert.match(got.stdout, /能力不够/);
   });
 });
+

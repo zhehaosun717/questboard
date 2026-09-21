@@ -879,12 +879,17 @@ export class QuestStore extends EventEmitter {
     });
   }
 
-  // Frees a stalled quest once someone has confirmed its worker is gone. A running quest is cancelled, not released.
-  release(id, { by = 'owner', detail = '', source, ack = false } = {}) {
+  // Frees a stalled quest once someone has confirmed its worker is gone. A running quest is cancelled, not
+  // released — except when the caller verified the process tree is empty (FB2-06 item 4, dispatcher.release):
+  // then the board's own verification stands in for the cancel step, and the same acknowledgement/detail
+  // still applies. The store never decides whether the tree is empty; it only records that the caller said so.
+  release(id, { by = 'owner', detail = '', source, ack = false, verifiedEmpty = false } = {}) {
     const quest = this.quests.get(id);
     if (!quest) return null;
     if (!quest.assignee) throw new Error(`${id} has no worker to release`);
-    if (quest.status !== 'stalled') throw new Error(`${id} is ${quest.status === 'dispatched' ? 'running; cancel it instead of releasing it' : `${quest.status}; only a stalled quest is released`}`);
+    if (quest.status !== 'stalled' && !(verifiedEmpty && quest.status === 'dispatched')) {
+      throw new Error(`${id} is ${quest.status === 'dispatched' ? 'running; cancel it instead of releasing it' : `${quest.status}; only a stalled quest is released`}`);
+    }
     const audited = this.authorizeFreeTransition(quest, 'stalled', { detail, by, source, ack });
     const next = this.save({ ...audited, assignee: null, lastDetail: String(detail).slice(0, 2000), updatedAt: now() });
     this.emitEvent(next, 'released', { by, detail: detail || `worker ${quest.assignee.name} 已确认停止，释放`, assignee: quest.assignee });
