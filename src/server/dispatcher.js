@@ -4,11 +4,11 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { canDispatch, OPEN_STATUSES } from '../core/rules.js';
-import { workerName, planDispatch, executePlan, preflight, workerEvidence, recordedNames } from '../core/dispatch.js';
+import { workerName, planDispatch, executePlan, preflight, recordedNames } from '../core/dispatch.js';
 import { deriveTransitions } from '../core/sync.js';
 import { withFileSets, briefUsable } from '../core/briefs.js';
+import { writeApiDelivery } from '../core/deliveries.js';
 import { lockPresent, briefExists, briefUnusable } from '../core/snapshot.js';
-import { writeApiDelivery, TRANSIENT_DELIVERY_CODES } from '../core/deliveries.js';
 import { sameAttempt } from '../core/store.js';
 import { attemptEvidence } from '../core/cancellation.js';
 import { captureAttemptReport } from '../core/reportEvidence.js';
@@ -21,22 +21,14 @@ import { createVerificationHookRunner } from '../core/verificationHooks.js';
 import { assignJobObject, closeJobObject, countJobObject, createJobObject, terminateJobObject } from '../core/jobObject.js';
 import { laneCapabilities } from '../core/config.js';
 import { createDeliveryGate } from './deliveryGate.js';
+import { createDispatchSettlement } from './dispatchSettlement.js';
+import { createDeliveryWriter, attemptKey } from './deliveryWriter.js';
 
 const EVIDENCE_WAIT_MS = 10000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Terminal transitions are the only ones that may bind a report reference: stalled/dispatched are silence
 // or a retry, not an ending, and a report captured for them would be partial evidence presented as final.
 const TERMINAL_STATUSES = new Set(['delivered', 'failed', 'bounced']);
-
-// A pending delivery write is tracked by the attempt it belongs to, not by quest id: two different attempts
-// of the same quest (an old one whose write is still hung, a new one after a reassignment) must never share
-// one slot. Keying by quest id alone let a hung old write block every later attempt's delivery indefinitely
-// (applyLanes would skip the quest entirely while the entry existed), and let that old write's own .finally
-// clear an entry that, by the time it settled, actually belonged to a newer attempt. attemptId is always
-// minted by store.assign()/adopt(); the name+lane+at fallback only serves a legacy row that predates it.
-function attemptKey({ attemptId, name, lane, at }) {
-  return attemptId || `${name}:${lane || ''}:${at}`;
-}
 
 function laneUsesRole(lane) {
   return Boolean(lane && (lane.roleInPrompt === true || [
@@ -60,7 +52,6 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     return { available: true, files };
   });
   const queues = new Map();
-  const pendingDeliveries = new Set();
   // FB2-05: one delivery check/settle at a time per attempt (the poll tick can replay the same delivered
   // transition while the check is still running), and the per-attempt fix plan — the exact run step this
   // attempt was dispatched with, kept in memory so a failed self-check can re-run the same wrapper command
@@ -79,22 +70,6 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // dispatchers sharing a process (the desktop app, a shared MCP server) must never see or clear each
   // other's noted sessions just because both happen to run here.
   const nonDurable = createNonDurableBindings();
-  // The last transient delivery-write notice per quest id, so a fast poll loop reports "still running"
-  // once per attempt instead of every tick. Bounded: an entry exists only while that quest is stuck in a
-  // transient retry, and is dropped the moment the attempt resolves (delivered, terminally failed, or the
-  // quest moves on to a new assignment) — never accumulates across quests or attempts.
-  const transientNotices = new Map();
-
-  // Clears this attempt's own transient-notice entry only when it is still the one actually recorded there —
-  // a stale attempt's late-settling write (a slow success or failure that finally resolves after the quest
-  // moved on to a newer attempt) must never wipe out a newer attempt's own de-dup entry just because both
-  // happen to share the same quest id; that would only cause the newer attempt's next identical failure to
-  // be reported again instead of folded.
-  function clearOwnNotice(questId, ownKey) {
-    const last = transientNotices.get(questId);
-    if (last && last.key === ownKey) transientNotices.delete(questId);
-  }
-
   // A stalled quest still belongs to its worker, so a late callback from it counts. `attempt` is the
   // specific assignment's own identity (store.assign mints a fresh attemptId every time, even a same-named
   // re-adopt or a re-assignment landing in the same millisecond), so a stale async completion from an old
@@ -151,33 +126,6 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     return run;
   }
 
-  // A real start already happened (or, for a stalled quest, is presumed to still be running) — this is only
-  // ever a supplementary "dispatched" event confirming it; the status itself is already 'dispatched' from
-  // store.assign() before this attempt was even enqueued. An event-append failure here (F2: quests.jsonl or
-  // events unwritable right after a real start) must never reach failIfStillOurs — nothing upstream of this
-  // call turns a thrown error into a normal result the way executePlan's own onPhase awaits do, so an
-  // unguarded throw would either become an unhandled rejection or bubble to the enqueue chain's top-level
-  // `.catch`, which would then wrongly decide the attempt failed just because a *report* of the start could
-  // not be written. Guarding it leaves the quest exactly as assign() already left it: 'dispatched', slot held.
-  function announceStarted(questId, attempt, detail = `脚本已启动，worker ${attempt.name}`) {
-    const current = stillOurs(questId, attempt);
-    if (!current) return;
-    const annotation = attempt.annotationSnapshot;
-    safeguard('announceStarted', detail, () => store.emitEvent(current, 'dispatched', {
-      by: 'board', detail,
-      ...(annotation ? { annotationCount: annotation.count, annotationPage: annotation.page } : {}),
-      ...(attempt.redoBackups?.length ? { backupCount: attempt.redoBackups.length, backupDirs: attempt.redoBackups.map((b) => b.backup) } : {}),
-    }));
-  }
-
-  // One shared rendering for the warnings canDispatch returned for this attempt, so every path that
-  // announces a start carries the variant warnings identically — the normal start and the "wrapper
-  // reported an error but the worker started" fallback alike. With no warnings the join leaves the single
-  // headline string, byte-identical to the announcements before this helper existed.
-  function withWarnings(detail, warnings) {
-    return [detail, ...(warnings || []).map(({ code, message }) => `警告 ${code}：${message}`)].join('\n');
-  }
-
   // A bounded, guarded diagnostic sink for a persistence op that failed inside one of the settle/preserve
   // paths below — never raw secrets (env values, tokens), just the human-facing detail already produced for
   // the quest itself. `failure` says what actually failed: a write that did not land (没写成) or a read that
@@ -215,162 +163,8 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     try { verificationHooks.onDelivered(quest); } catch (error) { reportPersistenceFailure('verification hook trigger', quest.id, error, '触发失败'); }
   }
 
-  function failIfStillOurs(questId, attempt, detail, evidence = { kind: 'never_started', attempt: attemptEvidence(attempt) }) {
-    if (!stillOurs(questId, attempt)) return;
-    safeguard('failIfStillOurs', detail, () => store.setStatus(questId, 'failed', { detail, by: 'board', source: 'dispatcher', evidence }));
-  }
-
-  // The enqueue chain's own generic top-level `.catch` (below, in assign()) is the last boundary before an
-  // otherwise-unhandled rejection: every native callback and recheck path is already guarded and returns a
-  // normal blocked/failed result executePlan or the .then above can judge by phase (R2's own inventory found
-  // no realistic native path reaching here after an effect) — but an inventory of "nothing does this today"
-  // is not a structural guarantee, and a runner override, a test double, or a future change could still throw
-  // something unexpected after a step already ran. This boundary must not decide by enumeration; it decides
-  // by the durable phase actually on record. Only a still-'queued' phase with no known session is verified
-  // proof this attempt's plan never reached a single effect (executePlan's own onPhase write-ahead only ever
-  // advances phase to 'session_creating'/'launching' strictly before the effect it announces runs) — anything
-  // else (an unknown/'session_creating'/'launching' phase, or a known session regardless of phase) means an
-  // effect may already have happened upstream, so the reservation is preserved and marked unresolved instead
-  // of freed, exactly like every other ambiguous outcome in this file.
-  function settleUnexpectedFailure(questId, attempt, detail) {
-    const current = stillOurs(questId, attempt);
-    if (!current) return;
-    const assignee = current.assignee || {};
-    const provenNeverStarted = assignee.phase === 'queued' && !(assignee.session && assignee.session.id);
-    if (provenNeverStarted) { failIfStillOurs(questId, attempt, detail); return; }
-    safeguard('settleUnexpectedFailure recordPhase', detail, () => store.recordPhase(questId, attempt, { unresolved: true }));
-    safeguard('settleUnexpectedFailure status_note', detail, () => store.emitEvent(current, 'status_note', { by: 'board', detail }));
-  }
-
-  // A queued recheck (or a phase-persistence failure) that stopped the plan *after* a step already ran
-  // (executePlan's phase is 'session_creating' or 'launching', not 'queued') is not proof this attempt never
-  // started anything — a session step can create a real resource upstream even though the run step that
-  // would have used it never fired. Calling failIfStillOurs here would clear the assignee and free the slot
-  // as if nothing happened; instead this leaves status/assignee untouched (still 'dispatched', still holding
-  // its slot) and records what's known as a note, so the ambiguity is visible rather than silently resolved
-  // either way. A pure queue-not-started block (phase 'queued') has no such side effect to preserve and
-  // keeps using failIfStillOurs, unchanged.
-  function preserveAmbiguous(questId, attempt, result) {
-    const current = stillOurs(questId, attempt);
-    if (!current) return;
-    const knownSessionId = result.session && !result.session.unknown && result.session.id ? result.session.id : null;
-    const binding = !result.session ? '' : result.session.unknown ? '（session 是否建立不确定）' : `（已建 session ${result.session.id}）`;
-    const detail = `排队等待期间条件变了，但前面的步骤可能已经生效${binding}，先保留占用，需要手动确认：${result.detail}`;
-    // Both writes are guarded independently: a note event failing to persist must never fall through to
-    // failIfStillOurs (that would flip an ambiguous, preserved attempt to a definite 'failed' just because
-    // the *report* of the ambiguity could not be written), and neither write's failure may throw back out
-    // of this function — see safeguard above. A known session's persistence-failure branch (executePlan's
-    // own onPhase('session', ...) rejecting) is exactly what noted a non-durable stopgap for this attempt
-    // (see requirement 5 in dispatch.js/nonDurableBindings.js). requirement 1 fix: a bare `{unresolved:
-    // true}` retry that merely succeeds is not enough to call the durable record "current again" — it never
-    // carries the session id anywhere (store.save() only updates the in-memory copy from what actually got
-    // appended, and this write never mentions `session`), so the retry itself must re-offer the known
-    // session id, and the stopgap is cleared only once *that exact* write durably lands.
-    const recorded = safeguard('preserveAmbiguous recordPhase', detail, () => store.recordPhase(questId, attempt, { unresolved: true, ...(knownSessionId ? { session: result.session } : {}) }));
-    if (recorded && knownSessionId) {
-      const noted = nonDurable.getUnpersistedSession(questId, attempt.attemptId);
-      // Only clear when this attempt's own noted id is the one that just landed durably — an entry that
-      // already names a different id (should never happen: one attempt, one session) is left alone rather
-      // than silently discarded on a coincidental match of quest+attempt alone.
-      if (!noted || noted.sessionId === knownSessionId) nonDurable.clearUnpersistedSession(questId, attempt.attemptId);
-    }
-    safeguard('preserveAmbiguous status_note', detail, () => store.emitEvent(current, 'status_note', { by: 'board', detail }));
-  }
-
-  // A session step's own failure (nonzero exit, timeout, a caught throw) is not the wrapper-script failure
-  // settleFailedWrapper is built for: workerEvidence only recognizes a dispatch script's registry row or
-  // output file, which a session step never produces, so settleFailedWrapper would always time out and call
-  // failIfStillOurs — definitively failing and freeing the slot on a step whose real-world effect is unknown.
-  // Whenever the session binding itself is unknown (no captured id, so no proof either way), preserve the
-  // reservation and mark the attempt unresolved instead, the same way a recheck's ambiguous block does.
-  function settleAmbiguousSession(questId, attempt, result) {
-    const current = stillOurs(questId, attempt);
-    if (!current) return;
-    const detail = `session 步骤失败但可能已经生效（session 是否建立不确定），先保留占用，需要手动确认：${result.detail}`;
-    safeguard('settleAmbiguousSession recordPhase', detail, () => store.recordPhase(questId, attempt, { unresolved: true }));
-    safeguard('settleAmbiguousSession status_note', detail, () => store.emitEvent(current, 'status_note', { by: 'board', detail }));
-  }
-
-  // A run step's own failure never erases a session that actually got created — the captured id already
-  // names a real, possibly billable resource upstream, so the reservation stays exactly like an unknown
-  // session binding does, regardless of what the run step itself proves or fails to prove.
-  function preserveKnownSessionRun(questId, attempt, result) {
-    const current = stillOurs(questId, attempt);
-    if (!current) return;
-    const detail = `已建 session ${result.session.id}，启动步骤失败或找不到证据证明没启动，先保留占用，需要手动确认：${result.detail}`;
-    safeguard('preserveKnownSessionRun recordPhase', detail, () => store.recordPhase(questId, attempt, { unresolved: true }));
-    safeguard('preserveKnownSessionRun status_note', detail, () => store.emitEvent(current, 'status_note', { by: 'board', detail }));
-  }
-
-  // The run step's own exit code, timeout or caught throw is not proof nothing started upstream (see
-  // workerEvidence) — and after settleFailedWrapper waited and still found no evidence either way, that
-  // absence is not proof of the opposite. Only a verified-never-started signal (runScript's own spawn
-  // catch, surfaced as result.neverStarted — see settleFailedWrapper) may free the slot; anything else keeps
-  // the reservation and marks it unresolved, the same way every other ambiguous outcome does.
-  function preserveRunAmbiguous(questId, attempt, result) {
-    const current = stillOurs(questId, attempt);
-    if (!current) return;
-    const detail = `启动步骤失败，等了一段时间也没找到证据证明没启动，先保留占用，需要手动确认：${result.detail}`;
-    safeguard('preserveRunAmbiguous recordPhase', detail, () => store.recordPhase(questId, attempt, { unresolved: true }));
-    safeguard('preserveRunAmbiguous status_note', detail, () => store.emitEvent(current, 'status_note', { by: 'board', detail }));
-  }
-
-  // workerEvidence reads the registry file directly (fs.readFileSync via readJsonLines) — a Windows sharing
-  // violation, an EBUSY read against a registry the dispatch script is mid-write on, or any other read fault
-  // throws. That throw is not evidence of absence any more than a read that cleanly returns nothing is: both
-  // mean "we don't know", never "verified not started". Treating a read failure as if it were proof — by
-  // letting it escape uncaught into this async function's rejection, which the enqueue chain's top-level
-  // `.catch` would then hand to failIfStillOurs — is exactly the false failed/free state requirement 3 rules
-  // out. Folding it into the same "no evidence this iteration" path a clean miss takes keeps the one honest
-  // fallback (preserveRunAmbiguous, once the deadline passes) as the only outcome a read fault can ever reach.
-  function readWorkerEvidence(laneId, name, sinceIso) {
-    try {
-      return { evidence: workerEvidence(config, laneId, name, sinceIso), readFailed: false };
-    } catch (error) {
-      reportPersistenceFailure('workerEvidence read', `${laneId}/${name}`, error, '读取失败');
-      // F3: a read fault is "we don't know", never "verified not started" — callers must not treat it
-      // like a clean miss.
-      return { evidence: null, readFailed: true };
-    }
-  }
-
-  // A wrapper's exit code is not the truth about its worker; wait for the registry row or output first.
-  async function settleFailedWrapper(quest, laneId, attempt, result, warnings) {
-    // A verified-never-started run step (runScript's own spawn-level catch, never an arbitrary throw from
-    // some other layer — see dispatch.js) is the one signal strong enough to free the slot outright: nothing
-    // could have started, so there is no evidence worth waiting for.
-    if (result.neverStarted) { failIfStillOurs(quest.id, attempt, result.detail); return; }
-    const started = (evidence) => announceStarted(quest.id, attempt, withWarnings(`脚本报错但 worker 已启动（${evidence}）：${result.detail.split('\n')[0]}`, warnings));
-    // FB2-01.5 (条目 17.2): a genuine non-zero wrapper exit settles immediately. The wrapper appends its
-    // registry row synchronously before it ever launches the worker, so once the wrapper process itself
-    // has exited, the row and the .out it would have produced are either already there or never coming —
-    // a single check is decisive, not a guess: no stall wait, no evidence deadline. Nothing there means
-    // verified startup failure; fail now, with the wrapper log's own tail (result.detail already carries
-    // tail(logFile)) as lastDetail.
-    if (!result.thrown) {
-      const read = readWorkerEvidence(laneId, attempt.name, quest.assignee.at);
-      if (read.evidence) { started(read.evidence); return; }
-      if (!read.readFailed) {
-        failIfStillOurs(quest.id, attempt, `启动即败：包装脚本非零退出，注册表没有新登记、.out 也没出现。\n${result.detail}`);
-        return;
-      }
-      // A registry read fault (F3) is not the clean absence FB2-01.5 needs: fall through to the bounded
-      // wait below, where a recovering read can still find the row; preserve unresolved if none appears.
-    }
-    // A caught throw from a runner override (never runScript itself — its spawn failure arrives as
-    // neverStarted) proves nothing about whether something started: keep the bounded evidence wait, and
-    // preserve the reservation as unresolved if none appears.
-    const deadline = Date.now() + evidenceWaitMs;
-    for (;;) {
-      const read = readWorkerEvidence(laneId, attempt.name, quest.assignee.at);
-      if (read.evidence) { started(read.evidence); return; }
-      if (Date.now() >= deadline) break;
-      await delay(Math.min(2000, Math.max(0, deadline - Date.now())));
-    }
-    // No evidence by the deadline is absence, not proof: keep the reservation and mark it unresolved rather
-    // than declaring the attempt failed and freeing its slot.
-    preserveRunAmbiguous(quest.id, attempt, result);
-  }
+  // FB2-S1: the worker-start settlement (announce/fail/preserve paths) lives in dispatchSettlement.js.
+  const settlement = createDispatchSettlement({ config, store, stillOurs, safeguard, reportPersistenceFailure, nonDurable, evidenceWaitMs, delay });
 
   // The same request sent twice (a retried MCP call, a double click) must not start a second worker.
   function repeated(quest, requestKey) {
@@ -682,22 +476,22 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
             if (current?.cancelRequest?.attemptId === attempt.attemptId) {
               safeguard('cancel queued ambiguity', result.detail, () => store.recordCancellationResult(quest.id, { requestId: current.cancelRequest.requestId, result: 'unknown', detail: result.detail, evidence: { kind: 'dispatcher', attempt: attemptEvidence(attempt), phase: result.phase } }));
             }
-            preserveAmbiguous(quest.id, attempt, result);
+            settlement.preserveAmbiguous(quest.id, attempt, result);
           } else if (store.get(quest.id)?.cancelRequest?.attemptId === attempt.attemptId) {
             const request = store.get(quest.id).cancelRequest;
             safeguard('cancel never_started', result.detail, () => store.recordCancellationResult(quest.id, { requestId: request.requestId, result: 'never_started', detail: result.detail, evidence: { kind: 'dispatcher', attempt: attemptEvidence(attempt), phase: 'queued', noEffect: true } }));
-          } else failIfStillOurs(quest.id, attempt, result.detail);
+          } else settlement.failIfStillOurs(quest.id, attempt, result.detail);
           return undefined;
         }
-        if (result.ok) return announceStarted(quest.id, attempt, withWarnings(`脚本已启动，worker ${attempt.name}`, verdict.warnings));
-        if (result.session && result.session.unknown) return settleAmbiguousSession(quest.id, attempt, result);
+        if (result.ok) return settlement.announceStarted(quest.id, attempt, settlement.withWarnings(`脚本已启动，worker ${attempt.name}`, verdict.warnings));
+        if (result.session && result.session.unknown) return settlement.settleAmbiguousSession(quest.id, attempt, result);
         // A known session binding (a real captured id) already names a resource that may exist upstream
         // regardless of what the run step itself did — always preserved, never routed through
         // settleFailedWrapper's evidence wait/neverStarted logic, which is about the run step alone.
-        if (result.session && result.session.id) return preserveKnownSessionRun(quest.id, attempt, result);
-        return settleFailedWrapper(running, adventurer.lane, attempt, result, verdict.warnings);
+        if (result.session && result.session.id) return settlement.preserveKnownSessionRun(quest.id, attempt, result);
+        return settlement.settleFailedWrapper(running, adventurer.lane, attempt, result, verdict.warnings);
       })
-      .catch((error) => settleUnexpectedFailure(quest.id, attempt, `派遣异常：${error.message}`));
+      .catch((error) => settlement.settleUnexpectedFailure(quest.id, attempt, `派遣异常：${error.message}`));
     return { status: 200, body: { quest: running } };
   }
 
@@ -851,114 +645,8 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     catch (error) { return { status: 409, body: { error: 'refused', reasons: [{ code: error.code || 'manual_ack_required', message: error.message }] } }; }
   }
 
-  // A write failure (including an empty/no-report session) is never "delivered" — that would hide the
-  // real state behind a fake success. It only counts against the attempt that started it: if the quest
-  // moved on (reassigned, released, cancelled) before the write settles, this attempt changes nothing.
-  function deliverFromApi(quest, transition, targetStatus = 'delivered') {
-    const { name, lane, at, attemptId } = quest.assignee;
-    const attempt = { attemptId, name, lane, at };
-    const key = attemptKey(attempt);
-    pendingDeliveries.add(key);
-    // writeDelivery may throw synchronously (a bad argument, a test double, a buggy override) rather than
-    // reject; routing the call through a resolved promise turns that into a normal rejection so .catch
-    // below still runs and .finally still releases the pending-delivery slot instead of leaking it forever.
-    // The identity check runs before the write starts too, not just after: applyLanes calls in with a
-    // fresh quest so this is normally a no-op, but it means a caller that reuses this function never sends
-    // a write for an attempt it already knows is stale.
-    // Every store write below is guarded (safeguard, F4): with nothing upstream left to turn a thrown error
-    // into a normal result, an unguarded throw from any of these — either sink down, or (the F4 native case)
-    // quests.jsonl and the events file both down at once — would escape this `.catch` itself as an unhandled
-    // rejection, since nothing follows it but `.finally`. A guarded failure here simply leaves the quest in
-    // whatever its last successfully durable state was (store.save() is disk-first, so a failed setStatus
-    // never advances the in-memory copy past what actually got written) — no slot lost, no crash, and the
-    // failure is still reported via reportPersistenceFailure even when the events sink that would normally
-    // carry it is itself the thing that is down.
-    Promise.resolve()
-      .then(() => (stillOurs(quest.id, attempt) ? writeDelivery(config, lane, name) : null))
-      .then((out) => {
-        if (out === null) return;
-        clearOwnNotice(quest.id, key);
-        const current = stillOurs(quest.id, attempt);
-        if (!current) return;
-        const note = `交付已写入 ${path.relative(config.root, out).split(path.sep).join('/')}`;
-        const detail = [note, transition.detail].filter(Boolean).join(' | ');
-        // Capture before the status write so the reference lands in the same durable record as the
-        // 'delivered' fact; a captured failure simply carries no reference.
-        const report = captureReportFor(current);
-        safeguard('deliverFromApi setStatus ' + targetStatus, detail, () => {
-          const next = store.setStatus(quest.id, targetStatus, {
-          detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
-          ...(report ? { report } : {}),
-          });
-          if (next && targetStatus === 'delivered') triggerDeliveredHooks(next);
-        });
-      })
-      .catch((error) => {
-        const current = stillOurs(quest.id, attempt);
-        if (!current) { clearOwnNotice(quest.id, key); return; }
-        // "Still running", an HTTP error or an unreachable API is not proof the worker died — it is
-        // positive evidence it (or the thing polling it) is still there. Leave the assignee alone so the
-        // next poll retries, and note it once per attempt (keyed on this attempt's identity and the exact
-        // message) so a tight poll loop cannot spam the same notice forever.
-        if (TRANSIENT_DELIVERY_CODES.has(error.code)) {
-          const last = transientNotices.get(quest.id);
-          if (!last || last.key !== key || last.message !== error.message) {
-            safeguard('deliverFromApi transient notice', error.message, () => store.emitEvent(current, 'delivery_write_failed', { by: 'board', detail: error.message }));
-            transientNotices.set(quest.id, { key, message: error.message });
-          }
-          return;
-        }
-        clearOwnNotice(quest.id, key);
-        safeguard('deliverFromApi delivery_write_failed', error.message, () => store.emitEvent(current, 'delivery_write_failed', { by: 'board', detail: error.message }));
-        // A failed delivery still binds whatever the attempt actually left on disk (a partial report or an
-        // exit-file summary), so the failure is readable next to real evidence instead of only a message.
-        const report = captureReportFor(current);
-        safeguard('deliverFromApi setStatus failed', error.message, () => store.setStatus(quest.id, 'failed', {
-          detail: `交差文件没写成：${error.message}`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
-          ...(report ? { report } : {}),
-        }));
-      })
-      .finally(() => pendingDeliveries.delete(key));
-  }
-
-  // FB2-01.3: the collector found a claude stream-json result line but no .exit and no .md. Write the
-  // extracted result as the attempt's report, then run the ordinary delivered transition. The worker's own
-  // .md always wins — never overwrite it. A write that fails is reported exactly like an API-lane delivery
-  // write failure: the quest fails with the reason, never a fake delivered.
-  function deliverStreamResult(quest, transition, lane, targetStatus = 'delivered') {
-    const attempt = quest.assignee;
-    if (!attempt || !stillOurs(quest.id, attempt)) return;
-    const mdRel = `${lane.outputDir}/${attempt.name}.md`;
-    const mdPath = path.join(config.root, mdRel);
-    if (!fs.existsSync(mdPath)) {
-      try {
-        fs.mkdirSync(path.dirname(mdPath), { recursive: true });
-        fs.writeFileSync(mdPath, transition.streamResult, 'utf8');
-      } catch (error) {
-        safeguard('deliverStreamResult delivery_write_failed', error.message, () => store.emitEvent(quest, 'delivery_write_failed', { by: 'board', detail: `交付报告没写成：${error.message}` }));
-        const current = stillOurs(quest.id, attempt);
-        if (!current) return;
-        const report = captureReportFor(current);
-        safeguard('deliverStreamResult setStatus failed', error.message, () => store.setStatus(quest.id, 'failed', {
-          detail: `交差文件没写成：${error.message}`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
-          ...(report ? { report } : {}),
-        }));
-        return;
-      }
-    }
-    const note = `交付报告已写入 ${mdRel}（来自 stream-json 的 result 行）`;
-    const detail = [note, transition.detail].filter(Boolean).join(' | ');
-    const current = stillOurs(quest.id, attempt);
-    if (!current) return;
-    const report = captureReportFor(current);
-    safeguard('deliverStreamResult setStatus ' + targetStatus, detail, () => {
-      const next = store.setStatus(quest.id, targetStatus, {
-        detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
-        ...(report ? { report } : {}),
-      });
-      if (next && targetStatus === 'delivered') triggerDeliveredHooks(next);
-    });
-  }
+  // FB2-S1: the API/stream delivery writes live in deliveryWriter.js; the gate consumes them.
+  const deliveryWriter = createDeliveryWriter({ config, store, stillOurs, safeguard, reportPersistenceFailure, captureReportFor, triggerDeliveredHooks, writeDelivery, attemptEvidence });
 
   // FB2-05: the delivered-transition settlement — gate, bounce, review modes — lives in deliveryGate.js
   // (the dispatcher was past its file-size budget); it receives exactly the pieces of this scope it needs.
@@ -966,7 +654,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     config, store, runners, fetchImpl, runCheck, runMechanical,
     stillOurs, attemptKey, attachChild, fixPlans, controlHandles,
     safeguard, reportPersistenceFailure, captureReportFor, triggerDeliveredHooks,
-    deliverFromApi, deliverStreamResult, attemptEvidence,
+    deliverFromApi: deliveryWriter.deliverFromApi, deliverStreamResult: deliveryWriter.deliverStreamResult, attemptEvidence,
   });
 
   // pendingDeliveries is checked against the quest's *current* assignee's attempt key, not the transition's
@@ -979,7 +667,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       try {
         const quest = store.get(transition.id);
         if (!quest) continue;
-        if (quest.assignee && pendingDeliveries.has(attemptKey(quest.assignee))) continue;
+        if (quest.assignee && deliveryWriter.isPending(quest.assignee)) continue;
         const lane = quest.assignee && config.lanes[quest.assignee.lane];
         // FB2-05: a delivered transition is the one moment the delivery gate, the review mode and the
         // ordinary delivery write all meet. Everything from the self-check through the settled status runs
