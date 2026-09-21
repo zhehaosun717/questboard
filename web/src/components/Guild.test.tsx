@@ -71,3 +71,35 @@ describe('Guild provider heading (real JSX)', () => {
     expect(html).toContain('共 2 位');
   });
 });
+
+describe('Guild truth badges and unproven import fold (FB2-07 item 5)', () => {
+  it('an unverified card carries a 未验证 badge', () => {
+    const html = render([{ ...card('u1', 'opencode'), verified: 'unverified' as const }]);
+    expect(html).toContain('card-verified-badge');
+    expect(html).toContain('未验证');
+  });
+
+  it('a verified-ok card carries no badge', () => {
+    const html = render([{ ...card('ok1', 'opencode'), verified: 'ok' as const }]);
+    expect(html).not.toContain('card-verified-badge');
+  });
+
+  it('batch-imported cards that never delivered fold behind 未验证的导入卡 by default', () => {
+    const proven = { ...card('p1', 'opencode'), importedFrom: 'opencode', neverDelivered: false };
+    const unproven = { ...card('u2', 'opencode'), importedFrom: 'opencode', neverDelivered: true };
+    const manual = card('m1', 'opencode');
+    const html = render([proven, unproven, manual]);
+    expect(html).toContain('guild-unproven-toggle');
+    expect(html).toContain('aria-expanded="false"');
+    // the proven and manual cards render as badges; the unproven one is behind the fold
+    const badgeIds = Array.from(html.matchAll(/data-adv="([^"]+)"/g)).map((m) => m[1]);
+    expect(badgeIds).toContain('p1');
+    expect(badgeIds).toContain('m1');
+    expect(badgeIds).not.toContain('u2');
+  });
+
+  it('a provider group with no unproven imports has no fold toggle', () => {
+    const html = render([card('m1', 'openai')]);
+    expect(html).not.toContain('guild-unproven-toggle');
+  });
+});

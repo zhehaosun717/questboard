@@ -1003,6 +1003,8 @@ export const TRANSLATIONS = {
   'guild.tempExpand': { zh: '临时展开：只在这次筛选里，不改动保存的折叠', en: 'Temporarily expand: this filter only; saved folds are not changed' },
   'guild.collapse': { zh: '收起 {provider}', en: 'Collapse {provider}' },
   'guild.expand': { zh: '展开 {provider}', en: 'Expand {provider}' },
+  // FB2-07 item 5: batch-imported cards that never delivered fold behind this toggle inside each provider group.
+  'guild.unproven': { zh: '未验证的导入卡（{count}）', en: 'Unproven imported cards ({count})' },
   'guild.countFiltered': { zh: '显示 {visible} / 共 {total} 位', en: 'Showing {visible} / {total}' },
   'event.posted': { zh: '新委托 {package}', en: 'New quest {package}' },
   'event.reviewPosted': { zh: '新复核委托 {package}', en: 'New review quest {package}' },
@@ -1028,6 +1030,8 @@ export const TRANSLATIONS = {
     en: 'The report was not fully read; only the beginning is shown.',
   },
   // CardBadge.tsx
+  'cardBadge.unverified': { zh: '未验证', en: 'unverified' },
+  'cardBadge.importBroken': { zh: '已下线', en: 'retired' },
   'cardBadge.busyTitle': { zh: ' · 正在做 {ids}', en: ' · working on {ids}' },
   'cardBadge.ariaLabel': {
     zh: '冒险者工牌 {id}：{name}，模型 {model}{variant}，服务商 {provider}，接入方式 {lane}，状态 {status}{busy}',

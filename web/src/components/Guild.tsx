@@ -57,6 +57,16 @@ export function Guild({
   const [filter, setFilter] = useState<RosterFilterState>(EMPTY_ROSTER_FILTER);
   const [folded, setFolded] = useState<string[]>(() => loadFoldedProviders(foldStorage(), projectId));
   const [tempFolded, setTempFolded] = useState<string[]>([]);
+  // FB2-07 item 5: which provider groups currently show their unproven imported cards (default: none).
+  const [unprovenOpenGroups, setUnprovenOpenGroups] = useState<Set<string>>(new Set());
+  const toggleUnproven = (provider: string) => {
+    setUnprovenOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(provider)) next.delete(provider);
+      else next.add(provider);
+      return next;
+    });
+  };
 
   useEffect(() => {
     setFolded(loadFoldedProviders(foldStorage(), projectId));
@@ -188,19 +198,45 @@ export function Guild({
                 </button>
               </h4>
               {open
-                ? group.members.map((card) => (
-                    <CardBadge
-                      key={card.id}
-                      card={card}
-                      busyQuests={busyQuests(snap, card.id)}
-                      failure={failureForCard(snap, card.id)}
-                      isDragging={draggingCardId === card.id}
-                      onEdit={onEditCard}
-                      onHover={onHoverCard}
-                      onDragStart={onDragStart}
-                      onDragEnd={onDragEnd}
-                    />
-                  ))
+                ? (() => {
+                    // FB2-07 item 5: batch-imported cards that never delivered fold behind a per-group
+                    // subsection by default; the owner expands it explicitly to drag one.
+                    const unproven = group.members.filter((member) => member.importedFrom && member.neverDelivered);
+                    const proven = group.members.filter((member) => !(member.importedFrom && member.neverDelivered));
+                    const renderCard = (member: Card) => (
+                      <CardBadge
+                        key={member.id}
+                        card={member}
+                        busyQuests={busyQuests(snap, member.id)}
+                        failure={failureForCard(snap, member.id)}
+                        isDragging={draggingCardId === member.id}
+                        onEdit={onEditCard}
+                        onHover={onHoverCard}
+                        onDragStart={onDragStart}
+                        onDragEnd={onDragEnd}
+                      />
+                    );
+                    const unprovenOpen = unprovenOpenGroups.has(group.provider);
+                    return (
+                      <>
+                        {proven.map(renderCard)}
+                        {unproven.length ? (
+                          <div className="guild-unproven">
+                            <button
+                              type="button"
+                              className="guild-unproven-toggle"
+                              aria-expanded={unprovenOpen}
+                              onClick={() => toggleUnproven(group.provider)}
+                            >
+                              <span className="guild-fold-caret" aria-hidden="true">{unprovenOpen ? '▾' : '▸'}</span>
+                              {t('guild.unproven', { count: unproven.length })}
+                            </button>
+                            {unprovenOpen ? unproven.map(renderCard) : null}
+                          </div>
+                        ) : null}
+                      </>
+                    );
+                  })()
                 : null}
             </div>
           );

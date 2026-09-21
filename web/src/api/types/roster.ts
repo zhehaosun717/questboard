@@ -15,7 +15,15 @@ export interface Card {
   variant?: string;
   variants?: string[];
   agent?: string;
-  billing?: 'subscription' | 'plan' | 'payg' | 'free';
+  billing?: 'subscription' | 'plan' | 'payg' | 'free' | 'monthly' | 'metered';
+  // FB2-07: roster truth fields. verified/importedFrom come from the card itself (roster.js); neverDelivered
+  // is computed per snapshot (snapshot.js) — a heuristic crediting a quest's latest attempt's card.
+  verified?: 'unverified' | 'ok' | 'broken';
+  importedFrom?: string;
+  neverDelivered?: boolean;
+  coordinatorAssignable?: boolean;
+  concurrencyGroup?: string;
+  groupMaxParallel?: number;
   maxParallel?: number;
   strengths?: string[];
   notes?: string;

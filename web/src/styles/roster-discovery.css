@@ -234,3 +234,10 @@
     flex: 2 1 220px;
   }
 }
+
+/* FB2-07 item 5: unverified/retired badges on cards, and the unproven-import fold inside a provider group. */
+.card-verified-badge { margin-left: 6px; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 16px; color: #b98a2f; border: 1px solid rgba(185, 138, 47, .45); }
+.card-verified-badge.broken { color: #a8322a; border-color: rgba(168, 50, 42, .5); }
+.guild-unproven { margin: 4px 0 4px 10px; }
+.guild-unproven-toggle { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: none; cursor: pointer; color: var(--dim, #8a8578); font-size: 12px; padding: 3px 6px; text-align: left; }
+.guild-unproven-toggle:hover { color: var(--ink, #d8d2c0); }

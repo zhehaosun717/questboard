@@ -150,7 +150,19 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
   });
   // Historical context only: the latest failed or bounced attempt per exact card id, omitted when empty.
   const recentFailures = recentFailuresByCard(quests);
-  const roster = effectiveRoster(adventurers, lanes);
+  const roster = effectiveRoster(adventurers, lanes).map((card) => {
+    // FB2-07 item 5: the drag picker folds batch-imported cards that never delivered anything.
+    // everDelivered is a heuristic, documented as such: a quest past delivery (delivered or beyond) counts
+    // for the card of its LATEST attempt — a redone quest credits the redo card, which is what "can this
+    // card actually finish work" asks.
+    const pastDelivery = ['delivered', 'reviewing', 'needs_coordinator', 'owner_ruled', 'owner_playtest', 'done'];
+    const everDelivered = quests.some((quest) => {
+      if (!pastDelivery.includes(quest.status)) return false;
+      const last = (quest.dispatches || []).at(-1);
+      return last && last.adventurerId === card.id;
+    });
+    return { ...card, neverDelivered: !everDelivered };
+  });
   // B5: the lane header must agree with the roster below it — a limit whose card is no longer limited
   // (owner acknowledged, paused/disabled, or removed) survives only as cleared evidence, never as a chip.
   const visibleLimits = visibleLaneLimits((lanes && lanes.laneLimits) || {}, roster, (lanes && lanes.laneEvidence) || {});

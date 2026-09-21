@@ -132,6 +132,8 @@ export function CardBadge({
           <div className="a-top">
             <span className="a-name">{card.name}</span>
             <span className="a-st">{label}</span>
+            {card.verified === 'unverified' ? <span className="card-verified-badge">{t('cardBadge.unverified')}</span> : null}
+            {card.verified === 'broken' ? <span className="card-verified-badge broken">{t('cardBadge.importBroken')}</span> : null}
           </div>
           <div className="a-model">
             <span className="a-key">{t('cardBadge.modelLabel')}</span> {card.model}

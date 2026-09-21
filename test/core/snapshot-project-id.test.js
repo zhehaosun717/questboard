@@ -54,3 +54,24 @@ describe('snapshot project identity', () => {
     assert.throws(() => projectId(undefined), /根目录/);
   });
 });
+
+describe('snapshot roster neverDelivered (FB2-07 item 5)', () => {
+  it('marks cards that never delivered anything; a delivered attempt clears the mark', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/ND-1-x.md', '# ND-1');
+    const store = new QuestStore(config);
+    store.post({ package: 'ND-1', brief: 'docs/briefs/ND-1-x.md' });
+    store.assign('ND-1', { adventurer: { id: 'codex-luna', lane: 'codex', model: 'm', family: 'f', name: 'Luna' }, name: 'nd1' });
+    const adventurers = [
+      { id: 'codex-luna', name: 'Luna', provider: 'p', model: 'm', family: 'f', lane: 'codex', importedFrom: 'opencode' },
+      { id: 'fresh-card', name: 'Fresh', provider: 'p', model: 'm2', family: 'f', lane: 'codex', importedFrom: 'opencode' },
+    ];
+    const before = buildSnapshot({ config, store, adventurers, boardStore: null, lanes: { packages: [] } });
+    assert.equal(before.roster.find((c) => c.id === 'codex-luna').neverDelivered, true, 'dispatched but not yet delivered');
+    assert.equal(before.roster.find((c) => c.id === 'fresh-card').neverDelivered, true);
+    store.setStatus('ND-1', 'delivered', { detail: 'done', by: 'lanes', ack: true });
+    const after = buildSnapshot({ config, store, adventurers, boardStore: null, lanes: { packages: [] } });
+    assert.equal(after.roster.find((c) => c.id === 'codex-luna').neverDelivered, false);
+    assert.equal(after.roster.find((c) => c.id === 'fresh-card').neverDelivered, true, 'untouched card still unproven');
+  });
+});
