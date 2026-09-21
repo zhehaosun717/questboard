@@ -555,6 +555,23 @@ export class QuestStore extends EventEmitter {
     return this.save({ ...quest, assignee, dispatches, updatedAt: now() });
   }
 
+  // FB2-13 item 2: a successful questboard integrate — the attempt's stamp plus the integrate event a
+  // coordinator tails. The patch is already applied by the time this runs; a stale or repeated attempt is
+  // refused so one patch can never be booked twice.
+  recordIntegrated(id, attempt, by, files) {
+    const quest = this.quests.get(id);
+    if (!quest) throw new Error(id + ' 不存在，integrate 没法登记');
+    const target = (quest.dispatches || []).find((dispatch) => sameAttempt(dispatch, attempt));
+    if (!target) throw new Error(id + ' 的这次派遣不是记录里的，integrate 没法登记');
+    if (target.integratedAt) throw new Error(id + ' 的这次交付已合入（' + target.integratedAt + '），不能重复登记');
+    const integratedAt = now();
+    const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt) ? { ...dispatch, integratedAt } : dispatch);
+    const assignee = sameAttempt(quest.assignee, attempt) ? { ...quest.assignee, integratedAt } : quest.assignee;
+    const next = this.save({ ...quest, assignee, dispatches, updatedAt: now() });
+    this.emitEvent(next, 'integrate', { by: by || 'owner', detail: '合入 ' + files.length + ' 个文件：' + files.join('、') });
+    return next;
+  }
+
   // FB2-13: the worktree attempt's delivery patch, mirrored onto the live assignee and the matching
   // dispatch history row. Shape-validated; recording again for the same attempt replaces, never stacks.
   recordDeliveryPatch(id, attempt, patch) {

@@ -502,6 +502,16 @@ export const commands = {
 
   // Frees a stalled quest whose worker someone confirmed is gone. Says how, or the board keeps the slot:
   // it never forces a status, kills a process, or releases a quest that is not stalled (the server checks).
+  // FB2-13 item 2: questboard integrate <id> — merge the latest worktree patch into the main tree and
+  // drop the copy; the server refuses (409, with the reason) when there is nothing to merge or it conflicts.
+  async integrate(args) {
+    const { base } = context(args);
+    const id = positional(args, ['--project', '--url', '--by']);
+    if (!id) throw new Error('usage: questboard integrate <id> [--by coordinator|owner]　把 worktree 交付的 patch 合入主工作树');
+    const { quest, integrated } = await request(base, `/api/quests/${encodeURIComponent(id)}/integrate`, 'POST', { by: option(args, '--by') || 'coordinator' }, { source: 'cli' });
+    out(questLine(quest) + '　已合入 ' + integrated.files.length + ' 个文件：' + integrated.files.join('、'));
+  },
+
   async release(args) {
     const { base } = context(args);
     const id = positional(args, ['--project', '--url', '--detail', '--by']);

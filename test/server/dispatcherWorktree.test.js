@@ -20,6 +20,7 @@ function gitProject({ worktrees = { enabled: true } } = {}) {
   const { root, config, write } = makeProject({ policy: { worktrees } });
   write('src/app.js', 'export const v = 1;\n');
   git(root, ['init', '-q']);
+  git(root, ['config', 'core.autocrlf', 'false']); // deterministic patches on Windows
   git(root, ['add', '.']);
   git(root, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init']);
   return { root, config, write };
@@ -201,5 +202,67 @@ describe('worktree delivery patch (FB2-13 items 1/2)', () => {
     assert.equal(patch.patchPath, null);
     assert.deepEqual(patch.files, []);
     assert.deepEqual(patch.outOfScope, []);
+  });
+});
+
+describe('worktree integrate (FB2-13 item 2)', () => {
+  it('integrate applies the patch to the main tree, removes the copy, and emits integrate', async () => {
+    const { root, config, store, dispatcher } = await dispatchWithWorktree({ id: 'WT-9', briefText: '# WT-9\n' });
+    const quest = store.get('WT-9');
+    const copy = quest.assignee.worktree.path;
+    fs.writeFileSync(path.join(copy, 'src', 'app.js'), 'export const v = 42;\n');
+    dispatcher.applyLanes({ packages: deliveredRow(quest) });
+    await waitFor(() => store.get('WT-9').status === 'delivered', 'delivered');
+    const result = await dispatcher.integrate('WT-9', 'owner');
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8'), 'export const v = 42;\n', 'patch applied to the main tree');
+    assert.ok(!fs.existsSync(copy), 'the copy is removed');
+    const done = store.get('WT-9');
+    assert.ok(done.dispatches.at(-1).integratedAt, 'the dispatch history row is stamped');
+    const events = fs.readFileSync(config.paths.events, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    const integrate = events.filter((event) => event.event === 'integrate');
+    assert.equal(integrate.length, 1);
+    assert.equal(integrate[0].by, 'owner');
+    assert.match(integrate[0].detail, /src\/app\.js/);
+  });
+
+  it('integrating the same attempt twice is refused with 已合入', async () => {
+    const { store, dispatcher } = await dispatchWithWorktree({ id: 'WT-10', briefText: '# WT-10\n' });
+    fs.writeFileSync(path.join(store.get('WT-10').assignee.worktree.path, 'src', 'app.js'), 'export const v = 7;\n');
+    dispatcher.applyLanes({ packages: deliveredRow(store.get('WT-10')) });
+    await waitFor(() => store.get('WT-10').status === 'delivered', 'delivered');
+    assert.equal((await dispatcher.integrate('WT-10', 'owner')).status, 200);
+    const again = await dispatcher.integrate('WT-10', 'owner');
+    assert.equal(again.status, 409);
+    assert.match(again.body.error, /已合入/);
+  });
+
+  it('a conflict keeps the copy and answers with the git reason, no integrate event', async () => {
+    const { root, config, store, dispatcher } = await dispatchWithWorktree({ id: 'WT-11', briefText: '# WT-11\n' });
+    const copy = store.get('WT-11').assignee.worktree.path;
+    fs.writeFileSync(path.join(copy, 'src', 'app.js'), 'export const v = 2;\n');
+    dispatcher.applyLanes({ packages: deliveredRow(store.get('WT-11')) });
+    await waitFor(() => store.get('WT-11').status === 'delivered', 'delivered');
+    fs.writeFileSync(path.join(root, 'src', 'app.js'), 'export const v = 999;\n'); // the main tree moved on
+    const result = await dispatcher.integrate('WT-11', 'owner');
+    assert.equal(result.status, 409);
+    assert.match(result.body.error, /冲突|合不进|apply/);
+    assert.ok(fs.existsSync(copy), 'the copy is kept for inspection');
+    const events = fs.readFileSync(config.paths.events, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(events.filter((event) => event.event === 'integrate').length, 0);
+  });
+
+  it('an empty delivery has nothing to integrate, refused with the reason', async () => {
+    const { store, dispatcher } = await dispatchWithWorktree({ id: 'WT-12', briefText: '# WT-12\n' });
+    dispatcher.applyLanes({ packages: deliveredRow(store.get('WT-12')) });
+    await waitFor(() => store.get('WT-12').status === 'delivered', 'delivered');
+    const result = await dispatcher.integrate('WT-12', 'owner');
+    assert.equal(result.status, 409);
+    assert.match(result.body.error, /没有可合入的 patch/);
+  });
+
+  it('unknown quest is a plain 404', async () => {
+    const { dispatcher } = await dispatchWithWorktree({ id: 'WT-13', briefText: '# WT-13\n' });
+    assert.equal((await dispatcher.integrate('NOPE-1', 'owner')).status, 404);
   });
 });

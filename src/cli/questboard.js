@@ -53,6 +53,7 @@ const USAGE = {
   list: 'usage: questboard list [--status posted] [--project <dir>] [--url <base>]\n  列这个项目的委托，一行一张。',
   get: 'usage: questboard get <id> | show <id> [--json] [--all] [--report] [--evidence]\n  读一张委托：第几版、worker、派遣史、最近动态、可改文件、可接手名单。长名单默认只列前 5 张 +「等 N 张」，--json 或 --all 给全量；\n  --report 打印这次派遣的完整报告原文；--evidence 打印这次派遣的证据。',
   release: 'usage: questboard release <id> --detail "怎么确认 worker 已经停了"\n  释放一个 stalled 的任务；进程树已核验为空的运行中任务也可直接释放，验证不为空会拒绝并说明。',
+  integrate: 'usage: questboard integrate <id> [--by coordinator|owner]\n  把 worktree 交付的 patch 合入主工作树并删掉副本；冲突会拒绝并保留副本。',
   status: 'usage: questboard status <id> <done|delivered|reviewing|needs_owner|owner_playtest|lane_limited|superseded|cancelled|failed|...> [--status <status>]\n  [--detail "..."] [--by coordinator|owner] [--note "..."] [--evidence-ref kind=report,digest=<sha>,attemptId=<id> ...]\n  例：questboard status RUN-4 done --detail "验收完成"。status 值也能用 --status 给；值不合法时报这个用法。',
   ruling: 'usage: questboard ruling <id> --text "..." [--by owner]\n  给等裁决的任务一个裁决，并关掉它回答的问题线程。',
   update: 'usage: questboard update <id> [--title "..."] [--brief docs/briefs/x.md] [--parents A-1,B-2] [--conflicts C-3]\n  [--lanes codex,agy] [--needs-owner "问题"] [--hold "原因，空串解除"] [--needs runs-node,web] [--files a,b] [--review-page robot8]\n  [--if-revision 3] [--by who]\n  只改传了的字段，其余不动；worker 占着这个任务时会被拒绝，先 release 再改。',
@@ -75,7 +76,7 @@ USAGE.show = USAGE.get;
 const OVERVIEW = [
   'usage: questboard <' + Object.keys(commands).join('|') + '> [options]　（questboard <子命令> --help 看那个子命令的参数表）',
   '',
-  '常用：init · serve · post · get · assign · adopt · status · release · resolve · cancel · update · batch · card · doctor · watch · mcp',
+  '常用：init · serve · post · get · assign · adopt · status · release · resolve · cancel · update · batch · integrate · card · doctor · watch · mcp',
   '每个子命令都从当前目录（或父目录）找 questboard.config.json，或用 --project <dir> / --url <base> 指定。',
 ].join('\n');
 

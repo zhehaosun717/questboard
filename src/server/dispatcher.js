@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { canDispatch, coordinatorFastTrackRefusal, OPEN_STATUSES } from '../core/rules.js';
 import { workerName, planDispatch, executePlan, preflight, recordedNames } from '../core/dispatch.js';
 import { prepareWorktree } from '../core/worktrees.js';
+import { createIntegrate } from './integrate.js';
 import { deriveTransitions } from '../core/sync.js';
 import { withFileSets, briefUsable } from '../core/briefs.js';
 import { writeApiDelivery } from '../core/deliveries.js';
@@ -785,5 +786,8 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     }
   }
 
-  return { assign, adopt, release, cancel, resolve, applyLanes, getUnpersistedSession, getControlHandle, verifyProcessTree, cancelHook: verificationHooks.cancel };
+  // FB2-13 item 2: integrate lives in integrate.js (line budget); same surface from here.
+  const integrate = createIntegrate({ config, store });
+
+  return { assign, adopt, release, cancel, resolve, integrate, applyLanes, getUnpersistedSession, getControlHandle, verifyProcessTree, cancelHook: verificationHooks.cancel };
 }

@@ -88,6 +88,9 @@ export interface Assignee {
   annotationSnapshot?: AnnotationSnapshotRef;
   usage?: DeliveryUsage | null;
   patch?: DeliveryPatch;
+  // FB2-13: the worktree this attempt edits (path + pinned base sha); integratedAt stamps a merged patch.
+  worktree?: { path: string; base: string; brief?: string };
+  integratedAt?: string;
 }
 
 export interface Ruling {

@@ -256,6 +256,14 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
       sendJson(response, result.status, result.body);
       return;
     }
+    // FB2-13 item 2: questboard integrate <id> — apply the latest worktree patch to the main tree and
+    // remove the copy. Refusals (nothing to integrate, already integrated, conflict) say why; the copy is
+    // kept on conflict so the owner can inspect it.
+    if (parts[3] === 'integrate') {
+      const result = await dispatcher.integrate(questId, actorSource);
+      sendJson(response, result.status, result.body);
+      return;
+    }
     if (parts[3] === 'release') {
       const result = await dispatcher.release(questId, actorSource, String(body.detail || '').slice(0, 2000), { source, ack: body.ack === true });
       sendJson(response, result.status, result.body);
