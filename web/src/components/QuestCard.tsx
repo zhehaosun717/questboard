@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import type { Quest, Snapshot } from '../api/types';
-import { formatAgo, isQueueOnly } from '../lib/board';
+import { formatAgo, isQueueOnly, isSafeReviewUrl } from '../lib/board';
 import { warningText } from '../lib/graphDrop';
 import { KIND, OPEN_STATUSES, STATUS } from '../lib/labels';
 import { useT } from '../lib/i18n';
@@ -232,6 +232,18 @@ export function QuestCard({
             </div>
           );
         })()}
+        {/* FB2-11 item 3: a quest with a reviewPage gets an 打开评审页 button right on the card face. */}
+        {quest.reviewPage ? (() => {
+          const rp = (snap.reviewPages || []).find((p) => p.page === quest.reviewPage);
+          if (!rp || !isSafeReviewUrl(rp.url)) return null;
+          return (
+            <div className="mt-1">
+              <a className="plate text-[11px]" href={rp.url} target="_blank" rel="noreferrer">
+                {t('questCard.openReviewPage')}
+              </a>
+            </div>
+          );
+        })() : null}
         {/* FB2-10 item 4: a stalled card offers the dispatch step log (last 100 lines, capped server-side). */}
         {quest.status === 'stalled' && assignee ? (
           <div className="mt-1">

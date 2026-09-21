@@ -45,6 +45,14 @@ function makeStore(initial) {
     // reassignment, a release, a cancellation) — real callers only ever get there through store.assign
     // / store.setStatus / store.release, which is exactly what stillOurs must stay safe against.
     _set(id, patch) { quests.set(id, { ...quests.get(id), ...patch }); },
+    updateMetadata(id, payload) {
+      const q = quests.get(id);
+      if (!q) return null;
+      const next = { ...q, ...payload };
+      quests.set(id, next);
+      events.push({ event: 'metadata_update', package: id, detail: JSON.stringify(payload), by: 'lanes' });
+      return { quest: { ...next } };
+    },
     events,
   };
 }
@@ -448,5 +456,97 @@ describe('dispatcher stream-json delivery (FB2-01.3)', () => {
     assert.equal(store.get('ART-8').status, 'failed');
     assert.ok(store.events.some((e) => e.event === 'delivery_write_failed'), JSON.stringify(store.events));
     assert.equal(store.events.filter((e) => e.event === 'delivered').length, 0);
+  });
+});
+
+// FB2-11 item 2: an art quest whose worker produced a review page (manifest.json + html in the output
+// directory) auto-fills quest.reviewPage and lands at needs_owner instead of delivered.
+describe('dispatcher art auto-reviewPage (FB2-11 item 2)', () => {
+  const artAssignee = { name: 'art1', lane: 'claude', model: 'claude-opus-5', at: '2026-09-14T00:00:00.000Z', attemptId: 'att-art1' };
+  const artQuest = (overrides = {}) => ({ id: 'ART-9', status: 'dispatched', assignee: artAssignee, kind: 'art', dispatches: [], ...overrides });
+  const artRow = { name: 'art1', package: 'ART-9', lane: 'claude', model: 'claude-opus-5', state: 'delivered', dispatchedAt: '2026-09-14T00:00:01.000Z', streamResult: '# art delivery\n评审页已生成' };
+
+  function writeArtReviewPage(config, workerName, pageId, title) {
+    const dir = path.join(config.root, '.work', 'claude', workerName);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'manifest.json'), '{}');
+    const manifest = { page: pageId, title: title || pageId, sections: [{ id: 's1' }] };
+    const html = '<!DOCTYPE html><html><head><script type="application/json" id="review-data">' +
+      JSON.stringify(manifest) + '</script></head><body></body></html>';
+    fs.writeFileSync(path.join(dir, 'review_' + pageId + '.html'), html);
+  }
+
+  it('auto-fills reviewPage and transitions to needs_owner when the worker output has manifest.json + review html', async () => {
+    const { config } = makeProject();
+    writeArtReviewPage(config, 'art1', 'art9-final', 'Art 9 Final');
+    const store = makeStore([artQuest()]);
+    const dispatcher = createDispatcher({ config, store });
+    dispatcher.applyLanes({ packages: [artRow] });
+    await wait();
+    const q = store.get('ART-9');
+    assert.equal(q.status, 'needs_owner', 'art with review page goes to needs_owner, not delivered');
+    const metaEvent = store.events.find((e) => e.event === 'metadata_update');
+    assert.ok(metaEvent, 'a metadata_update event was emitted for the reviewPage');
+    assert.match(metaEvent.detail, /art9-final/);
+  });
+
+  it('does not change status when the worker output has no manifest.json', async () => {
+    const { config } = makeProject();
+    // Write the review html but NOT the manifest.json marker.
+    const dir = path.join(config.root, '.work', 'claude', 'art1');
+    fs.mkdirSync(dir, { recursive: true });
+    const manifest = { page: 'art9-final', title: 'Art 9 Final', sections: [] };
+    const html = '<!DOCTYPE html><html><head><script type="application/json" id="review-data">' +
+      JSON.stringify(manifest) + '</script></head><body></body></html>';
+    fs.writeFileSync(path.join(dir, 'review_art9-final.html'), html);
+
+    const store = makeStore([artQuest()]);
+    const dispatcher = createDispatcher({ config, store });
+    dispatcher.applyLanes({ packages: [artRow] });
+    await wait();
+    const q = store.get('ART-9');
+    assert.equal(q.status, 'delivered', 'no manifest.json → normal delivered flow');
+  });
+
+  it('does not change status when the quest already has a reviewPage', async () => {
+    const { config } = makeProject();
+    writeArtReviewPage(config, 'art1', 'art9-final', 'Art 9 Final');
+    const store = makeStore([artQuest({ reviewPage: 'existing-page' })]);
+    const dispatcher = createDispatcher({ config, store });
+    dispatcher.applyLanes({ packages: [artRow] });
+    await wait();
+    const q = store.get('ART-9');
+    assert.equal(q.status, 'delivered', 'already has reviewPage → normal delivered flow');
+  });
+
+  it('does not change status for non-art quests even when review page files exist', async () => {
+    const { config } = makeProject();
+    writeArtReviewPage(config, 'art1', 'art9-final', 'Art 9 Final');
+    const store = makeStore([{ ...artQuest(), kind: 'code' }]);
+    const dispatcher = createDispatcher({ config, store });
+    dispatcher.applyLanes({ packages: [artRow] });
+    await wait();
+    const q = store.get('ART-9');
+    assert.equal(q.status, 'delivered', 'non-art quest → normal delivered flow');
+  });
+
+  it('works for API lanes too (deliverFromApi path)', async () => {
+    const { config } = makeProject();
+    // For API lanes the review page lives in the deliveryDir, not outputDir.
+    const dir = path.join(config.root, '.work', 'oc', 'art1');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'manifest.json'), '{}');
+    const manifest = { page: 'art9-api', title: 'Art 9 API', sections: [{ id: 's1' }] };
+    const html = '<!DOCTYPE html><html><head><script type="application/json" id="review-data">' +
+      JSON.stringify(manifest) + '</script></head><body></body></html>';
+    fs.writeFileSync(path.join(dir, 'review_art9-api.html'), html);
+
+    const store = makeStore([{ ...artQuest(), assignee: { ...artAssignee, lane: 'opencode' } }]);
+    const dispatcher = createDispatcher({ config, store, writeDelivery: async () => path.join(config.root, '.work', 'oc', 'art1.md') });
+    dispatcher.applyLanes({ packages: [{ ...artRow, lane: 'opencode' }] });
+    await wait();
+    await wait(); // extra tick for the async deliverFromApi + metadata update chain
+    const q = store.get('ART-9');
+    assert.equal(q.status, 'needs_owner', 'API lane art with review page also goes to needs_owner');
   });
 });

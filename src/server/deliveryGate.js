@@ -17,6 +17,34 @@ import { executePlan } from '../core/dispatch.js';
 import { protocolFor } from '../lanes/protocols.js';
 import { checkLogPath, mechanicalLogPath, readSessionId, runPostDeliveryGate, runMechanicalCheck } from '../core/postDeliveryCheck.js';
 
+// FB2-11 item 2: an art worker that produced a review page leaves a manifest.json + matching html in its
+// output directory. The manifest.json is the marker; the html carries the embedded manifest with the page id.
+const MANIFEST_PATTERN = /<script[^>]*\bid="review-data"[^>]*>([\s\S]*?)<\/script>/;
+
+function findArtReviewPage(config, lane, workerName) {
+  if (!lane || !workerName) return null;
+  const baseDir = lane.outputDir || lane.deliveryDir;
+  if (!baseDir) return null;
+  const dir = path.join(config.root, baseDir, workerName);
+  if (!fs.existsSync(dir)) return null;
+  if (!fs.existsSync(path.join(dir, 'manifest.json'))) return null;
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return null; }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.html') || entry.name.includes('_static')) continue;
+    const file = path.join(dir, entry.name);
+    let text;
+    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    const match = text.match(MANIFEST_PATTERN);
+    if (!match) continue;
+    try {
+      const manifest = JSON.parse(match[1]);
+      if (manifest && manifest.page) return { page: String(manifest.page), title: String(manifest.title || entry.name) };
+    } catch { continue; }
+  }
+  return null;
+}
+
 export function createDeliveryGate({
   config, store, runners, fetchImpl, runCheck, runMechanical,
   stillOurs, attemptKey, attachChild, fixPlans, controlHandles,
@@ -196,6 +224,37 @@ export function createDeliveryGate({
       } catch (error) {
         reportPersistenceFailure('recordMechanicalReview', quest.id, error);
         current = quest;
+      }
+    }
+    // FB2-11 item 2: an art quest whose worker produced a review page (manifest.json + html in the output
+    // directory) goes straight to needs_owner with reviewPage filled — the owner reviews the page, not the
+    // raw delivery. A missing manifest.json or html leaves the status untouched (normal delivered flow).
+    if (current.kind === 'art' && !current.reviewPage) {
+      const artReview = findArtReviewPage(config, lane, attempt.name);
+      if (artReview) {
+        const note = ['评审页已生成，等 owner 评审', transition.detail].filter(Boolean).join(' | ');
+        const setReviewPage = (settled) => {
+          if (settled) safeguard('settleDelivered art reviewPage metadata', current.id, () => store.updateMetadata(current.id, { reviewPage: artReview.page }, { by: 'lanes' }));
+          return settled;
+        };
+        if (lane && lane.api && lane.deliveryDir) {
+          deliverFromApi(current, transition, 'needs_owner').then(setReviewPage);
+          return;
+        }
+        if (transition.streamResult && lane && lane.outputDir) {
+          setReviewPage(deliverStreamResult(current, transition, lane, 'needs_owner'));
+          return;
+        }
+        const report = captureReportFor(current);
+        const next = safeguard('settleDelivered art reviewPage setStatus', note, () => store.setStatus(current.id, 'needs_owner', {
+          detail: note, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
+          ...(report ? { report } : {}),
+        }));
+        if (next) {
+          safeguard('settleDelivered art reviewPage metadata', current.id, () => store.updateMetadata(current.id, { reviewPage: artReview.page }, { by: 'lanes' }));
+          triggerDeliveredHooks(next);
+        }
+        return;
       }
     }
     if (current.review === 'none') {

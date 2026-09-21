@@ -57,25 +57,27 @@ export function createDeliveryWriter({ config, store, stillOurs, safeguard, repo
     // never advances the in-memory copy past what actually got written) — no slot lost, no crash, and the
     // failure is still reported via reportPersistenceFailure even when the events sink that would normally
     // carry it is itself the thing that is down.
-    Promise.resolve()
+    return Promise.resolve()
       .then(() => (stillOurs(quest.id, attempt) ? writeDelivery(config, lane, name) : null))
       .then((out) => {
-        if (out === null) return;
+        if (out === null) return null;
         clearOwnNotice(quest.id, key);
         const current = stillOurs(quest.id, attempt);
-        if (!current) return;
+        if (!current) return null;
         const note = `交付已写入 ${path.relative(config.root, out).split(path.sep).join('/')}`;
         const detail = [note, transition.detail].filter(Boolean).join(' | ');
         // Capture before the status write so the reference lands in the same durable record as the
         // 'delivered' fact; a captured failure simply carries no reference.
         const report = captureReportFor(current);
+        let next = null;
         safeguard('deliverFromApi setStatus ' + targetStatus, detail, () => {
-          const next = store.setStatus(quest.id, targetStatus, {
+          next = store.setStatus(quest.id, targetStatus, {
           detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
           ...(report ? { report } : {}),
           });
           if (next && targetStatus === 'delivered') triggerDeliveredHooks(next);
         });
+        return next;
       })
       .catch((error) => {
         const current = stillOurs(quest.id, attempt);
@@ -111,7 +113,7 @@ export function createDeliveryWriter({ config, store, stillOurs, safeguard, repo
   // write failure: the quest fails with the reason, never a fake delivered.
   function deliverStreamResult(quest, transition, lane, targetStatus = 'delivered') {
     const attempt = quest.assignee;
-    if (!attempt || !stillOurs(quest.id, attempt)) return;
+    if (!attempt || !stillOurs(quest.id, attempt)) return null;
     const mdRel = `${lane.outputDir}/${attempt.name}.md`;
     const mdPath = path.join(config.root, mdRel);
     if (!fs.existsSync(mdPath)) {
@@ -121,27 +123,29 @@ export function createDeliveryWriter({ config, store, stillOurs, safeguard, repo
       } catch (error) {
         safeguard('deliverStreamResult delivery_write_failed', error.message, () => store.emitEvent(quest, 'delivery_write_failed', { by: 'board', detail: `交付报告没写成：${error.message}` }));
         const current = stillOurs(quest.id, attempt);
-        if (!current) return;
+        if (!current) return null;
         const report = captureReportFor(current);
         safeguard('deliverStreamResult setStatus failed', error.message, () => store.setStatus(quest.id, 'failed', {
           detail: `交差文件没写成：${error.message}`, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
           ...(report ? { report } : {}),
         }));
-        return;
+        return null;
       }
     }
     const note = `交付报告已写入 ${mdRel}（来自 stream-json 的 result 行）`;
     const detail = [note, transition.detail].filter(Boolean).join(' | ');
     const current = stillOurs(quest.id, attempt);
-    if (!current) return;
+    if (!current) return null;
     const report = captureReportFor(current);
+    let next = null;
     safeguard('deliverStreamResult setStatus ' + targetStatus, detail, () => {
-      const next = store.setStatus(quest.id, targetStatus, {
+      next = store.setStatus(quest.id, targetStatus, {
         detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
         ...(report ? { report } : {}),
       });
       if (next && targetStatus === 'delivered') triggerDeliveredHooks(next);
     });
+    return next;
   }
 
   const isPending = (assignee) => pendingDeliveries.has(attemptKey(assignee));

@@ -40,14 +40,25 @@ export function briefUnusable(config, quest) {
   return briefUnusableInfo(config, quest.brief);
 }
 
-function walk(directory, pattern, found = []) {
-  if (!fs.existsSync(directory)) return found;
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    const full = path.join(directory, entry.name);
-    if (entry.isDirectory()) walk(full, pattern, found);
-    else if (pattern.test(entry.name) && !entry.name.includes('_static')) found.push(full);
+// FB2-11 item 1: review pages are recognised only at depth 1 of the review directory, and only in
+// subdirectories that carry a manifest.json — src/, before/ and other nested working directories are
+// ignored by construction, not by filename heuristics.
+function walkReviewRoot(root, pattern) {
+  if (!fs.existsSync(root)) return [];
+  const found = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(root, entry.name);
+    if (!fs.existsSync(path.join(dir, 'manifest.json'))) continue;
+    for (const file of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!file.isFile()) continue;
+      pattern.lastIndex = 0;
+      if (pattern.test(file.name) && !file.name.includes('_static')) {
+        found.push(path.join(dir, file.name));
+      }
+    }
   }
-  return found;
+  return found.sort((a, b) => a.localeCompare(b));
 }
 
 function foldedAnnotations(file) {
@@ -65,7 +76,7 @@ function foldedAnnotations(file) {
 export function reviewPages(config) {
   if (!config.reviewPages) return [];
   const root = config.reviewPages.dir;
-  return walk(root, config.reviewPages.filePattern).map((file) => {
+  return walkReviewRoot(root, config.reviewPages.filePattern).map((file) => {
     const match = fs.readFileSync(file, 'utf8').match(MANIFEST_PATTERN);
     let manifest = null;
     try { manifest = match ? JSON.parse(match[1]) : null; } catch { manifest = null; }

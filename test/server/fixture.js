@@ -34,6 +34,7 @@ export async function startFixture({ runResult = () => ({ code: 0 }), writeDeliv
   project.write('docs/briefs/REVIEW-26-review-run-4.md', 'review');
   project.write('docs/briefs/RUN-9-not-posted.md', 'RUN-9 — nobody posted this');
   project.write('docs/art/robot/review_robot8.html', '<script type="application/json" id="review-data">{"page":"robot8","title":"机器人 8","sections":[{"id":"a"},{"id":"b"}]}</script>');
+  project.write('docs/art/robot/manifest.json', '{}');
   const homeDir = tmpDir('qb-home-');
   const home = { home: homeDir, roster: path.join(homeDir, 'roster.json'), status: path.join(homeDir, 'status.jsonl') };
   saveRoster(home.roster, { adventurers: CARDS.map(({ status, ...card }) => card) });

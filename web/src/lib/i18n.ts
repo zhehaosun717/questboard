@@ -1565,6 +1565,7 @@ export const TRANSLATIONS = {
   'questCard.bigSystemPrompt': { zh: '系统提示异常大', en: 'unusually large system prompt' },
   'questCard.startupLog': { zh: '查看启动日志', en: 'View startup log' },
   'questCard.startupLogFailed': { zh: '启动日志读不到：{error}', en: 'could not read the startup log: {error}' },
+  'questCard.openReviewPage': { zh: '打开评审页', en: 'Open review page' },
   'time.hours': { zh: '{n}时', en: '{n}h' },
 
   // evidence.ts — the dossier's evidence rungs (claimed / reviewed / accepted). Server-matched and
