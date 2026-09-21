@@ -111,3 +111,10 @@ stay in the bundle resources (`desktop/src-tauri/tauri.bundle.json`) or setup fr
    so one lane serves several providers; the 设置 page edits the whole project config (validated with
    `resolveConfig` before writing, timestamped backup, restart required). A lane's `run` is a list of
    arguments — never join and re-split it on whitespace, `{package} {name}` is one argument.
+8. ~~Feedback round 2 (QUESTBOARD_FEEDBACK_2.md, 34 items)~~ (done, 2026-09-21): dispatch reliability
+   (worker-death/startup-failure detection, annotation round-trip, supersedes/hold/parent-done/capabilities,
+   review snapshots and inbox, postDeliveryCheck with same-session bounce), CLI hardening, roster truth
+   (billing/coordinatorAssignable/concurrency groups/verified), shelf dismissed records, UI layout and card
+   info (token usage, dispatch-log entry), review-page auto-fill, coordinator fast track, and opt-in
+   worktree+patch delivery (`questboard integrate`). Released as v0.2.0. Next: split store.js (>800 lines),
+   Windows signing / winget, component interaction tests.
