@@ -185,6 +185,17 @@ export function validatePost(config, payload, quests = []) {
   const needs = splitList(input.needs);
   const badNeed = needs.find((n) => n.length > 64);
   if (badNeed) errors.needs = 'needs 里有过长的能力名：' + badNeed.slice(0, 80);
+  // FB2-05 item 3: how this quest's delivered work gets reviewed. none → the coordinator verifies
+  // (delivery lands in needs_coordinator); mechanical → the board runs mechanicalCheck once at delivery
+  // and records the conclusion; model (the default, also when omitted) → the owner's 待安排复核 shelf.
+  // mechanicalCheck is only meaningful with mechanical, and mechanical without it is refused — a
+  // half-configured review mode must never silently degrade into the default.
+  const review = input.review === undefined || input.review === null || input.review === '' ? undefined : String(input.review);
+  if (review !== undefined && !['none', 'mechanical', 'model'].includes(review)) errors.review = 'review 只能是 none、mechanical 或 model（默认 model）';
+  const mechanicalCheck = input.mechanicalCheck === undefined || input.mechanicalCheck === null || input.mechanicalCheck === ''
+    ? undefined : String(input.mechanicalCheck).trim().slice(0, 1000);
+  if (review === 'mechanical' && !mechanicalCheck) errors.mechanicalCheck = 'review=mechanical 必须给 --mechanical-check "命令"（交付后自动跑一次的命令）';
+  if (review !== 'mechanical' && mechanicalCheck !== undefined) errors.mechanicalCheck = 'mechanicalCheck 只在 review=mechanical 时有效';
   // An override is only an override when the caller sent --files; a repost without it keeps the old one.
   const filesOverride = input.files === undefined || input.files === null ? undefined : splitList(input.files);
   const allowedLanes = splitList(input.allowedLanes);
@@ -205,6 +216,8 @@ export function validatePost(config, payload, quests = []) {
     hold,
     needs,
     filesOverride,
+    review,
+    mechanicalCheck,
     by: String(input.by || 'coordinator').trim().slice(0, 40),
   };
   return { errors, value };
@@ -371,8 +384,10 @@ export class QuestStore extends EventEmitter {
       }
     }
     const at = now();
-    // filesOverride stays out of the plain spread: undefined (no --files given) must not erase an old override.
-    const { by, filesOverride: _filesOverride, ...fields } = value;
+    // filesOverride stays out of the plain spread: undefined (no --files given) must not erase an old
+    // override. review/mechanicalCheck (FB2-05) get the same treatment: a re-post that never mentions them
+    // must not silently reset a quest's review mode to the default.
+    const { by, filesOverride: _filesOverride, review, mechanicalCheck, ...fields } = value;
     // A stalled worker is silence, not a confirmed exit (see release()): it still holds its slot and file
     // reservations, so a re-post (say, an updated brief) must not knock it out of that status just because
     // this post also carries a needsOwner question — the question is recorded, but the attempt is not freed.
@@ -381,6 +396,8 @@ export class QuestStore extends EventEmitter {
       ...(existing || { dispatches: [], rulings: [], assignee: null, createdAt: at, status: 'posted' }),
       ...fields,
       ...(value.filesOverride !== undefined ? { filesOverride: value.filesOverride } : {}),
+      ...(review !== undefined ? { review } : {}),
+      ...(mechanicalCheck !== undefined ? { mechanicalCheck } : {}),
       id: value.package,
       title,
       status: value.needsOwner && !owned ? 'needs_owner' : (existing && !['done', 'superseded', 'cancelled'].includes(existing.status) ? existing.status : 'posted'),
@@ -472,6 +489,11 @@ export class QuestStore extends EventEmitter {
       exitCode: Number.isInteger(result.exitCode) ? result.exitCode : null,
       summary: String(result.summary || '').slice(0, 800),
       at: now(),
+      // The dispatcher's fingerprint of the delivery evidence this round judged (transition text + the
+      // attempt's artifact mtimes): a failed round's evidence is consumed, so an identical poll replay is
+      // never re-checked, while the worker's fresh delivery after a fix starts a new round. Opaque and
+      // bounded — never interpreted by anything but an equality comparison.
+      ...(typeof result.evidence === 'string' && result.evidence ? { evidence: result.evidence.slice(0, 300) } : {}),
     };
     const checkResults = [...(quest.assignee.checkResults || []), entry];
     const assignee = { ...quest.assignee, checkResults };
@@ -479,6 +501,28 @@ export class QuestStore extends EventEmitter {
       ? { ...dispatch, checkResults } : dispatch);
     const next = this.save({ ...quest, assignee, dispatches, updatedAt: now() });
     if (!entry.ok) this.emitEvent(next, 'check_failed', { by: 'board', detail: '第 ' + round + ' 轮自检没过：' + entry.summary });
+    return next;
+  }
+
+  // FB2-05 item 3: the mechanical review the board itself ran at delivery (quest.review === 'mechanical').
+  // Lives on the quest (the card face reads it even after the assignee clears) and on the matching dispatch
+  // history row, and is announced as a status_note — it is a conclusion, never a status move, and never a
+  // bounce: a failed mechanical check is recorded next to the delivered work, and the owner decides.
+  recordMechanicalReview(id, attempt, result) {
+    const quest = this.quests.get(id);
+    if (!quest || !sameAttempt(quest.assignee, attempt)) throw new Error(id + ' 的这次派遣已经不是当前记录了，机械复核结论没法登记');
+    if (quest.mechanicalReview) throw new Error(id + ' 已经登记过机械复核结论了');
+    const value = {
+      at: now(),
+      ok: result.ok === true,
+      exitCode: Number.isInteger(result.exitCode) ? result.exitCode : null,
+      summary: String(result.summary || '').slice(0, 800),
+      logPath: String(result.logPath || '').slice(0, 200),
+    };
+    const dispatches = (quest.dispatches || []).map((dispatch) => sameAttempt(dispatch, attempt)
+      ? { ...dispatch, mechanicalReview: value } : dispatch);
+    const next = this.save({ ...quest, mechanicalReview: value, dispatches, updatedAt: now() });
+    this.emitEvent(next, 'status_note', { by: 'board', detail: `机械复核${value.ok ? '通过' : '没过'}（exit ${value.exitCode ?? '—'}）：${value.summary}` });
     return next;
   }
 

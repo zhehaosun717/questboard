@@ -74,7 +74,7 @@ export function planDispatch(config, quest, adventurer, name, effectiveBrief = q
 }
 
 // `x.sh` runs under Git Bash, `node` under this Node, anything else as an executable.
-function resolveCommand(config, command) {
+export function resolveCommand(config, command) {
   const [head, ...rest] = command;
   if (head.endsWith('.sh')) return { file: bashPath(config), args: command, script: head };
   if (head === 'node') return { file: process.execPath, args: rest, script: rest[0] };

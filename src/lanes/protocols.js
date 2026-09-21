@@ -115,6 +115,34 @@ function parseOpencodeSessionDelivery(messages, session) {
   return text;
 }
 
+// FB2-05 item 3: sends one text message back into a worker's own session (the board's fix hint after a
+// failed self-check). POST to the same messages URL the collector reads; bounded so a hanging server — or
+// a fetch that ignores AbortSignal entirely — can never block the poll loop, and never throws: the caller
+// turns { ok: false } into a status_note and leaves the quest dispatched (the worker was not told, so
+// nothing may be silently treated as fixed).
+async function sendSessionMessage(fetchImpl, lane, session, text) {
+  const url = messagesUrl(lane, encodeURIComponent(session));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DELIVERY_FETCH_TIMEOUT_MS);
+  try {
+    const response = await Promise.race([
+      fetchImpl(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+        signal: controller.signal,
+      }),
+      abortRejection(controller.signal, `session ${session} timed out accepting the fix message`),
+    ]);
+    if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` };
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: controller.signal.aborted ? '请求超时' : `连接失败：${error.message}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const PROTOCOLS = {
   'opencode-session': {
     fetchJson,
@@ -125,6 +153,7 @@ export const PROTOCOLS = {
     messagesUrl,
     sessionUrl,
     fetchMessages,
+    sendMessage: sendSessionMessage,
   },
 };
 

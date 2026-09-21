@@ -68,6 +68,10 @@ describe('review requests', () => {
     assert.equal(isReviewable({ kind: 'code', status: 'posted' }), false);
     assert.equal(isReviewable({ kind: 'owner', status: 'delivered' }), false);
     assert.equal(isReviewable({ kind: 'review', status: 'delivered' }), false);
+    // FB2-05: a mechanical review already happened at delivery, so the quest never enters the shelf.
+    assert.equal(isReviewable({ kind: 'code', status: 'delivered', review: 'mechanical' }), false);
+    assert.equal(isReviewable({ kind: 'code', status: 'delivered', review: 'model' }), true);
+    assert.equal(isReviewable({ kind: 'code', status: 'delivered', review: 'none' }), true, 'review:none only leaves the shelf through its status, not its mode');
   });
 
   it('judges who may review returned work before any review exists', () => {

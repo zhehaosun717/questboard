@@ -20,6 +20,7 @@ import { createGenericWrapperAdapter, createOpenCodeSessionAdapter } from './wor
 import { createVerificationHookRunner } from '../core/verificationHooks.js';
 import { assignJobObject, closeJobObject, countJobObject, createJobObject, terminateJobObject } from '../core/jobObject.js';
 import { laneCapabilities } from '../core/config.js';
+import { createDeliveryGate } from './deliveryGate.js';
 
 const EVIDENCE_WAIT_MS = 10000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -44,7 +45,7 @@ function laneUsesRole(lane) {
   ].some((value) => typeof value === 'string' && value.includes('{role}'))));
 }
 
-export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer, fetchImpl = fetch, genericWrapperAdapter = null, gitStatusSync = null }) {
+export function createDispatcher({ config, store, runners, evidenceWaitMs = EVIDENCE_WAIT_MS, writeDelivery = writeApiDelivery, getDownLanes = () => null, getAdventurer, fetchImpl = fetch, genericWrapperAdapter = null, gitStatusSync = null, runCheck = null, runMechanical = null }) {
   // FB2-04 item 1: code dispatches snapshot the worktree before the worker starts (git status
   // --porcelain) so the reviewer can tell pre-existing edits from the worker's own. Sync on purpose:
   // assign() is sync all the way down, and this runs once per dispatch, never in a poll loop.
@@ -60,6 +61,14 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   });
   const queues = new Map();
   const pendingDeliveries = new Set();
+  // FB2-05: one delivery check/settle at a time per attempt (the poll tick can replay the same delivered
+  // transition while the check is still running), and the per-attempt fix plan — the exact run step this
+  // attempt was dispatched with, kept in memory so a failed self-check can re-run the same wrapper command
+  // with a fix hint. Deliberately not persisted: the env it carries is dispatch-time card/lane state, and
+  // a board restart already loses the control channel for an old attempt (see controlHandles); the honest
+  // fallback then is a status_note naming that no re-run command is left, never a silent skip.
+  const pendingChecks = new Set();
+  const fixPlans = new Map();
   const controlHandles = new Map();
   const dispatcherInstanceId = randomUUID();
   const genericWrapper = genericWrapperAdapter || createGenericWrapperAdapter({ config });
@@ -94,6 +103,42 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     const current = store.get(questId);
     return current && (current.status === 'dispatched' || current.status === 'stalled') && sameAttempt(current.assignee, attempt) ? current : null;
   };
+
+  // Binds a spawned wrapper child to its attempt's control handle — the initial dispatch and the FB2-05
+  // fix re-run alike, so a cancel request reaches whichever wrapper is live for this attempt right now.
+  function attachChild(attemptId, child, step) {
+    if (step.control?.type !== 'generic-wrapper') return;
+    const handle = controlHandles.get(attemptId);
+    if (!handle || !handle.token) return;
+    controlHandles.set(attemptId, { ...handle, child });
+    child.once?.('exit', () => {
+      // The job object stays open after the wrapper's own exit: it is the only process-tree evidence
+      // the collector's death check can count later (a taskkill'd tree leaves no .exit behind). The
+      // child handle is dropped so a later cancel request correctly reports "no live control channel",
+      // and the job itself is closed only once the attempt settles (see closeSettledJobs in applyLanes).
+      const current = controlHandles.get(attemptId);
+      if (!current || current.child !== child) return;
+      controlHandles.set(attemptId, { ...current, child: null });
+    });
+    if (typeof child.on === 'function' && process.platform === 'win32') {
+      child.on('message', (message) => {
+        if (!message || message.type !== 'questboard-job-ready' || message.attemptId !== attemptId) return;
+        const current = controlHandles.get(attemptId);
+        if (!current || current.jobId) return;
+        (async () => {
+          try {
+            const jobId = await createJobObject('qb-' + attemptId);
+            await assignJobObject(jobId, child.pid);
+            const next = controlHandles.get(attemptId);
+            if (next && next.child === child) controlHandles.set(attemptId, { ...next, jobId });
+            try { child.send({ type: 'questboard-job-go', attemptId }); } catch {}
+          } catch {
+            try { child.send({ type: 'questboard-job-go', attemptId }); } catch {}
+          }
+        })();
+      });
+    }
+  }
 
   // Lanes marked serialize run one dispatch at a time (OpenCode's send script shares a session file);
   // spacingMs waits between starts (the DeepSeek harness races on simultaneous starts).
@@ -618,40 +663,12 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         throw error;
       }
     };
-    const onChild = (child, step) => {
-      if (!controlToken || step.control?.type !== 'generic-wrapper') return;
-      const handle = controlHandles.get(attempt.attemptId);
-      if (handle) {
-        controlHandles.set(attempt.attemptId, { ...handle, child });
-        child.once?.('exit', () => {
-          // The job object stays open after the wrapper's own exit: it is the only process-tree evidence
-          // the collector's death check can count later (a taskkill'd tree leaves no .exit behind). The
-          // child handle is dropped so a later cancel request correctly reports "no live control channel",
-          // and the job itself is closed only once the attempt settles (see closeSettledJobs in applyLanes).
-          const current = controlHandles.get(attempt.attemptId);
-          if (!current || current.child !== child) return;
-          controlHandles.set(attempt.attemptId, { ...current, child: null });
-        });
-      }
-      if (typeof child.on === 'function' && process.platform === 'win32') {
-        child.on('message', (message) => {
-          if (!message || message.type !== 'questboard-job-ready' || message.attemptId !== attempt.attemptId) return;
-          const current = controlHandles.get(attempt.attemptId);
-          if (!current || current.jobId) return;
-          (async () => {
-            try {
-              const jobId = await createJobObject('qb-' + attempt.attemptId);
-              await assignJobObject(jobId, child.pid);
-              const next = controlHandles.get(attempt.attemptId);
-              if (next && next.child === child) controlHandles.set(attempt.attemptId, { ...next, jobId });
-              try { child.send({ type: 'questboard-job-go', attemptId: attempt.attemptId }); } catch {}
-            } catch {
-              try { child.send({ type: 'questboard-job-go', attemptId: attempt.attemptId }); } catch {}
-            }
-          })();
-        });
-      }
-    };
+    const onChild = (child, step) => attachChild(attempt.attemptId, child, step);
+    // FB2-05 item 3: remember the exact run step this attempt executes, so a failed self-check can re-run
+    // the same wrapper command with a fix hint later. The env captured here is the dispatch env (lane +
+    // card) as planDispatch built it, before the control vars below are added — the re-run adds its own.
+    const fixStep = plan.find((step) => step.kind === 'run');
+    if (fixStep) fixPlans.set(attempt.attemptId, { command: [...fixStep.command], env: { ...(fixStep.env || {}) } });
     if (controlToken) {
       plan = plan.map((step) => step.kind === 'run'
         ? { ...step, env: { ...step.env, QUESTBOARD_ATTEMPT_ID: attempt.attemptId, QUESTBOARD_CONTROL_TOKEN: controlToken, ...(process.platform === 'win32' ? { QUESTBOARD_JOB_GATE: '1' } : {}) } }
@@ -818,7 +835,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // A write failure (including an empty/no-report session) is never "delivered" — that would hide the
   // real state behind a fake success. It only counts against the attempt that started it: if the quest
   // moved on (reassigned, released, cancelled) before the write settles, this attempt changes nothing.
-  function deliverFromApi(quest, transition) {
+  function deliverFromApi(quest, transition, targetStatus = 'delivered') {
     const { name, lane, at, attemptId } = quest.assignee;
     const attempt = { attemptId, name, lane, at };
     const key = attemptKey(attempt);
@@ -849,12 +866,12 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         // Capture before the status write so the reference lands in the same durable record as the
         // 'delivered' fact; a captured failure simply carries no reference.
         const report = captureReportFor(current);
-        safeguard('deliverFromApi setStatus delivered', detail, () => {
-          const next = store.setStatus(quest.id, 'delivered', {
+        safeguard('deliverFromApi setStatus ' + targetStatus, detail, () => {
+          const next = store.setStatus(quest.id, targetStatus, {
           detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
           ...(report ? { report } : {}),
           });
-          if (next) triggerDeliveredHooks(next);
+          if (next && targetStatus === 'delivered') triggerDeliveredHooks(next);
         });
       })
       .catch((error) => {
@@ -889,7 +906,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
   // extracted result as the attempt's report, then run the ordinary delivered transition. The worker's own
   // .md always wins — never overwrite it. A write that fails is reported exactly like an API-lane delivery
   // write failure: the quest fails with the reason, never a fake delivered.
-  function deliverStreamResult(quest, transition, lane) {
+  function deliverStreamResult(quest, transition, lane, targetStatus = 'delivered') {
     const attempt = quest.assignee;
     if (!attempt || !stillOurs(quest.id, attempt)) return;
     const mdRel = `${lane.outputDir}/${attempt.name}.md`;
@@ -915,14 +932,23 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
     const current = stillOurs(quest.id, attempt);
     if (!current) return;
     const report = captureReportFor(current);
-    safeguard('deliverStreamResult setStatus delivered', detail, () => {
-      const next = store.setStatus(quest.id, 'delivered', {
+    safeguard('deliverStreamResult setStatus ' + targetStatus, detail, () => {
+      const next = store.setStatus(quest.id, targetStatus, {
         detail, by: 'lanes', source: 'collector', evidence: { kind: 'collector', attempt: attemptEvidence(attempt) },
         ...(report ? { report } : {}),
       });
-      if (next) triggerDeliveredHooks(next);
+      if (next && targetStatus === 'delivered') triggerDeliveredHooks(next);
     });
   }
+
+  // FB2-05: the delivered-transition settlement — gate, bounce, review modes — lives in deliveryGate.js
+  // (the dispatcher was past its file-size budget); it receives exactly the pieces of this scope it needs.
+  const deliveryGate = createDeliveryGate({
+    config, store, runners, fetchImpl, runCheck, runMechanical,
+    stillOurs, attemptKey, attachChild, fixPlans, controlHandles,
+    safeguard, reportPersistenceFailure, captureReportFor, triggerDeliveredHooks,
+    deliverFromApi, deliverStreamResult, attemptEvidence,
+  });
 
   // pendingDeliveries is checked against the quest's *current* assignee's attempt key, not the transition's
   // quest id alone — a hung write for an old, superseded attempt must never block a new attempt's own
@@ -936,10 +962,25 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
         if (!quest) continue;
         if (quest.assignee && pendingDeliveries.has(attemptKey(quest.assignee))) continue;
         const lane = quest.assignee && config.lanes[quest.assignee.lane];
-        if (transition.status === 'delivered' && lane && lane.api && lane.deliveryDir) { deliverFromApi(quest, transition); continue; }
-        // A stream-json result the collector read out of .out (FB2-01.3) arrives without a .md on disk;
-        // the write is the dispatcher's job (the collector stays read-only), before the delivered status.
-        if (transition.status === 'delivered' && transition.streamResult && lane && lane.outputDir) { deliverStreamResult(quest, transition, lane); continue; }
+        // FB2-05: a delivered transition is the one moment the delivery gate, the review mode and the
+        // ordinary delivery write all meet. Everything from the self-check through the settled status runs
+        // through deliveryGate.settleWithCheck (src/server/deliveryGate.js) — once per attempt at a time, with the delivery evidence
+        // fingerprinted so a poll replay of an already-bounced delivery is never re-checked.
+        if (transition.status === 'delivered' && quest.assignee) {
+          const key = attemptKey(quest.assignee);
+          if (pendingChecks.has(key)) continue;
+          // A failed round already consumed this exact delivery evidence (same text, same artifact
+          // mtimes): this poll is a replay while the worker fixes, never a fresh delivery — skip it so the
+          // round count is not re-checked against the same failure. A changed fingerprint (the worker's
+          // new delivery after a fix) starts the next round.
+          const lastCheck = [...(quest.assignee.checkResults || [])].at(-1);
+          if (lastCheck && !lastCheck.ok && lastCheck.evidence === deliveryGate.deliveryFingerprint(quest, transition, lane)) continue;
+          pendingChecks.add(key);
+          deliveryGate.settleWithCheck(quest, transition, lane)
+            .catch((error) => reportPersistenceFailure('settleWithCheck', quest.id, error))
+            .finally(() => pendingChecks.delete(key));
+          continue;
+        }
         // Only an ending binds a report reference; stalled/dispatched pass through untouched.
         const current = store.get(transition.id);
         if (transition.cancellationResult && current?.cancelRequest) {
@@ -973,6 +1014,7 @@ export function createDispatcher({ config, store, runners, evidenceWaitMs = EVID
       if (quest && (quest.status === 'dispatched' || quest.status === 'stalled')) continue;
       if (handle.jobId) closeJobObject(handle.jobId).catch(() => {});
       controlHandles.delete(attemptId);
+      fixPlans.delete(attemptId);
     }
   }
 

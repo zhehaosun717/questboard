@@ -57,6 +57,14 @@ try {
   fail(`cannot read brief file: ${err.message}`);
 }
 
+// 3.5 QB_FIX_HINT (FB2-05): the board re-ran this wrapper because the previous delivery failed its
+// self-check. The truncated error text rides in this env var and is appended to the agent's prompt over
+// stdin, so the same worker in the same session sees exactly why it is being asked to fix in place.
+const fixHint = process.env.QB_FIX_HINT;
+if (fixHint) {
+  briefText += '\n\n【看板自检反馈】上一轮交付没有通过自检，请先修复再重新交付。错误如下：\n' + fixHint + '\n';
+}
+
 let roleText = '';
 if (role) {
   const rolePath = path.resolve(process.cwd(), role);
@@ -604,6 +612,7 @@ child.on('error', (err) => {
 });
 
 child.stdin.on('error', () => {});
+if (fixHint) note('board fix hint received (' + fixHint.length + ' chars), appended to the agent prompt');
 child.stdin.end(roleText ? `${roleText}\n\n${briefText}` : briefText);
 
 child.on('close', (code) => {

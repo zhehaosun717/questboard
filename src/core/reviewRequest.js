@@ -17,8 +17,12 @@ export function activeReviewOf(quests, parentId) {
 }
 
 // A review's report is signed off on the work it reviews, so a review quest is never itself reviewed.
+// FB2-05 item 3: a quest posted with review=mechanical already got its review — the board ran the
+// mechanical check at delivery and recorded the conclusion — so it never enters the 待安排复核 shelf; only
+// the default model mode does. review=none quests land in needs_coordinator, which is not REVIEWABLE anyway.
 export function isReviewable(quest) {
-  return quest.kind !== 'owner' && quest.kind !== 'review' && REVIEWABLE.has(quest.status);
+  return quest.kind !== 'owner' && quest.kind !== 'review' && REVIEWABLE.has(quest.status)
+    && (quest.review || 'model') !== 'mechanical';
 }
 
 // The review quest a drop would create, so the drop can be judged before anything is written: no files (the

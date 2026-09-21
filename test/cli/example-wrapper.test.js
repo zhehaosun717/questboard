@@ -176,6 +176,27 @@ describe('example-wrapper', () => {
     assert.match(output, /ROLE CARD\n\nBRIEF BODY/);
   });
 
+  it('QB_FIX_HINT appends the board self-check feedback to the agent prompt over stdin (FB2-05)', () => {
+    const root = tmpDir('example-wrapper-hint-');
+    fs.copyFileSync(CONFIG_SRC, path.join(root, 'questboard.config.json'));
+    fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+    fs.copyFileSync(WRAPPER_SRC, path.join(root, 'scripts', 'run-worker.mjs'));
+    fs.writeFileSync(path.join(root, 'brief.md'), 'BRIEF BODY');
+    const wrapper = path.join(root, 'scripts', 'run-worker.mjs');
+    execFileSync(process.execPath, [
+      wrapper, '--lane', 'codex', '--name', 'hint_worker', '--brief', 'brief.md', '--',
+      process.execPath, '-e', "process.stdin.setEncoding('utf8'); let text=''; process.stdin.on('data', (chunk) => text += chunk); process.stdin.on('end', () => console.log(text));",
+    ], {
+      cwd: root, encoding: 'utf8',
+      env: { ...process.env, QB_FIX_HINT: '自检失败（第 1 轮），错误如下：FAIL src/x.test.js broke' },
+    });
+    const outPath = path.join(root, '.questboard-data', 'workers', 'codex', 'hint_worker.out');
+    const output = fs.readFileSync(outPath, 'utf8');
+    assert.match(output, /【看板自检反馈】上一轮交付没有通过自检/);
+    assert.match(output, /FAIL src\/x\.test\.js broke/);
+    assert.match(output, /BRIEF BODY/);
+  });
+
   it('cancel IPC stops the direct child and its still-alive grandchild on Windows', async () => {
     if (process.platform !== 'win32') return;
     const { fork } = await import('node:child_process');
