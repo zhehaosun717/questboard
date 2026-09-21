@@ -423,6 +423,11 @@ describe('workers', () => {
     write('.work/a.out', 'working');
     assert.equal(workerState(base('a'), now).state, 'running');
     assert.equal(workerState(base('a'), now + 21 * 60 * 1000).state, 'stalled');
+    // FB2-10 item 2: the card face's 上次有动静 is the .out mtime for file lanes.
+    const running = workerState(base('a'), now);
+    assert.equal(running.lastActivityMs, fs.statSync(path.join(root, '.work', 'a.out')).mtimeMs, 'lastActivityMs = .out mtime');
+    assert.equal(workerState(base('a'), now + 21 * 60 * 1000).lastActivityMs, running.lastActivityMs, 'still exposed while stalled');
+    assert.equal(workerState(base('missing-nothing'), now).lastActivityMs, undefined, 'no .out, no invented time');
     // Even output that is nothing but quota wording, with no .exit file, is not terminal evidence: it
     // stays running, then stalled from staleness alone — never bounced from content.
     write('.work/b.out', 'usage limit reached, try again at 1:54 PM');
@@ -452,6 +457,7 @@ describe('workers', () => {
     assert.deepEqual(workerState(base('h'), now, { token: 'run-token' }), {
       state: 'running',
       heartbeat: { at: '2026-09-16T11:59:45.000Z', ageMs: 10 * 1000, token: 'run-token', phase: 'running' },
+      lastActivityMs: fs.statSync(path.join(root, '.work', 'h.out')).mtimeMs,
     });
   });
 
@@ -475,7 +481,7 @@ describe('workers', () => {
     write('.work/foreign.out', 'fresh output');
     write('.work/foreign.alive', JSON.stringify({ token: 'other-token', at: new Date(now).toISOString(), phase: 'running' }));
     const foreign = workerState(base('foreign'), now, { token: 'run-token' });
-    assert.deepEqual(foreign, { state: 'unknown', reason: '心跳来自另一次运行', heartbeat: null });
+    assert.deepEqual(foreign, { state: 'unknown', reason: '心跳来自另一次运行', heartbeat: null, lastActivityMs: fs.statSync(path.join(root, '.work', 'foreign.out')).mtimeMs });
 
     write('.work/bad.out', 'fresh output');
     write('.work/bad.alive', 'x'.repeat(4097));
@@ -492,7 +498,7 @@ describe('workers', () => {
     write('.work/finished.out', 'failed');
     write('.work/finished.exit', '3');
     write('.work/finished.alive', JSON.stringify({ token: 'other-token', at: new Date(now - 3600 * 1000).toISOString(), phase: 'running' }));
-    assert.deepEqual(workerState(base('finished'), now, { token: 'run-token' }), { state: 'failed', reason: 'exit 3', heartbeat: null });
+    assert.deepEqual(workerState(base('finished'), now, { token: 'run-token' }), { state: 'failed', reason: 'exit 3', heartbeat: null, lastActivityMs: fs.statSync(path.join(root, '.work', 'finished.out')).mtimeMs });
   });
 
   it('detects a genuine structured terminal quota failure instead of calling it a plain failure', () => {
@@ -501,7 +507,7 @@ describe('workers', () => {
     const now = Date.now();
     write('.work/e.out', 'working...\nusage limit reached, try again at 2:15 PM');
     write('.work/e.exit', '1');
-    assert.deepEqual(workerState(base('e'), now), { state: 'bounced', reason: 'usage limit', bounceUntil: '2:15 PM' });
+    assert.deepEqual(workerState(base('e'), now), { state: 'bounced', reason: 'usage limit', bounceUntil: '2:15 PM', lastActivityMs: fs.statSync(path.join(root, '.work', 'e.out')).mtimeMs });
     write('.work/f.out', 'working...\nTypeError: unexpected token');
     write('.work/f.exit', '1');
     assert.equal(workerState(base('f'), now).state, 'failed', 'a nonzero exit with no quota evidence stays a plain failure');
@@ -530,11 +536,11 @@ describe('workers', () => {
     const patterns = [{ code: 'quota_5h', label: '额度用尽', pattern: /resets (at|in)|try again at/i }];
     write('.work/p1.out', 'working...\nrate window resets in 3h');
     write('.work/p1.exit', '1');
-    assert.deepEqual(workerState(base('p1'), now, { bouncePatterns: patterns }), { state: 'bounced', reason: '额度用尽', code: 'quota_5h', bounceUntil: null });
+    assert.deepEqual(workerState(base('p1'), now, { bouncePatterns: patterns }), { state: 'bounced', reason: '额度用尽', code: 'quota_5h', bounceUntil: null, lastActivityMs: fs.statSync(path.join(root, '.work', 'p1.out')).mtimeMs });
     // The built-in usage-limit detection runs first and stays uncoded, even when a pattern matches the same line.
     write('.work/p2.out', 'working...\nusage limit reached, try again at 2:15 PM');
     write('.work/p2.exit', '1');
-    assert.deepEqual(workerState(base('p2'), now, { bouncePatterns: patterns }), { state: 'bounced', reason: 'usage limit', bounceUntil: '2:15 PM' });
+    assert.deepEqual(workerState(base('p2'), now, { bouncePatterns: patterns }), { state: 'bounced', reason: 'usage limit', bounceUntil: '2:15 PM', lastActivityMs: fs.statSync(path.join(root, '.work', 'p2.out')).mtimeMs });
     // Only the exit line is consulted: the same wording earlier in .out is never matched.
     write('.work/p3.out', 'rate window resets in 3h\nall done');
     write('.work/p3.exit', '1');

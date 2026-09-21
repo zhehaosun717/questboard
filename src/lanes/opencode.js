@@ -60,7 +60,22 @@ function structuredResetText(error) {
 
 export function sessionState(messages, now = Date.now(), { stallAfterMinutes } = {}) {
   const assistant = messages.filter((m) => m.info && m.info.role === 'assistant');
-  if (!assistant.length) return { state: 'unknown', reason: 'no assistant messages' };
+  if (!assistant.length) {
+    // FB2-10 item 1: a session that never produced an assistant turn is not invisible. The last message's
+    // own time (user messages carry time.created) is the last known activity; quiet past stallAfterMinutes
+    // reads stalled in plain words. It is computed fresh every poll, so resumed activity heals it.
+    const lastMessageMs = messages.reduce((max, m) => {
+      const time = m && m.info && m.info.time ? (m.info.time.completed || m.info.time.created || 0) : 0;
+      return Math.max(max, time);
+    }, 0);
+    if (!lastMessageMs) return { state: 'unknown', reason: 'no assistant messages' };
+    const quietMinutes = Math.floor((now - lastMessageMs) / 60000);
+    const staleMinutes = Number.isInteger(stallAfterMinutes) && stallAfterMinutes > 0 ? stallAfterMinutes : 20;
+    if (quietMinutes > staleMinutes) {
+      return { state: 'stalled', reason: `会话无响应：最后一条消息 ${quietMinutes} 分钟前`, lastActivityMs: lastMessageMs };
+    }
+    return { state: 'unknown', reason: 'no assistant messages', lastActivityMs: lastMessageMs };
+  }
   const last = assistant.at(-1);
   const info = last.info;
   const parts = last.parts || [];

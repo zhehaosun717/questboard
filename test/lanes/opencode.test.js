@@ -161,3 +161,34 @@ describe('sessionState terminal rules (N12-N14)', () => {
     assert.equal(quiet46.reason, 'running, no activity >45m');
   });
 });
+
+describe('sessionState — no assistant message yet (FB2-10 item 1)', () => {
+  const user = (createdMs) => ({ info: { role: 'user', time: { created: createdMs } }, parts: [] });
+
+  it('a fresh session with only a user message stays unknown while it is still early', () => {
+    const state = sessionState([user(ago(2 * 60 * 1000))], now(), { stallAfterMinutes: 20 });
+    assert.equal(state.state, 'unknown');
+    assert.ok(state.lastActivityMs > 0, 'the user message time feeds 上次有动静');
+  });
+
+  it('no assistant message and the last message older than stallAfterMinutes reads stalled, in plain Chinese', () => {
+    const state = sessionState([user(ago(30 * 60 * 1000))], now(), { stallAfterMinutes: 20 });
+    assert.equal(state.state, 'stalled');
+    assert.match(state.reason, /会话无响应/);
+    assert.match(state.reason, /最后一条消息 30 分钟前/);
+    assert.ok(state.lastActivityMs > 0);
+  });
+
+  it('it heals itself: fresh activity after a quiet spell flips the same call back to unknown', () => {
+    const old = sessionState([user(ago(30 * 60 * 1000))], now(), { stallAfterMinutes: 20 });
+    assert.equal(old.state, 'stalled');
+    const fresh = sessionState([user(ago(30 * 60 * 1000)), user(ago(1 * 60 * 1000))], now(), { stallAfterMinutes: 20 });
+    assert.equal(fresh.state, 'unknown', 'non-terminal: the newest message governs');
+  });
+
+  it('a session with no messages at all stays unknown without inventing a time', () => {
+    const state = sessionState([], now(), { stallAfterMinutes: 20 });
+    assert.equal(state.state, 'unknown');
+    assert.equal(state.lastActivityMs, undefined);
+  });
+});

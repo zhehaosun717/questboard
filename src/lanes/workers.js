@@ -189,7 +189,12 @@ export function workerState(basePath, now = Date.now(), options = {}) {
   const outPath = `${basePath}.out`;
   const exitPath = `${basePath}.exit`;
   const heartbeat = readHeartbeat(`${basePath}.alive`, now, options.token ?? options.registryToken ?? options.heartbeatToken);
-  const decorate = (result) => withHeartbeat(result, heartbeat);
+  // FB2-10 item 2: the .out mtime is the file lane's last known activity, exposed on every state so the
+  // card face can say 上次有动静 without re-statting.
+  const decorate = (result) => {
+    const outMtime = mtime(outPath);
+    return withHeartbeat(outMtime ? { ...result, lastActivityMs: outMtime } : result, heartbeat);
+  };
   if (!fs.existsSync(outPath)) return decorate({ state: 'unknown', reason: 'no .out file' });
   const exitExists = fs.existsSync(exitPath);
   const exitRecord = exitExists ? parseExitRecord(readText(exitPath)) : null;
