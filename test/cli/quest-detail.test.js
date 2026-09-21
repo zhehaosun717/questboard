@@ -303,3 +303,42 @@ describe('questboard get — report evidence', () => {
   });
 });
 
+
+describe('FB2-03 post/update flags and get output', () => {
+  it('post echoes the file set; supersedes shows on get in both directions', async () => {
+    fx.project.write('docs/briefs/QD-30-old.md', '# QD-30\n\n## Files you may edit\n\n- `src/qd30/a.js`\n');
+    fx.project.write('docs/briefs/QD-31-new.md', '# QD-31');
+    const posted = await atBoard(['post', '--package', 'QD-30', '--brief', 'docs/briefs/QD-30-old.md']);
+    assert.equal(posted.status, 0, posted.stderr);
+    assert.match(posted.stdout, /可改文件（brief 抽取）: src\/qd30\/a\.js/);
+    const overridden = await atBoard(['post', '--package', 'QD-31', '--brief', 'docs/briefs/QD-31-new.md', '--files', 'src/qd31/only.js', '--supersedes', 'QD-30']);
+    assert.equal(overridden.status, 0, overridden.stderr);
+    assert.match(overridden.stdout, /可改文件（显式指定）: src\/qd31\/only\.js/);
+    const oldGet = await atBoard(['get', 'QD-30']);
+    assert.match(oldGet.stdout, /取代: 被 QD-31 取代/);
+    const newGet = await atBoard(['get', 'QD-31']);
+    assert.match(newGet.stdout, /取代: 取代了 QD-30/);
+  });
+
+  it('update sets and clears a hold; get shows it while it is on', async () => {
+    fx.project.write('docs/briefs/QD-32-hold.md', '# QD-32');
+    await atBoard(['post', '--package', 'QD-32', '--brief', 'docs/briefs/QD-32-hold.md']);
+    const held = await atBoard(['update', 'QD-32', '--hold', '等设计稿']);
+    assert.equal(held.status, 0, held.stderr);
+    const during = await atBoard(['get', 'QD-32']);
+    assert.match(during.stdout, /挂起: 等设计稿/);
+    const cleared = await atBoard(['update', 'QD-32', '--hold', '']);
+    assert.equal(cleared.status, 0, cleared.stderr);
+    const after = await atBoard(['get', 'QD-32']);
+    assert.ok(!/挂起:/.test(after.stdout));
+  });
+
+  it('post --needs lands on the quest and get shows it', async () => {
+    fx.project.write('docs/briefs/QD-33-needs.md', '# QD-33');
+    const posted = await atBoard(['post', '--package', 'QD-33', '--brief', 'docs/briefs/QD-33-needs.md', '--needs', 'runs-node,web']);
+    assert.equal(posted.status, 0, posted.stderr);
+    const got = await atBoard(['get', 'QD-33']);
+    assert.match(got.stdout, /需要能力: runs-node, web/);
+    assert.match(got.stdout, /能力不够/);
+  });
+});

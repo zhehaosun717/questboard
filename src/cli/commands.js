@@ -113,6 +113,12 @@ export function questDetailText(quest) {
     lines.push(`  批注 ${annotations.total} 条（${annotations.page}）: ${counts}`);
     for (const item of annotations.first || []) lines.push(`    - [${item.verdict || '未表态'}] ${item.note}`);
   }
+  // FB2-03: the pre-dispatch gates a reader cares about — what replaces or replaced this quest, any hold
+  // and its reason, and the capabilities a card must declare.
+  if (quest.supersededBy) lines.push(`  取代: 被 ${quest.supersededBy} 取代`);
+  else if ((quest.supersedes || []).length) lines.push(`  取代: 取代了 ${quest.supersedes.join('、')}`);
+  if (quest.hold) lines.push(`  挂起: ${quest.hold}`);
+  if ((quest.needs || []).length) lines.push(`  需要能力: ${quest.needs.join(', ')}`);
   lines.push(`  可改文件: ${(quest.files || []).join(', ') || '无'}`);
   for (const d of quest.dispatches || []) lines.push(`  派单: ${d.at} ${d.model} (${d.name}) 由 ${d.by}${d.adopted ? '（接管已在跑的 worker）' : ''}${d.requestKey ? ` key=${d.requestKey}` : ''}`);
   for (const r of quest.rulings || []) lines.push(`  裁决: ${r.at} ${r.by}: ${r.text}`);
@@ -223,9 +229,12 @@ export const commands = {
       package: option(args, '--package'), brief: option(args, '--brief'), kind: option(args, '--kind'),
       parents: option(args, '--parents'), conflicts: option(args, '--conflicts'), allowedLanes: option(args, '--lanes'),
       priority: option(args, '--priority'), needsOwner: option(args, '--needs-owner'), reviewPage: option(args, '--review-page'),
-      title: option(args, '--title'), by: option(args, '--by') || 'coordinator',
+      title: option(args, '--title'), supersedes: option(args, '--supersedes'), hold: option(args, '--hold'),
+      needs: option(args, '--needs'), files: option(args, '--files'), by: option(args, '--by') || 'coordinator',
     });
     out(questLine(quest));
+    // FB2-03 item 30: the poster sees the file set they signed up for, right here.
+    if (quest.files !== undefined) out('  可改文件（' + (quest.filesSource === 'override' ? '显式指定' : 'brief 抽取') + '）: ' + (quest.files.join(', ') || '无'));
   },
 
   // Revision-guarded correction of a posted quest's own descriptive fields (title/brief/parents/conflicts/
@@ -233,17 +242,17 @@ export const commands = {
   // worker's slot. Only flags actually passed are sent, so a field left out is never touched or re-saved.
   async update(args) {
     const { base } = context(args);
-    const id = positional(args, ['--title', '--brief', '--parents', '--conflicts', '--lanes', '--needs-owner', '--if-revision', '--by', '--project', '--url']);
+    const id = positional(args, ['--title', '--brief', '--parents', '--conflicts', '--lanes', '--needs-owner', '--hold', '--needs', '--files', '--if-revision', '--by', '--project', '--url']);
     if (!id) {
       throw new Error('usage: questboard update <id> [--title "..."] [--brief docs/briefs/x.md] [--parents A-1,B-2] '
-        + '[--conflicts C-3] [--lanes codex,agy] [--needs-owner "question"] [--if-revision 3] [--by who]　'
+        + '[--conflicts C-3] [--lanes codex,agy] [--needs-owner "question"] [--hold "原因，空串解除"] [--needs runs-node,web] [--files a,b] [--if-revision 3] [--by who]　'
         + '只改传了的字段，其余不动；worker 占着这个任务时会被拒绝，先 release 再改');
     }
     const payload = { by: option(args, '--by') || 'owner' };
     if (option(args, '--if-revision') !== undefined) payload.ifRevision = option(args, '--if-revision');
     for (const [flag, field] of [
       ['--title', 'title'], ['--brief', 'brief'], ['--parents', 'parents'],
-      ['--conflicts', 'conflicts'], ['--lanes', 'allowedLanes'], ['--needs-owner', 'needsOwner'],
+      ['--conflicts', 'conflicts'], ['--lanes', 'allowedLanes'], ['--needs-owner', 'needsOwner'], ['--hold', 'hold'], ['--needs', 'needs'], ['--files', 'files'],
     ]) {
       const value = option(args, flag);
       if (value !== undefined) payload[field] = value;
