@@ -9,6 +9,7 @@ export type QuestKind = 'code' | 'review' | 'art' | 'tool' | 'owner';
 
 export type QuestStatus =
   | 'posted' | 'dispatched' | 'delivered' | 'reviewing' | 'needs_owner' | 'owner_playtest' | 'lane_limited'
+  | 'needs_coordinator' | 'owner_ruled'
   | 'bounced' | 'failed' | 'stalled' | 'done' | 'superseded' | 'cancelled';
 
 export interface RoleCardRef {
@@ -40,6 +41,16 @@ export interface ManualResolution {
   scope: 'manual';
 }
 
+// FB2-02: the current attempt immutable annotation capture (src/core/annotationSnapshot.js);
+// the card chip reads the count from here.
+export interface AnnotationSnapshotRef {
+  page: string;
+  title: string;
+  count: number;
+  capturedAt: string;
+  digest: string;
+  path: string;
+}
 export interface Assignee {
   adventurerId: string;
   family: string | null;
@@ -54,6 +65,7 @@ export interface Assignee {
   phase?: string;
   cancelRequest?: CancelRequest;
   roleCard?: RoleCardRef;
+  annotationSnapshot?: AnnotationSnapshotRef;
 }
 
 export interface Ruling {
@@ -86,6 +98,8 @@ export interface Quest {
   allowedLanes: string[];
   needsOwner: string;
   reviewPage: string;
+  // Detail-route only (FB2-02 item 6): the review-page annotation summary; null/absent elsewhere.
+  annotationSummary?: { page: string; total?: number; pass?: number; fail?: number; fix?: number; other?: number; first?: { verdict: string; note: string }[]; error?: string } | null;
   assignee: Assignee | null;
   dispatches: Assignee[];
   rulings: Ruling[];

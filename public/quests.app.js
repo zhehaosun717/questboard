@@ -4,16 +4,16 @@
   const COLUMNS = [
     { key: 'open', num: '01', title: '悬赏中', sub: 'OPEN', statuses: ['posted', 'failed', 'bounced', 'stalled', 'lane_limited'] },
     { key: 'run', num: '02', title: '进行中', sub: 'ON QUEST', statuses: ['dispatched'] },
-    { key: 'check', num: '03', title: '待验收', sub: 'RETURNED', statuses: ['delivered', 'reviewing'] },
+    { key: 'check', num: '03', title: '待验收', sub: 'RETURNED', statuses: ['delivered', 'reviewing', 'needs_coordinator', 'owner_ruled'] },
     { key: 'owner', num: '04', title: '等你', sub: 'YOUR CALL', statuses: ['needs_owner', 'owner_playtest'] },
     { key: 'done', num: '05', title: '已完成', sub: 'ARCHIVED', statuses: ['done', 'superseded', 'cancelled'], limit: 12 },
   ];
-  const STATUS = { posted: '待接', dispatched: '进行中', delivered: '已交付', reviewing: '审核中', needs_owner: '等裁决', owner_playtest: '等你试玩', lane_limited: '通道受限', bounced: '限额退回', failed: '失败', stalled: '卡住', done: '已完成', superseded: '已取代', cancelled: '已取消' };
+  const STATUS = { posted: '待接', dispatched: '进行中', delivered: '已交付', reviewing: '审核中', needs_owner: '等裁决', owner_playtest: '等你试玩', needs_coordinator: '等 coordinator', owner_ruled: '已裁决', lane_limited: '通道受限', bounced: '限额退回', failed: '失败', stalled: '卡住', done: '已完成', superseded: '已取代', cancelled: '已取消' };
   const KIND = { code: '代码', review: '审核', art: '美术', tool: '工具', owner: '你来' };
   const ADV = { available: '空闲', limited: '限额', broke: '没钱', paused: '暂停', disabled: '停用' };
   const LED = { available: 'ok', limited: 'warn', broke: 'bad', paused: '', disabled: '' };
   const BILLING = { subscription: '订阅', plan: '套餐', payg: '按量付费' };
-  const NODE_COLORS = { dispatched: '#4b86c9', delivered: '#9a7ccf', reviewing: '#9a7ccf', failed: '#d9442e', stalled: '#d9442e', bounced: '#e0662f', lane_limited: '#e0662f', needs_owner: '#f2b134', owner_playtest: '#f2b134', done: '#3fae6b' };
+  const NODE_COLORS = { dispatched: '#4b86c9', delivered: '#9a7ccf', reviewing: '#9a7ccf', failed: '#d9442e', stalled: '#d9442e', bounced: '#e0662f', lane_limited: '#e0662f', needs_owner: '#f2b134', owner_playtest: '#f2b134', needs_coordinator: '#9a7ccf', owner_ruled: '#9a7ccf', done: '#3fae6b' };
 
   const state = { snap: null, view: 'board', selected: null, picking: null, connected: false, refreshTimer: null, seen: new Set(), lastStatus: new Map() };
   const $ = (selector) => document.querySelector(selector);

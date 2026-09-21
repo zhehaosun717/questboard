@@ -19,6 +19,23 @@ export function OwnerTaskSection({ quest, draft, onDraftChange, refresh, pushToa
   const [busy, setBusy] = useState(false);
   const isOwnerQuest = quest.kind === 'owner';
 
+  // FB2-02 item 6: 保存评审结论 for a needs_owner art quest with a review page — needs_owner ->
+  // owner_ruled, counts and annotation texts to the coordinator inbox, all-pass art waits for the import.
+  const canSaveRuling = quest.kind === 'art' && Boolean(quest.reviewPage) && quest.status === 'needs_owner';
+  const saveRuling = async () => {
+    if (!window.confirm(`按评审页批注保存 ${quest.id} 的结论？`)) return;
+    setBusy(true);
+    try {
+      await api.ownerRuling(quest.id);
+      pushToast(`${quest.id} 结论已保存，等 coordinator 导入`);
+      refresh();
+    } catch (err) {
+      pushToast(`结论没存上：${errorText(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const record = async () => {
     const text = draft.trim();
     if (!text) {
@@ -78,6 +95,11 @@ export function OwnerTaskSection({ quest, draft, onDraftChange, refresh, pushToa
         onChange={(e) => onDraftChange(e.target.value)}
       />
       <div className="row end">
+        {canSaveRuling ? (
+          <button className="btn" type="button" disabled={busy} onClick={saveRuling}>
+            保存评审结论
+          </button>
+        ) : null}
         <button
           className={isOwnerQuest ? 'btn' : 'btn primary'}
           type="button"

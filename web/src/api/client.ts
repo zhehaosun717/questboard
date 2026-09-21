@@ -44,6 +44,16 @@ export const api = {
   // ifRevision: the quest revision the owner looked at; a quest changed since is refused with stale_revision.
   assign: (questId: string, adventurer: string, ifRevision?: number) =>
     call<{ quest: Quest; repeated?: boolean }>(`${quest(questId)}/assign`, 'POST', { adventurer, by: 'owner', ifRevision }),
+  // FB2-02: one decision route for 退回重做 — the server reads the page's annotations, and a coordinator
+  // mention or the owner's checkbox parks the quest in needs_coordinator instead of re-posting it.
+  sendBack: (questId: string, reason: string, needsCoordinator: boolean) =>
+    call<{ quest: Quest; routed: 'posted' | 'needs_coordinator' }>(`${quest(questId)}/send-back`, 'POST', { reason, needsCoordinator, by: 'owner' }),
+  // 交给 coordinator 重写简报: one question thread naming the card, nothing else moves.
+  handToCoordinator: (questId: string, note: string) =>
+    call<{ thread: { id: string } }>(`${quest(questId)}/hand-to-coordinator`, 'POST', { note, by: 'owner' }),
+  // Saves the owner's verdicts over the review page: needs_owner -> owner_ruled, counts to the inbox.
+  ownerRuling: (questId: string) =>
+    call<{ quest: Quest; summary: { pass: number; fail: number; fix: number; other: number } }>(`${quest(questId)}/owner-ruling`, 'POST', { by: 'owner' }),
   rule: (questId: string, text: string) => call<{ quest: Quest }>(`${quest(questId)}/ruling`, 'POST', { text, by: 'owner' }),
   // Writes a review brief and posts a review quest for returned work; refused (409) while one is still open.
   // With an adventurer the review is dispatched to that card in the same step, after the rules accept it.

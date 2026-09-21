@@ -139,7 +139,7 @@ export function createTools({ config, base, author, home, request }) {
     {
       name: 'questboard_set_quest_status',
       title: 'Set a quest status',
-      description: 'Move a quest after verification or a decision: done, delivered, reviewing, needs_owner, owner_playtest, lane_limited, superseded, cancelled, failed. Dispatch itself only happens through assign or adopt. On `done`, acceptance is optional: pass it to record who accepted and which of this quest\'s current-attempt evidence items (from get_quest\'s `evidence`) that acceptance relied on — actor must equal this call\'s own identity (the configured author), and every evidenceRef must match a bound item by kind, digest and attemptId or the call is refused.',
+      description: 'Move a quest after verification or a decision: done, delivered, reviewing, needs_owner, owner_playtest, needs_coordinator, owner_ruled, lane_limited, superseded, cancelled, failed. Dispatch itself only happens through assign or adopt. On `done`, acceptance is optional: pass it to record who accepted and which of this quest\'s current-attempt evidence items (from get_quest\'s `evidence`) that acceptance relied on — actor must equal this call\'s own identity (the configured author), and every evidenceRef must match a bound item by kind, digest and attemptId or the call is refused.',
       inputSchema: {
         type: 'object',
         properties: {

@@ -297,7 +297,9 @@ describe('board pure helpers', () => {
     it('names the check column as verification, not an owner queue', () => {
       const check = COLUMNS.find((col) => col.key === 'check');
       expect([check?.title, check?.sub]).toEqual(['交差核验', 'VERIFY']);
-      expect(check?.statuses).toEqual(['delivered', 'reviewing']);
+      // FB2-02: the coordinator's queue also holds the two coordinator-bound parks — a send-back whose
+      // annotations named it (needs_coordinator) and a saved owner ruling waiting for import (owner_ruled).
+      expect(check?.statuses).toEqual(['delivered', 'reviewing', 'needs_coordinator', 'owner_ruled']);
     });
 
     it('keeps the four active zones plus the archive unchanged in membership', () => {

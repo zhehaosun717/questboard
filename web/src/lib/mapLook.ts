@@ -17,6 +17,8 @@ export const MAP_PIN_COLORS: Record<QuestStatus, string> = {
   dispatched: '#3f6f9e',
   delivered: '#a8322a',
   reviewing: '#a8322a',
+  needs_coordinator: '#3f6f9e',
+  owner_ruled: '#3f6f9e',
   needs_owner: '#a8322a',
   owner_playtest: '#a8322a',
   failed: '#7a221b',

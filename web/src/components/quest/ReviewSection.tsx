@@ -66,6 +66,7 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
   // Feedback 15: the evidence AcceptancePanel's checkboxes currently name — read into the acceptance record
   // sent on accept, never on 退回 (a rejection carries no acceptance).
   const [evidenceRefs, setEvidenceRefs] = useState<AcceptanceEvidenceRef[]>([]);
+  const [needsCoordinator, setNeedsCoordinator] = useState(false);
   const technical = acceptanceBy(quest.kind) === 'coordinator';
   const reviews = reviewsOf(snap, quest.id);
   const openReview = reviews.find((review) => !isArchived(review));
@@ -118,13 +119,29 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
     }
     if (!window.confirm(t('reviewSection.confirmSendBack', { id: quest.id }))) return;
     void run(async () => {
-      await api.rule(quest.id, `退回重做：${reason}`);
-      await api.setQuestStatus(quest.id, 'posted', `退回重做：${reason}`);
+      // FB2-02 item 2: one decision route — the server reads the review page's annotations and parks the
+      // quest in needs_coordinator when a note names the coordinator or the owner ticked the box.
+      const result = await api.sendBack(quest.id, reason, needsCoordinator);
       await closeReviews();
       onDraftChange('');
-      pushToast(t('reviewSection.sentBack', { id: quest.id }));
+      setNeedsCoordinator(false);
+      pushToast(
+        result.routed === 'needs_coordinator'
+          ? t('reviewSection.routedCoordinator', { id: quest.id })
+          : t('reviewSection.sentBack', { id: quest.id }),
+      );
       refresh();
     }, t('reviewSection.sendBackFailed'));
+  };
+
+  // FB2-02 item 4: 交给 coordinator 重写简报 — a question thread naming the card, nothing else moves.
+  const handToCoordinator = () => {
+    void run(async () => {
+      await api.handToCoordinator(quest.id, draft.trim());
+      onDraftChange('');
+      pushToast(t('reviewSection.handedToCoordinator', { id: quest.id }));
+      refresh();
+    }, t('reviewSection.handFailed'));
   };
 
   return (
@@ -190,7 +207,18 @@ export function ReviewSection({ quest, snap, draft, onDraftChange, onSelectQuest
         value={draft}
         onChange={(e) => onDraftChange(e.target.value)}
       />
+      <label className="row" style={{ gap: 6 }}>
+        <input
+          type="checkbox"
+          checked={needsCoordinator}
+          onChange={(e) => setNeedsCoordinator(e.target.checked)}
+        />
+        {t('reviewSection.needsCoordinator')}
+      </label>
       <div className="row end">
+        <button className="btn" type="button" disabled={busy} onClick={handToCoordinator}>
+          {t('reviewSection.handToCoordinator')}
+        </button>
         <button className="btn danger" type="button" disabled={busy} onClick={sendBack}>
           {t('reviewSection.sendBack')}
         </button>

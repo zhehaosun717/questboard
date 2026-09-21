@@ -3,6 +3,7 @@ import type { Quest, Snapshot } from '../api/types';
 import { formatAgo, isQueueOnly } from '../lib/board';
 import { warningText } from '../lib/graphDrop';
 import { KIND, OPEN_STATUSES, STATUS } from '../lib/labels';
+import { useT } from '../lib/i18n';
 import { nextStep } from '../lib/nextStep';
 import { rankOf, sealFor } from '../lib/questLook';
 import { getDropVerdict, isAwaitingSignOff } from '../lib/questState';
@@ -29,6 +30,7 @@ export function QuestCard({
   onDropCard,
 }: QuestCardProps) {
   const [isOver, setIsOver] = useState(false);
+  const t = useT();
 
   const verdict = pickingCardId ? getDropVerdict(snap, quest, pickingCardId) : undefined;
   const isOpen = OPEN_STATUSES.includes(quest.status);
@@ -197,6 +199,12 @@ export function QuestCard({
           {STATUS[quest.status] ?? quest.status}
         </span>
         {showDetail ? <div className={`mt-1.5 line-clamp-2 font-mono text-[11px] leading-[1.45] ${softText}`}>{quest.lastDetail}</div> : null}
+        {/* FB2-02 item 1: a redo dispatch says how many annotations it carries. */}
+        {assignee?.annotationSnapshot?.count ? (
+          <div className={`mt-1 text-[11px] font-bold ${softText}`}>
+            {t('questCard.withAnnotations', { count: assignee.annotationSnapshot.count })}
+          </div>
+        ) : null}
         {quest.needsOwner ? (
           <div
             className={`mt-2 border-l-[3px] border-amber-dk px-2 py-[5px] text-[12px] ${

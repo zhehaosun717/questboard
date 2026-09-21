@@ -13,6 +13,8 @@ export const STATUS: Record<QuestStatus, string> = {
   get needs_owner() { return t('status.needs_owner'); },
   get owner_playtest() { return t('status.owner_playtest'); },
   get lane_limited() { return t('status.lane_limited'); },
+  get needs_coordinator() { return t('status.needs_coordinator'); },
+  get owner_ruled() { return t('status.owner_ruled'); },
   get bounced() { return t('status.bounced'); },
   get failed() { return t('status.failed'); },
   get stalled() { return t('status.stalled'); },
@@ -79,7 +81,7 @@ export const COLUMNS: Column[] = [
     get sub() { return t('column.run.sub'); },
   },
   {
-    key: 'check', num: '03', statuses: ['delivered', 'reviewing'],
+    key: 'check', num: '03', statuses: ['delivered', 'reviewing', 'needs_coordinator', 'owner_ruled'],
     get title() { return t('column.check.title'); },
     get sub() { return t('column.check.sub'); },
   },
@@ -99,7 +101,7 @@ export const OPEN_STATUSES: QuestStatus[] = COLUMNS[0]!.statuses;
 
 export const NODE_COLORS: Partial<Record<QuestStatus, string>> = {
   dispatched: '#4b86c9', delivered: '#9a7ccf', reviewing: '#9a7ccf', failed: '#d9442e', stalled: '#d9442e',
-  bounced: '#e0662f', lane_limited: '#e0662f', needs_owner: '#f2b134', owner_playtest: '#f2b134', done: '#3fae6b',
+  bounced: '#e0662f', lane_limited: '#e0662f', needs_owner: '#f2b134', owner_playtest: '#f2b134', needs_coordinator: '#9a7ccf', owner_ruled: '#9a7ccf', done: '#3fae6b',
 };
 
 export function describeEvent(event: QuestEvent): string {

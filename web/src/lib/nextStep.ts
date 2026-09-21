@@ -179,6 +179,14 @@ export function nextStep(quest: Quest, snap: Snapshot): NextStep {
     return { who: 'you', tone: 'you', title: t('step.playtestTitle'), detail: t('step.playtestDetail'), action: 'owner-task' };
   }
 
+  // FB2-02: both are coordinator holds — the send-back asked for it, or the owner's saved verdicts
+  // wait to be imported. Neither is draggable (rules.js refuses and says why).
+  if (quest.status === 'needs_coordinator') {
+    return { who: 'coordinator', tone: 'coordinator', title: t('step.needsCoordinatorTitle'), detail: t('step.needsCoordinatorDetail'), action: 'none' };
+  }
+  if (quest.status === 'owner_ruled') {
+    return { who: 'coordinator', tone: 'coordinator', title: t('step.ruledTitle'), detail: quest.kind === 'art' ? t('step.ruledArtDetail') : t('step.ruledDetail'), action: 'none' };
+  }
   if (isAwaitingSignOff(quest)) return signOffStep(quest, snap);
 
   if (quest.status === 'dispatched') {
