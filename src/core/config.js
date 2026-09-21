@@ -547,7 +547,7 @@ export function resolveConfig(root, raw, { dropInvalidAlibaba = false } = {}) {
       dispatchDirs: checkBriefDirs(base, stringList(briefs.dispatchDirs, 'briefs.dispatchDirs', ['docs/briefs']), 'briefs.dispatchDirs'),
       ownerDirs: checkBriefDirs(base, stringList(briefs.ownerDirs, 'briefs.ownerDirs', stringList(briefs.dispatchDirs, 'briefs.dispatchDirs', ['docs/briefs'])), 'briefs.ownerDirs'),
       packagePattern: regex(briefs.packagePattern || '^[A-Z]+(?:-[A-Z]+)*-\\d+[A-Z]?', 'briefs.packagePattern'),
-      fileListHeading: regex(briefs.fileListHeading || '^#{1,6}\\s*files you may (edit|touch)', 'briefs.fileListHeading', 'i'),
+      fileListHeading: regex(briefs.fileListHeading || '^#{1,6}\\s*(files you may (edit|touch)|可改文件|可修改文件)', 'briefs.fileListHeading', 'i'),
       recentDays: briefs.recentDays === undefined ? 7 : briefs.recentDays,
     },
     reviewPages: raw.reviewPages ? { dir: abs(raw.reviewPages.dir, 'reviewPages.dir'), filePattern: regex(raw.reviewPages.filePattern || '^review_.+\\.html$', 'reviewPages.filePattern') } : null,

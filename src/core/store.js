@@ -185,7 +185,8 @@ export function validatePost(config, payload, quests = []) {
   const needs = splitList(input.needs);
   const badNeed = needs.find((n) => n.length > 64);
   if (badNeed) errors.needs = 'needs 里有过长的能力名：' + badNeed.slice(0, 80);
-  const filesOverride = splitList(input.files);
+  // An override is only an override when the caller sent --files; a repost without it keeps the old one.
+  const filesOverride = input.files === undefined || input.files === null ? undefined : splitList(input.files);
   const allowedLanes = splitList(input.allowedLanes);
   const badLane = allowedLanes.find((lane) => !config.lanes[lane]);
   if (badLane) errors.allowedLanes = `unknown lane ${badLane}; this project defines ${Object.keys(config.lanes).join(', ')}`;
@@ -366,7 +367,8 @@ export class QuestStore extends EventEmitter {
       }
     }
     const at = now();
-    const { by, ...fields } = value;
+    // filesOverride stays out of the plain spread: undefined (no --files given) must not erase an old override.
+    const { by, filesOverride: _filesOverride, ...fields } = value;
     // A stalled worker is silence, not a confirmed exit (see release()): it still holds its slot and file
     // reservations, so a re-post (say, an updated brief) must not knock it out of that status just because
     // this post also carries a needsOwner question — the question is recorded, but the attempt is not freed.
@@ -374,6 +376,7 @@ export class QuestStore extends EventEmitter {
     const quest = this.save({
       ...(existing || { dispatches: [], rulings: [], assignee: null, createdAt: at, status: 'posted' }),
       ...fields,
+      ...(value.filesOverride !== undefined ? { filesOverride: value.filesOverride } : {}),
       id: value.package,
       title,
       status: value.needsOwner && !owned ? 'needs_owner' : (existing && !['done', 'superseded', 'cancelled'].includes(existing.status) ? existing.status : 'posted'),

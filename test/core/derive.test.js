@@ -41,6 +41,27 @@ describe('briefs', () => {
     assert.equal(titleLine(`\n# ${brief}`), 'RUN-3C — Catalogue the new smoke fields.');
   });
 
+
+  it('reads the Chinese 可改文件 heading too, and nothing outside any file-list section (FB2-03 item 30)', () => {
+    const { config } = makeProject();
+    const zh = ['# X', '正文提到 `src/mentioned-only.js`，不在可改文件节。', '', '## 可改文件', '- `src/a.js`', '- `src/b.js`', '', '## 交付', '- `src/not-editable.js`'].join('\n');
+    assert.deepEqual(parseFileSet(zh, config.briefs.fileListHeading), ['src/a.js', 'src/b.js']);
+    // the English heading keeps working
+    const en = ['## Files you may edit', '- `src/e.js`'].join('\n');
+    assert.deepEqual(parseFileSet(en, config.briefs.fileListHeading), ['src/e.js']);
+  });
+
+  it('honours an explicit filesOverride instead of parsing the brief (FB2-03 item 30)', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/RUN-3C-catalogue.md', brief);
+    const [derived] = withFileSets(config, [{ id: 'RUN-3C', brief: 'docs/briefs/RUN-3C-catalogue.md' }]);
+    assert.equal(derived.files.length, 3);
+    const [overridden] = withFileSets(config, [{ id: 'RUN-3C', brief: 'docs/briefs/RUN-3C-catalogue.md', filesOverride: ['src/only-this.js'] }]);
+    assert.deepEqual(overridden.files, ['src/only-this.js']);
+    // an empty override is an override too: the poster said this quest touches nothing
+    const [empty] = withFileSets(config, [{ id: 'RUN-3C', brief: 'docs/briefs/RUN-3C-catalogue.md', filesOverride: [] }]);
+    assert.deepEqual(empty.files, []);
+  });
   it('attaches file sets and lists recent briefs nobody posted or dispatched', () => {
     const { config, write } = makeProject();
     write('docs/briefs/RUN-3C-catalogue.md', brief);

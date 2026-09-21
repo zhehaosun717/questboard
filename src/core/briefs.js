@@ -234,7 +234,9 @@ export function withFileSets(config, quests, { recheckingId } = {}) {
   const resolved = quests.map((quest) => ({ quest, status: fileStatusFor(config, quest.brief) }));
   const unknownHeld = resolved.filter(({ quest, status }) => status.unknown && holdsSlot(quest) && quest.kind !== 'review');
   return resolved.map(({ quest, status }) => {
-    const base = { ...quest, files: status.files };
+    // FB2-03 item 30: an explicit --files override (present, even empty) replaces brief extraction;
+    // absent, the brief's file-list section decides as before.
+    const base = { ...quest, files: quest.filesOverride !== undefined ? [...quest.filesOverride] : status.files };
     if (status.unknown) base.briefUnknownReason = status.reason;
     if (quest.kind === 'review' || !unknownHeld.length) return base;
     const isHeld = holdsSlot(quest) && quest.id !== recheckingId;
