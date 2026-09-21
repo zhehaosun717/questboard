@@ -117,3 +117,34 @@ describe('questboard post --review (FB2-05)', () => {
     assert.match(stray.stderr, /--mechanical-check 只在 --review mechanical 时有效/);
   });
 });
+
+describe('questboard status/cancel/resolve flag shapes (FB2-06)', () => {
+  before(async () => {
+    fx.project.write('docs/briefs/CA-STAT-1.md', '# CA-STAT-1');
+    const posted = await fx.api('/api/quests', 'POST', { package: 'CA-STAT-1', brief: 'docs/briefs/CA-STAT-1.md' });
+    assert.equal(posted.status, 201);
+    fx.project.write('docs/briefs/CA-CANCEL-1.md', '# CA-CANCEL-1');
+    const cancelTarget = await fx.api('/api/quests', 'POST', { package: 'CA-CANCEL-1', brief: 'docs/briefs/CA-CANCEL-1.md' });
+    assert.equal(cancelTarget.status, 201);
+    assert.equal((await fx.api('/api/quests/CA-CANCEL-1/assign', 'POST', { adventurer: 'oc-mimo' })).status, 200);
+  });
+
+  it('status takes the value as a positional or as --status, and refuses a bogus value with a usage example', async () => {
+    const positional = await atBoard(['status', 'CA-STAT-1', 'needs_owner', '--detail', '问一句']);
+    assert.equal(positional.status, 0, positional.stderr);
+    const flagged = await atBoard(['status', 'CA-STAT-1', '--status', 'reviewing', '--detail', '开始看']);
+    assert.equal(flagged.status, 0, flagged.stderr);
+    const quest = (await fx.api('/api/quests/CA-STAT-1')).body.quest;
+    assert.equal(quest.status, 'reviewing');
+    const bogus = await atBoard(['status', 'CA-STAT-1', 'frobnicated']);
+    assert.equal(bogus.status, 1);
+    assert.match(bogus.stderr, /usage: questboard status/);
+    assert.match(bogus.stderr, /例：/);
+  });
+
+  it('cancel takes --detail as the reason (--reason and --detail are equivalent)', async () => {
+    const requested = await atBoard(['cancel', 'CA-CANCEL-1', '--detail', 'owner 用旧写法取消']);
+    assert.equal(requested.status, 0, requested.stderr);
+    assert.match(requested.stdout, /取消结果：/);
+  });
+});

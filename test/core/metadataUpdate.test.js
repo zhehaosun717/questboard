@@ -106,4 +106,17 @@ describe('validateMetadataUpdate', () => {
     const repair = validateMetadataUpdate(config, legacyReview, [legacyReview, quest({ id: 'RUN-1', parents: [] })], { parents: 'RUN-1' });
     assert.match(repair.errors.parents, /REVIEW-1 is a posted review/, 'even a real, valid replacement parent is refused for a review — cancel and repost, never a silent repair');
   });
+
+  it('accepts reviewPage as a metadata field and refuses anything else unknown (FB2-06 item 7)', () => {
+    const q = quest({ reviewPage: 'robot8' });
+    const { errors, value, changes } = validateMetadataUpdate(config, q, [q], { reviewPage: 'robot9' });
+    assert.deepEqual(errors, {});
+    assert.deepEqual(value, { reviewPage: 'robot9' });
+    assert.deepEqual(changes, { reviewPage: { from: 'robot8', to: 'robot9' } });
+    const cleared = validateMetadataUpdate(config, q, [q], { reviewPage: '' });
+    assert.deepEqual(cleared.value, { reviewPage: '' }, 'an empty value clears the page');
+    const long = validateMetadataUpdate(config, q, [q], { reviewPage: 'x'.repeat(80) });
+    assert.deepEqual(long.errors, {});
+    assert.equal(long.value.reviewPage.length, 64, 'like the other text fields, the value is capped, not refused');
+  });
 });

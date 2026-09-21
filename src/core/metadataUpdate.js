@@ -4,7 +4,7 @@
 // reusable from store.js without either side owning the other's concerns.
 import { packageIdPattern, briefPathAllowed } from './patterns.js';
 
-export const METADATA_FIELDS = ['title', 'brief', 'parents', 'conflicts', 'allowedLanes', 'needsOwner', 'hold', 'needs', 'files', 'batch', 'waitingOn'];
+export const METADATA_FIELDS = ['title', 'brief', 'parents', 'conflicts', 'allowedLanes', 'needsOwner', 'hold', 'needs', 'files', 'batch', 'waitingOn', 'reviewPage'];
 // The only other keys a metadata-update payload may carry: transport, not a field to correct. Everything
 // else (status, kind, id, assignee, revision, dispatches, ...) is rejected outright — see validateMetadataUpdate.
 const METADATA_TRANSPORT_FIELDS = new Set(['by', 'ifRevision']);
@@ -259,6 +259,12 @@ export function validateMetadataUpdate(config, quest, quests, payload) {
   if (input.needsOwner !== undefined) {
     const needsOwner = String(input.needsOwner || '').trim().slice(0, MAX_TEXT);
     if (needsOwner !== (quest.needsOwner || '')) { value.needsOwner = needsOwner; changes.needsOwner = { from: quest.needsOwner || '', to: needsOwner }; }
+  }
+
+  // FB2-06 item 7: the art review page a quest points at — plain metadata, same shape post() validates.
+  if (input.reviewPage !== undefined) {
+    const reviewPage = String(input.reviewPage || '').trim().slice(0, 64);
+    if (reviewPage !== (quest.reviewPage || '')) { value.reviewPage = reviewPage; changes.reviewPage = { from: quest.reviewPage || '', to: reviewPage }; }
   }
 
   // Spread, not the errors object itself: CopyDataProperties (what a spread does) uses CreateDataProperty,

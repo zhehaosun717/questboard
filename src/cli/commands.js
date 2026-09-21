@@ -13,6 +13,7 @@ import { planRosterImport, importPlanText, importDetailLines } from '../core/ros
 import { StatusLog, foldStatuses } from '../core/status.js';
 import { appendJsonLine, readJsonLines } from '../core/jsonl.js';
 import { projectId } from '../core/snapshot.js';
+import { QUEST_STATUSES } from '../core/store.js';
 import { watchEvents } from './watch.js';
 
 const out = (text) => process.stdout.write(`${text}\n`);
@@ -75,6 +76,19 @@ function heartbeatLine(live) {
   return Number.isFinite(ageMs) ? `  最近心跳：${Math.max(0, Math.floor(ageMs / 1000))} 秒前` : null;
 }
 
+// FB2-06 item 6: repeatable --env KEY=VALUE for card add/edit. The shape is parsed here; whether the name
+// and value are allowed on a card is roster.js's call (validateCardEnv), exactly like a board-side write.
+function parseEnvFlags(args) {
+  if (!args.includes('--env')) return null;
+  const env = {};
+  for (const raw of optionAll(args, '--env')) {
+    const eq = raw.indexOf('=');
+    if (eq < 0 || !raw.slice(0, eq).trim()) throw new Error(`--env 后面要跟 KEY=VALUE，收到「${raw}」（例：--env OC_BASE_URL=http://provider.example/base）`);
+    env[raw.slice(0, eq).trim()] = raw.slice(eq + 1);
+  }
+  return env;
+}
+
 function context(args) {
   const config = projectConfig(args);
   return { config, base: serverUrl(args, config) };
@@ -82,7 +96,17 @@ function context(args) {
 
 // One quest in readable lines. Labels follow the board's everyday wording; --json is the agent-facing form.
 // Exported so the CLI tests can pin the exact detail rendering (the report lines especially).
-export function questDetailText(quest) {
+// FB2-06 item 1: a long card list (可接手, each refusal's cards) shows the first five plus 「等 N 张」in
+// readable mode; --json or --all prints the full list. `truncate` is the readable default.
+const CARD_LIST_CAP = 5;
+
+function cardListText(list, truncate, separator = '、') {
+  const cards = Array.isArray(list) ? list : [];
+  if (!truncate || cards.length <= CARD_LIST_CAP) return cards.join(separator);
+  return `${cards.slice(0, CARD_LIST_CAP).join(separator)} 等 ${cards.length - CARD_LIST_CAP} 张`;
+}
+
+export function questDetailText(quest, { truncate = true } = {}) {
   const REPORT_SOURCE_ZH = { delivery: '交差文件', 'exit-file': '退出文件', summary: '运行记录 .out' };
   const VERDICT_ZH = { PASS: '通过', FAIL: '不通过', findings: '通过但有问题' };
   const lines = [questLine(quest)];
@@ -126,8 +150,8 @@ export function questDetailText(quest) {
   for (const r of quest.rulings || []) lines.push(`  裁决: ${r.at} ${r.by}: ${r.text}`);
   if ((quest.threads || []).length) lines.push(`  相关消息: ${quest.threads.map((t) => `${t.id} ${t.title}${t.closed ? '（已关）' : ''}`).join('；')}`);
   const eligibility = quest.eligibility || {};
-  lines.push(`  可接手: ${(eligibility.canTake || []).join(', ') || '没有'}`);
-  for (const [message, cards] of Object.entries(eligibility.refused || {})) lines.push(`  不可（${(cards || []).join('、')}）: ${message}`);
+  lines.push(`  可接手: ${cardListText(eligibility.canTake || [], truncate, ', ') || '没有'}`);
+  for (const [message, cards] of Object.entries(eligibility.refused || {})) lines.push(`  不可（${cardListText(cards || [], truncate)}）: ${message}`);
   return lines.join('\n');
 }
 
@@ -159,10 +183,11 @@ function readExistingRoster(rosterFile) {
 }
 
 // Exclusive creation with a deterministic, collision-proof suffix: two changing imports in the same second
-// each keep their own backup instead of the second silently overwriting the first.
-function backupRosterFile(rosterFile, replace) {
+// each keep their own backup instead of the second silently overwriting the first. `tag` names the write
+// that made the backup (merge/replace imports, a card edit), so the file shelf stays readable.
+function backupRosterFile(rosterFile, replace, tag = null) {
   const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-  const suffix = replace ? '-replace' : '-merge';
+  const suffix = tag ? `-${tag}` : (replace ? '-replace' : '-merge');
   for (let attempt = 1; ; attempt += 1) {
     const backup = `${rosterFile}.bak-${timestamp}-${attempt}${suffix}`;
     try {
@@ -256,17 +281,17 @@ export const commands = {
   // worker's slot. Only flags actually passed are sent, so a field left out is never touched or re-saved.
   async update(args) {
     const { base } = context(args);
-    const id = positional(args, ['--title', '--brief', '--parents', '--conflicts', '--lanes', '--needs-owner', '--hold', '--needs', '--files', '--if-revision', '--by', '--project', '--url']);
+    const id = positional(args, ['--title', '--brief', '--parents', '--conflicts', '--lanes', '--needs-owner', '--hold', '--needs', '--files', '--review-page', '--if-revision', '--by', '--project', '--url']);
     if (!id) {
       throw new Error('usage: questboard update <id> [--title "..."] [--brief docs/briefs/x.md] [--parents A-1,B-2] '
-        + '[--conflicts C-3] [--lanes codex,agy] [--needs-owner "question"] [--hold "原因，空串解除"] [--needs runs-node,web] [--files a,b] [--if-revision 3] [--by who]　'
+        + '[--conflicts C-3] [--lanes codex,agy] [--needs-owner "question"] [--hold "原因，空串解除"] [--needs runs-node,web] [--files a,b] [--review-page robot8] [--if-revision 3] [--by who]　'
         + '只改传了的字段，其余不动；worker 占着这个任务时会被拒绝，先 release 再改');
     }
     const payload = { by: option(args, '--by') || 'owner' };
     if (option(args, '--if-revision') !== undefined) payload.ifRevision = option(args, '--if-revision');
     for (const [flag, field] of [
       ['--title', 'title'], ['--brief', 'brief'], ['--parents', 'parents'],
-      ['--conflicts', 'conflicts'], ['--lanes', 'allowedLanes'], ['--needs-owner', 'needsOwner'], ['--hold', 'hold'], ['--needs', 'needs'], ['--files', 'files'],
+      ['--conflicts', 'conflicts'], ['--lanes', 'allowedLanes'], ['--needs-owner', 'needsOwner'], ['--hold', 'hold'], ['--needs', 'needs'], ['--files', 'files'], ['--review-page', 'reviewPage'],
     ]) {
       const value = option(args, flag);
       if (value !== undefined) payload[field] = value;
@@ -305,7 +330,18 @@ export const commands = {
 
   async status(args) {
     const { base } = context(args);
-    const [id, status] = args;
+    // FB2-06 item 5: the status value may be a positional or --status; every other flag stays where it is.
+    // A value outside the board's own status vocabulary is refused here, with a usage example, before any
+    // request goes out — a typo must never become a silent no-op or a server-side English error.
+    const manualStatuses = [...QUEST_STATUSES].filter((status) => status !== 'dispatched');
+    const id = positional(args, ['--status', '--detail', '--by', '--evidence-ref', '--note', '--project', '--url']);
+    if (!id) {
+      throw new Error(`usage: questboard status <id> <status> [--status <status>] [--detail "..."] [--by coordinator|owner]　例：questboard status RUN-4 done --detail "验收完成"；status 只能是 ${manualStatuses.join('|')}（dispatched 只能靠 assign/adopt 到达）`);
+    }
+    const status = option(args, '--status') || positionals(args, ['--detail', '--by', '--evidence-ref', '--note', '--project', '--url']).find((value) => value !== id);
+    if (!manualStatuses.includes(status)) {
+      throw new Error(`usage: questboard status <id> <status> [--status <status>]　例：questboard status RUN-4 done --detail "验收完成"；收到不认识的 status「${status}」，只能是 ${manualStatuses.join('|')}`);
+    }
     const by = option(args, '--by') || 'coordinator';
     // Feedback 15: --evidence-ref/--note build an acceptance record only for `status done`; actor is always
     // this request's own --by (default coordinator), so it can never claim an identity the request wasn't
@@ -382,7 +418,7 @@ export const commands = {
   async get(args) {
     const { base } = context(args);
     const id = positional(args, ['--project', '--url']);
-    if (!id) throw new Error('usage: questboard get <id> [--json] [--report] [--evidence]　读取一个委托的详情：第几版、当前 worker、派遣历史、最近动态、可改文件；--report 打印这次派遣的完整报告原文；--evidence 打印这次派遣的证据（模型自报、项目验证记录、验证钩子）');
+    if (!id) throw new Error('usage: questboard get <id> [--json] [--all] [--report] [--evidence]　读取一个委托的详情：第几版、当前 worker、派遣历史、最近动态、可改文件；--all 打印完整名单（默认长名单只列前 5 张）；--report 打印这次派遣的完整报告原文；--evidence 打印这次派遣的证据（模型自报、项目验证记录、验证钩子）');
     // --report asks the board for the bounded plain-text report itself, not the JSON detail: the reference
     // is re-verified there (digest + containment) and a report that changed after capture is refused.
     if (args.includes('--report')) {
@@ -417,7 +453,7 @@ export const commands = {
       out(JSON.stringify({ ...quest.evidence, acceptance: quest.acceptance ?? null }, null, 2));
       return;
     }
-    out(args.includes('--json') ? JSON.stringify(quest, null, 2) : questDetailText(quest));
+    out(args.includes('--json') ? JSON.stringify(quest, null, 2) : questDetailText(quest, { truncate: !args.includes('--all') }));
   },
 
   async 'hook-log'(args) {
@@ -456,10 +492,12 @@ export const commands = {
   async cancel(args) {
     const CANCEL_RESULT = { manual_required: '无法自动停止，需要手动处理', stopped_by_wrapper: '包装脚本已停下它直接启动的进程', unknown: '不确定是否已停止' };
     const { base } = context(args);
-    const id = positional(args, ['--project', '--url', '--reason']);
-    const reason = String(option(args, '--reason') || '').trim();
-    if (!id) throw new Error('usage: questboard cancel <id> --reason "取消原因"');
-    if (!reason || reason.startsWith('--')) throw new Error('cancel 必须用 --reason 写明取消原因');
+    const id = positional(args, ['--project', '--url', '--reason', '--detail']);
+    // FB2-06 item 8: --detail and --reason are the same thing here — the old --reason spelling and the
+    // new --detail spelling both name the cancellation reason, and the docs/errors mention both.
+    const reason = String(option(args, '--reason') ?? option(args, '--detail') ?? '').trim();
+    if (!id) throw new Error('usage: questboard cancel <id> --reason "取消原因"（--detail 等价）');
+    if (!reason || reason.startsWith('--')) throw new Error('cancel 必须用 --reason（或 --detail）写明取消原因');
     let result;
     try {
       result = await request(base, `/api/quests/${encodeURIComponent(id)}/cancel`, 'POST', { reason }, { source: 'cli' });
@@ -473,12 +511,20 @@ export const commands = {
 
   async resolve(args) {
     const { base } = context(args);
-    const id = positional(args, ['--project', '--url', '--reason']);
-    const reason = String(option(args, '--reason') || '').trim();
-    if (!id || !args.includes('--ack')) throw new Error('usage: questboard resolve <id> --reason "你怎么确认 worker 已经停了" --ack');
-    if (!reason || reason.startsWith('--')) throw new Error('resolve 必须用 --reason 写清你怎么确认 worker 已停止');
+    const id = positional(args, ['--project', '--url', '--reason', '--detail']);
+    // FB2-06 items 3/8: --detail and --reason are the same thing (--reason first when both are given), and
+    // --reopen implies --ack: the quest frees its worker and lands back on posted, keeping its dispatch
+    // history — the reopen is a plain status write after the resolve, so the audit trail stays one record.
+    const reason = String(option(args, '--reason') ?? option(args, '--detail') ?? '').trim();
+    const reopen = args.includes('--reopen');
+    if (!id || (!args.includes('--ack') && !reopen)) throw new Error('usage: questboard resolve <id> --reason "你怎么确认 worker 已经停了" --ack [--reopen]　（--reopen 自带确认，并把任务放回 posted 重新招人，派单史保留；--detail 与 --reason 等价）');
+    if (!reason || reason.startsWith('--')) throw new Error('resolve 必须用 --reason（或 --detail）写清你怎么确认 worker 已停止');
     const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/resolve`, 'POST', { reason, ack: true }, { source: 'cli' });
     out(questLine(quest));
+    if (reopen) {
+      const reopened = await request(base, `/api/quests/${encodeURIComponent(id)}/status`, 'POST', { status: 'posted', detail: 'resolve --reopen：确认 worker 已停，重新打开招人', by: option(args, '--by') || 'coordinator' }, { source: 'cli' });
+      out(questLine(reopened.quest));
+    }
   },
 
   async card(args) {
@@ -516,6 +562,8 @@ export const commands = {
       }
       if (option(args, '--max-parallel') !== undefined) entry.maxParallel = Number(option(args, '--max-parallel'));
       if (option(args, '--strengths') !== undefined) entry.strengths = String(option(args, '--strengths')).split(',').map((s) => s.trim()).filter(Boolean);
+      const env = parseEnvFlags(args);
+      if (env !== null) entry.env = env;
       // upsertAdventurer already checks this entry strictly (built-in allowed shapes only, since this CLI has
       // no project's policy.cardEnvAllow); lenient here only means an unrelated, untouched card already on
       // the roster — allowed only by some project's cardEnvAllow — is not re-judged by this project-blind caller.
@@ -523,7 +571,27 @@ export const commands = {
       out(`${entry.id}  ${entry.lane}  ${entry.model} -> ${home.roster}`);
       return;
     }
-    throw new Error('usage: questboard card list | card add --id x --name X --provider P --lane codex --model m [--family m] [--variant high] [--agent build] [--billing subscription|plan|payg|free] [--max-parallel 1] [--strengths code,review] [--notes "..."] | card status <id> <available|limited|broke|paused|disabled> [--reason "..."] [--by who]');
+    // FB2-06 item 6: correct a card's facts in place. The whole card is re-validated before anything is
+    // written, the roster file is backed up first (same helper the imports use), and only the fields the
+    // caller actually passed change — an untouched field keeps its saved value, and --env merges per key.
+    const editId = sub === 'edit' ? positional(args.slice(1), ['--name', '--model', '--variant', '--note', '--env']) : null;
+    if (sub === 'edit' && editId) {
+      const roster = loadRosterOrEmpty(home.roster);
+      const card = roster.adventurers.find((a) => a.id === editId);
+      if (!card) throw new Error(`${editId} 不在名册里（${home.roster}），先 card add 或用 card list 看一遍`);
+      const patch = {};
+      for (const [flag, field] of [['--name', 'name'], ['--model', 'model'], ['--variant', 'variant'], ['--note', 'notes']]) {
+        const value = option(args, flag);
+        if (value !== undefined) patch[field] = value;
+      }
+      const env = parseEnvFlags(args);
+      const next = { ...card, ...patch, ...(env !== null ? { env: { ...(card.env || {}), ...env } } : {}) };
+      backupRosterFile(home.roster, false, 'edit');
+      saveRoster(home.roster, upsertAdventurer(roster, next), { lenientEnv: true });
+      out(`${id}  ${next.lane}  ${next.model} -> ${home.roster}`);
+      return;
+    }
+    throw new Error('usage: questboard card list | card add --id x --name X --provider P --lane codex --model m [--family m] [--variant high] [--agent build] [--billing subscription|plan|payg|free] [--max-parallel 1] [--strengths code,review] [--notes "..."] [--env KEY=VALUE ...] | card edit <id> [--name X] [--model M] [--variant V] [--note "..."] [--env KEY=VALUE ...] | card status <id> <available|limited|broke|paused|disabled> [--reason "..."] [--by who]');
   },
 
   async roster(args) {

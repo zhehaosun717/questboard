@@ -67,3 +67,50 @@ describe('cli', () => {
     assert.throws(() => execFileSync(process.execPath, [CLI, 'list'], { cwd: tmpDir('noproj-'), encoding: 'utf8', stdio: 'pipe', env: { ...process.env, QUESTBOARD_PROJECT: '' } }), /no questboard\.config\.json/);
   });
 });
+describe('FB2-06: --help/-h dispatch and card add/edit', () => {
+  const runCli = (args, options = {}) => execFileSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env: { ...process.env, ...(options.env || {}) }, ...(options.cwd ? { cwd: options.cwd } : {}) });
+
+  it('a subcommand with --help anywhere prints only its usage table, without a project or a server', () => {
+    const bare = tmpDir('help-bare-');
+    const out = runCli(['get', '--help'], { cwd: bare, env: { QUESTBOARD_PROJECT: '' } });
+    assert.match(out, /usage: questboard get/);
+    assert.doesNotMatch(out, /no questboard\.config\.json/, 'help must not demand a project');
+    const late = runCli(['release', 'RUN-1', '-h', '--detail', 'x'], { cwd: bare, env: { QUESTBOARD_PROJECT: '' } });
+    assert.match(late, /usage: questboard release/);
+  });
+
+  it('an unknown subcommand prints the total usage and exits with code 2', () => {
+    const bare = tmpDir('help-unknown-');
+    assert.throws(() => runCli(['frobnicate', '--help'], { cwd: bare, env: { QUESTBOARD_PROJECT: '' } }), /usage: questboard/);
+  });
+
+  it('card add --env KEY=VALUE is repeatable and validated like the roster', () => {
+    const home = tmpDir('cli-cardadd-env2-');
+    const add = (args) => runCli(['card', 'add', ...args], { env: { QUESTBOARD_HOME: home } });
+    add(['--id', 'env-card', '--name', '环境卡', '--provider', 'p', '--lane', 'codex', '--model', 'm', '--env', 'OC_BASE_URL=http://x', '--env', 'MODEL_NAME=big']);
+    const roster = loadRoster(path.join(home, 'roster.json'));
+    assert.deepEqual(roster.adventurers[0].env, { OC_BASE_URL: 'http://x', MODEL_NAME: 'big' });
+    assert.throws(() => add(['--id', 'bad-card', '--name', '坏卡', '--provider', 'p', '--lane', 'codex', '--model', 'm', '--env', 'OC_BASE_URL=sk-abc123']), /看起来像密钥/);
+    assert.throws(() => add(['--id', 'bad-name', '--name', '坏名', '--provider', 'p', '--lane', 'codex', '--model', 'm', '--env', 'PATH=z']), /PATH/);
+  });
+
+  it('card edit changes name/model/variant/note/env, backs the roster up first, and refuses an unknown id', () => {
+    const home = tmpDir('cli-cardedit-');
+    fs.writeFileSync(path.join(home, 'roster.json'), JSON.stringify({ adventurers: [
+      { id: 'edit-me', name: '旧名', provider: 'p', lane: 'codex', model: 'old', family: 'old', variant: 'low', env: { OC_BASE_URL: 'http://a' } },
+    ] }));
+    const out = runCli(['card', 'edit', 'edit-me', '--name', '新名', '--model', 'new-model', '--variant', 'high', '--note', '改过', '--env', 'MODEL_NAME=small'], { env: { QUESTBOARD_HOME: home } });
+    assert.match(out, /edit-me/);
+    const roster = loadRoster(path.join(home, 'roster.json'));
+    const card = roster.adventurers[0];
+    assert.equal(card.name, '新名');
+    assert.equal(card.model, 'new-model');
+    assert.equal(card.variant, 'high');
+    assert.equal(card.notes, '改过');
+    assert.deepEqual(card.env, { OC_BASE_URL: 'http://a', MODEL_NAME: 'small' }, 'env merges per key');
+    const backups = fs.readdirSync(home).filter((f) => f.startsWith('roster.json.bak-'));
+    assert.equal(backups.length, 1, 'a timestamped backup is kept before the write');
+    assert.throws(() => runCli(['card', 'edit', 'nope', '--name', 'x'], { env: { QUESTBOARD_HOME: home } }), /不在名册里/);
+  });
+});
+

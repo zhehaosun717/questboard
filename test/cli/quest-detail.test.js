@@ -342,4 +342,61 @@ describe('FB2-03 post/update flags and get output', () => {
     assert.match(got.stdout, /能力不够/);
   });
 });
+describe('questboard get truncates long card lists (FB2-06 item 1)', () => {
+  before(async () => {
+    fx.project.write('docs/briefs/GET-TRUNC-1.md', '# GET-TRUNC-1');
+    const posted = await fx.api('/api/quests', 'POST', { package: 'GET-TRUNC-1', brief: 'docs/briefs/GET-TRUNC-1.md' });
+    assert.equal(posted.status, 201);
+    fx.project.write('docs/briefs/GET-HELD-1.md', '# GET-HELD-1');
+    const held = await fx.api('/api/quests', 'POST', { package: 'GET-HELD-1', brief: 'docs/briefs/GET-HELD-1.md', hold: 'owner 在改需求' });
+    assert.equal(held.status, 201);
+  });
 
+  it('readable mode lists at most five cards per refusal reason plus 等 N 张', async () => {
+    const got = await atBoard(['get', 'GET-HELD-1']);
+    assert.equal(got.status, 0, got.stderr);
+    assert.match(got.stdout, /挂起中：owner 在改需求/);
+    assert.match(got.stdout, /等 \d+ 张/, 'the held quest refuses every card, and the list is capped');
+    const json = await atBoard(['get', 'GET-HELD-1', '--json']);
+    const detail = JSON.parse(json.stdout);
+    const refused = Object.values(detail.eligibility.refused)[0];
+    assert.equal(refused.length, 7, '--json keeps the full list');
+  });
+
+  it('--all prints the full readable lists; plain readable mode caps the 可接手 list too', async () => {
+    const plain = await atBoard(['get', 'GET-TRUNC-1']);
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.match(plain.stdout, /可接手: .*等 \d+ 张/, 'seven cards cap at five plus a count');
+    const all = await atBoard(['get', 'GET-TRUNC-1', '--all']);
+    assert.equal(all.status, 0, all.stderr);
+    assert.doesNotMatch(all.stdout, /等 \d+ 张/);
+    assert.match(all.stdout, /dsh-deepseek/);
+    assert.match(all.stdout, /codex-astra/);
+  });
+});
+
+describe('questboard resolve --reopen (FB2-06 item 3)', () => {
+  before(async () => {
+    fx.project.write('docs/briefs/REOPEN-1.md', '# REOPEN-1');
+    const posted = await fx.api('/api/quests', 'POST', { package: 'REOPEN-1', brief: 'docs/briefs/REOPEN-1.md' });
+    assert.equal(posted.status, 201);
+    assert.equal((await fx.api('/api/quests/REOPEN-1/assign', 'POST', { adventurer: 'codex-luna' })).status, 200);
+  });
+
+  it('resolves without --ack when --reopen is given and lands back on posted, keeping the dispatch history', async () => {
+    const out = await atBoard(['resolve', 'REOPEN-1', '--detail', 'worker 死了，重新打开', '--reopen']);
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /REOPEN-1\s+posted/);
+    const quest = (await fx.api('/api/quests/REOPEN-1')).body.quest;
+    assert.equal(quest.status, 'posted');
+    assert.equal(quest.assignee, null);
+    assert.equal(quest.dispatches.length, 1, 'the dispatch history stays');
+    assert.equal(quest.manualResolution.actorSource, 'cli');
+  });
+
+  it('--reopen without any reason is still refused', async () => {
+    const out = await atBoard(['resolve', 'REOPEN-1', '--reopen']);
+    assert.equal(out.status, 1);
+    assert.match(out.stderr, /--reason/);
+  });
+});
