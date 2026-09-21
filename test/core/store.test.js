@@ -92,6 +92,55 @@ describe('QuestStore', () => {
     assert.equal(events().length, 0, 'nothing is persisted for the refused post');
   });
 
+  it('post --supersedes marks the old quest superseded, naming its replacement, in both directions (FB2-03)', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/ART-BLOCK-2-x.md', 'old');
+    write('docs/briefs/ART-BLOCK-3-x.md', 'new');
+    const store = new QuestStore(config);
+    store.post({ package: 'ART-BLOCK-2', brief: 'docs/briefs/ART-BLOCK-2-x.md' });
+    const result = store.post({ package: 'ART-BLOCK-3', brief: 'docs/briefs/ART-BLOCK-3-x.md', supersedes: 'ART-BLOCK-2' });
+    assert.ok(!result.errors, JSON.stringify(result.errors));
+    const old = store.get('ART-BLOCK-2');
+    assert.equal(old.status, 'superseded');
+    assert.equal(old.supersededBy, 'ART-BLOCK-3');
+    assert.equal(old.lastDetail, '被 ART-BLOCK-3 取代');
+    assert.deepEqual(store.get('ART-BLOCK-3').supersedes, ['ART-BLOCK-2']);
+    const events = readEvents(config.paths.events);
+    assert.ok(events.some((e) => e.event === 'status_superseded' && e.package === 'ART-BLOCK-2' && /被 ART-BLOCK-3 取代/.test(e.detail)));
+    // and the supersession survives a restart replay
+    const replayed = new QuestStore(config);
+    assert.equal(replayed.get('ART-BLOCK-2').supersededBy, 'ART-BLOCK-3');
+  });
+
+  it('refuses supersedes that names nothing on the board, the quest itself, or a quest still held', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/ART-BLOCK-2-x.md', 'old');
+    write('docs/briefs/ART-BLOCK-3-x.md', 'new');
+    const store = new QuestStore(config);
+    store.post({ package: 'ART-BLOCK-2', brief: 'docs/briefs/ART-BLOCK-2-x.md' });
+    const ghost = store.post({ package: 'ART-BLOCK-3', brief: 'docs/briefs/ART-BLOCK-3-x.md', supersedes: 'NOPE-9' });
+    assert.ok(ghost.errors.supersedes, 'unknown supersede target is refused');
+    const self = store.post({ package: 'ART-BLOCK-3', brief: 'docs/briefs/ART-BLOCK-3-x.md', supersedes: 'ART-BLOCK-3' });
+    assert.ok(self.errors.supersedes, 'self-supersede is refused');
+    store.assign('ART-BLOCK-2', { adventurer: card('codex-luna'), name: 'ab2' });
+    const held = store.post({ package: 'ART-BLOCK-3', brief: 'docs/briefs/ART-BLOCK-3-x.md', supersedes: 'ART-BLOCK-2' });
+    assert.ok(held.errors.supersedes, 'a quest still held by a worker cannot be superseded');
+  });
+
+  it('stores hold, needs and an explicit files override from post (FB2-03)', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/CAP-1-x.md', '# CAP-1');
+    const store = new QuestStore(config);
+    const result = store.post({
+      package: 'CAP-1', brief: 'docs/briefs/CAP-1-x.md',
+      hold: '等设计稿', needs: ['runs-node', 'web'], files: ['src/a.js', 'src/b.js'],
+    });
+    assert.ok(!result.errors, JSON.stringify(result.errors));
+    const quest = store.get('CAP-1');
+    assert.equal(quest.hold, '等设计稿');
+    assert.deepEqual(quest.needs, ['runs-node', 'web']);
+    assert.deepEqual(quest.filesOverride, ['src/a.js', 'src/b.js']);
+  });
   it('accepts needs_coordinator and owner_ruled as quest statuses, emits status_ events, and replays them after a restart (FB2-02)', () => {
     const { config, write } = makeProject();
     write('docs/briefs/NC-1-x.md', 'NC-1');

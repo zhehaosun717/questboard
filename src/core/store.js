@@ -162,6 +162,30 @@ export function validatePost(config, payload, quests = []) {
     const err = validateParents(pkg, parents, new Map(quests.map((q) => [q.id, q])));
     if (err) errors.parents = err;
   }
+  // FB2-03: pre-dispatch gates posted with the quest. supersedes names the quest(s) this one replaces
+  // (validated against the board here; the old quest flips to superseded in post()); hold parks the
+  // quest with a reason until cleared; needs lists capabilities a card+lane must declare; files is an
+  // explicit file-set override that wins over brief extraction (stored as filesOverride).
+  const supersedes = splitList(input.supersedes);
+  const badSupersede = supersedes.find((id) => !idPattern.test(id));
+  if (badSupersede) {
+    errors.supersedes = 'supersedes must be package ids, got ' + badSupersede;
+  } else if (supersedes.includes(pkg)) {
+    errors.supersedes = pkg + ' 不能取代自己';
+  } else if (supersedes.length) {
+    const known = new Map(quests.map((q) => [q.id, q]));
+    const gone = supersedes.find((id) => !known.has(id));
+    if (gone) errors.supersedes = '要取代的 ' + gone + ' 不在板上';
+    else {
+      const held = supersedes.find((id) => holdsSlot(known.get(id)));
+      if (held) errors.supersedes = held + ' 有 worker 占着，先释放再取代';
+    }
+  }
+  const hold = String(input.hold || '').trim().slice(0, MAX_TEXT);
+  const needs = splitList(input.needs);
+  const badNeed = needs.find((n) => n.length > 64);
+  if (badNeed) errors.needs = 'needs 里有过长的能力名：' + badNeed.slice(0, 80);
+  const filesOverride = splitList(input.files);
   const allowedLanes = splitList(input.allowedLanes);
   const badLane = allowedLanes.find((lane) => !config.lanes[lane]);
   if (badLane) errors.allowedLanes = `unknown lane ${badLane}; this project defines ${Object.keys(config.lanes).join(', ')}`;
@@ -176,6 +200,10 @@ export function validatePost(config, payload, quests = []) {
     priority,
     needsOwner: String(input.needsOwner || '').trim().slice(0, MAX_TEXT),
     reviewPage: String(input.reviewPage || '').trim().slice(0, 64),
+    supersedes,
+    hold,
+    needs,
+    filesOverride,
     by: String(input.by || 'coordinator').trim().slice(0, 40),
   };
   return { errors, value };
@@ -353,6 +381,12 @@ export class QuestStore extends EventEmitter {
       updatedAt: at,
     });
     this.emitEvent(quest, value.kind === 'review' ? 'review_posted' : 'posted', { by, detail: quest.title });
+    // FB2-03: the superseded quest flips with its own status record, naming its replacement; both
+    // directions stay on disk (old.supersededBy, new.supersedes) so get can show the relation.
+    for (const replacedId of value.supersedes || []) {
+      const replaced = this.setStatus(replacedId, 'superseded', { detail: '被 ' + quest.id + ' 取代', by });
+      if (replaced) this.save({ ...replaced, supersededBy: quest.id, updatedAt: now() });
+    }
     return { quest };
   }
 
