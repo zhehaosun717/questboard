@@ -241,7 +241,11 @@ export class QuestStore extends EventEmitter {
   // Every save bumps the revision, so a caller that read revision N can ask for its write to apply only if the
   // quest is still at N (a re-posted brief, a ruling or a status change in between makes it stale).
   save(quest) {
-    const next = { ...quest, revision: (quest.revision || 0) + 1 };
+    // statusAt answers "since when is the quest in this status" (FB2-04: review-backlog wait time). A save
+    // that flips the status re-stamps it from this save's updatedAt; every other save keeps the old stamp.
+    const previous = this.quests.get(quest.id);
+    const statusAt = previous && previous.status === quest.status && previous.statusAt ? previous.statusAt : (quest.updatedAt || now());
+    const next = { ...quest, statusAt, revision: (quest.revision || 0) + 1 };
     return this.appendSnapshot(next);
   }
 

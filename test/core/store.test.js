@@ -92,6 +92,26 @@ describe('QuestStore', () => {
     assert.equal(events().length, 0, 'nothing is persisted for the refused post');
   });
 
+  it('statusAt stamps when the status last changed and survives untouched saves (FB2-04)', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/ST-1-x.md', '# ST-1');
+    const store = new QuestStore(config);
+    const posted = store.post({ package: 'ST-1', brief: 'docs/briefs/ST-1-x.md' }).quest;
+    assert.ok(posted.statusAt, 'a fresh post knows since when it is posted');
+    assert.equal(posted.statusAt, posted.updatedAt);
+    store.assign('ST-1', { adventurer: card('codex-luna'), name: 'st1' });
+    const dispatched = store.get('ST-1');
+    assert.equal(dispatched.status, 'dispatched');
+    assert.ok(dispatched.statusAt > posted.statusAt || dispatched.statusAt === dispatched.updatedAt, 'status change re-stamps');
+    assert.equal(dispatched.statusAt, dispatched.updatedAt);
+    // a save that does not change the status keeps the stamp
+    store.setStatus('ST-1', 'stalled', { detail: 'x', by: 'owner', ack: true });
+    const stalled = store.get('ST-1');
+    assert.equal(stalled.statusAt, stalled.updatedAt);
+    const before = stalled.statusAt;
+    store.rule('ST-1', { text: '问一下', by: 'owner' });
+    assert.equal(store.get('ST-1').statusAt, before, 'an unrelated save keeps the stamp');
+  });
   it('post --supersedes marks the old quest superseded, naming its replacement, in both directions (FB2-03)', () => {
     const { config, write } = makeProject();
     write('docs/briefs/ART-BLOCK-2-x.md', 'old');
