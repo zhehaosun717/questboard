@@ -5,7 +5,15 @@ import { writeJsonAtomic } from './jsonl.js';
 
 const ID_PATTERN = /^[a-z0-9-]{1,48}$/;
 const LANE_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
-export const BILLING = Object.freeze(['subscription', 'plan', 'payg', 'free']);
+// FB2-07 item 1: monthly/metered are the round-2 names; subscription/plan/payg are the round-1 names
+// real rosters already carry (285 live cards), so they stay valid — removing them would break every
+// existing roster's next save. The billing of a card that never declared one reads as metered.
+export const BILLING = Object.freeze(['free', 'monthly', 'metered', 'subscription', 'plan', 'payg']);
+export const VERIFIED = Object.freeze(['unverified', 'ok', 'broken']);
+export function cardBilling(card) {
+  return card && typeof card.billing === 'string' && card.billing ? card.billing : 'metered';
+}
+export const CONCURRENCY_GROUP_PATTERN = /^[a-z0-9-]{1,48}$/;
 
 function fail(message) {
   throw new Error(`roster: ${message}`);
@@ -193,6 +201,17 @@ export function validateAdventurer(entry, where = 'adventurer', { lenientEnv = f
     fail(`${at} has a status field; statuses are records in the status log (questboard status set ${entry.id} ...), not roster data`);
   }
   if (entry.billing !== undefined && !BILLING.includes(entry.billing)) fail(`${at}.billing must be one of ${BILLING.join('|')}`);
+  // FB2-07 item 1: only a free card may be marked coordinatorAssignable — a paid one would let the
+  // coordinator burn money without the owner picking it deliberately.
+  if (entry.coordinatorAssignable !== undefined) {
+    if (typeof entry.coordinatorAssignable !== 'boolean') fail(`${at}.coordinatorAssignable 必须是 true 或 false`);
+    if (entry.coordinatorAssignable === true && cardBilling(entry) !== 'free') {
+      fail(`${at}.coordinatorAssignable 只有 billing 是 free 的卡才能开（这张是 ${cardBilling(entry)}，coordinator 直接派会花钱）`);
+    }
+  }
+  if (entry.concurrencyGroup !== undefined && !CONCURRENCY_GROUP_PATTERN.test(entry.concurrencyGroup)) fail(`${at}.concurrencyGroup must match ${CONCURRENCY_GROUP_PATTERN}`);
+  if (entry.groupMaxParallel !== undefined && (!Number.isInteger(entry.groupMaxParallel) || entry.groupMaxParallel < 1)) fail(`${at}.groupMaxParallel must be a positive integer`);
+  if (entry.verified !== undefined && !VERIFIED.includes(entry.verified)) fail(`${at}.verified must be one of ${VERIFIED.join('|')}`);
   if (entry.maxParallel !== undefined && (!Number.isInteger(entry.maxParallel) || entry.maxParallel < 1)) fail(`${at}.maxParallel must be a positive integer`);
   if (entry.strengths !== undefined && (!Array.isArray(entry.strengths) || entry.strengths.some((s) => typeof s !== 'string'))) fail(`${at}.strengths must be an array of strings`);
   // FB2-03: measured/declared capabilities are machine facts about the card, like strengths.

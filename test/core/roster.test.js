@@ -11,6 +11,7 @@ import {
   loadRoster,
   saveRoster,
   upsertAdventurer,
+  cardBilling,
   validateAdventurer,
   validateRoster,
 } from '../../src/core/roster.js';
@@ -256,5 +257,43 @@ describe('roster env allow shapes (owner decision 2026-09-17: _BASE is a base-UR
     assert.equal(isAllowedCardEnvShape('OC_BASE_EXTRA'), false);
     assert.equal(isAllowedCardEnvShape('_BASE'), false);
     assert.throws(() => validateAdventurer({ ...base, env: { OC_BASE_EXTRA: 'x' } }), /不是卡片可以设置的/);
+  });
+});
+
+describe('roster truth fields (FB2-07 item 1)', () => {
+  const base = () => ({ id: 't-card', name: 'T', provider: 'p', model: 'm', family: 'f', lane: 'oc' });
+
+  it('billing accepts monthly/metered and keeps the legacy names valid', () => {
+    for (const billing of ['free', 'monthly', 'metered', 'subscription', 'plan', 'payg']) {
+      assert.doesNotThrow(() => validateAdventurer({ ...base(), billing }), billing);
+    }
+    assert.throws(() => validateAdventurer({ ...base(), billing: 'cheap' }), /billing/);
+  });
+
+  it('a card without billing reads as metered, never silently free', () => {
+    assert.equal(cardBilling(base()), 'metered');
+    assert.equal(cardBilling({ ...base(), billing: 'free' }), 'free');
+  });
+
+  it('coordinatorAssignable is reserved for free cards, and the refusal says why', () => {
+    assert.doesNotThrow(() => validateAdventurer({ ...base(), billing: 'free', coordinatorAssignable: true }));
+    assert.doesNotThrow(() => validateAdventurer({ ...base(), billing: 'metered', coordinatorAssignable: false }));
+    assert.throws(() => validateAdventurer({ ...base(), billing: 'metered', coordinatorAssignable: true }), /coordinatorAssignable.*免费|免费.*coordinatorAssignable|billing/);
+    assert.throws(() => validateAdventurer({ ...base(), coordinatorAssignable: true }), /coordinatorAssignable/);
+    assert.throws(() => validateAdventurer({ ...base(), billing: 'free', coordinatorAssignable: 'yes' }), /coordinatorAssignable/);
+  });
+
+  it('concurrencyGroup and groupMaxParallel validate', () => {
+    assert.doesNotThrow(() => validateAdventurer({ ...base(), concurrencyGroup: 'deepseek-pool', groupMaxParallel: 3 }));
+    assert.throws(() => validateAdventurer({ ...base(), concurrencyGroup: 'Bad Group!' }), /concurrencyGroup/);
+    assert.throws(() => validateAdventurer({ ...base(), concurrencyGroup: 'g', groupMaxParallel: 0 }), /groupMaxParallel/);
+    assert.throws(() => validateAdventurer({ ...base(), groupMaxParallel: 1.5 }), /groupMaxParallel/);
+  });
+
+  it('verified is unverified|ok|broken', () => {
+    for (const verified of ['unverified', 'ok', 'broken']) {
+      assert.doesNotThrow(() => validateAdventurer({ ...base(), verified }), verified);
+    }
+    assert.throws(() => validateAdventurer({ ...base(), verified: 'fine' }), /verified/);
   });
 });
