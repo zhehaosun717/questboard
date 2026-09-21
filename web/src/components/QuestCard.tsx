@@ -218,6 +218,12 @@ export function QuestCard({
             ⏸ 挂起：{quest.hold}
           </div>
         ) : null}
+        {quest.batch && quest.batch.length > 1 ? (
+          <div className="mt-1 text-[11px] text-ink-soft">
+            和 {quest.batch.filter((id) => id !== quest.id && id !== quest.waitingOn).join('、')} 一批
+            {quest.waitingOn ? ` · 等 ${quest.waitingOn}` : ''}
+          </div>
+        ) : null}
         {overdue ? (
           <div className="mt-1 text-[11px] font-bold text-rust">
             已等 {waitHours >= 24 ? `${Math.floor(waitHours / 24)} 天` : `${waitHours} 小时`}，还没验收

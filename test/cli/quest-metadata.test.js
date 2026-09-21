@@ -76,3 +76,31 @@ describe('questboard update', () => {
     assert.deepEqual((await fx.api('/api/quests/UPD-1')).body.quest.parents, ['RA-4']);
   });
 });
+
+describe('questboard batch (FB2-04 item 5)', () => {
+  it('marks every listed quest with the batch roster and the waitingOn target', async () => {
+    for (const id of ['BAT-1', 'BAT-2', 'BAT-3']) {
+      fx.project.write(`docs/briefs/${id}-x.md`, `${id} — x`);
+      const posted = await fx.api('/api/quests', 'POST', { package: id, brief: `docs/briefs/${id}-x.md` });
+      assert.equal(posted.status, 201);
+    }
+    const done = await atBoard(['batch', 'BAT-1,BAT-2', '--waiting-on', 'BAT-3']);
+    assert.equal(done.status, 0, done.stderr);
+    assert.match(done.stdout, /^BAT-1\s/m);
+    assert.match(done.stdout, /^BAT-2\s/m);
+    assert.match(done.stdout, /等 BAT-3/);
+    for (const [id, mates] of [['BAT-1', ['BAT-2']], ['BAT-2', ['BAT-1']]]) {
+      const quest = (await fx.api(`/api/quests/${id}`)).body.quest;
+      assert.deepEqual(quest.batch, ['BAT-1', 'BAT-2']);
+      assert.equal(quest.waitingOn, 'BAT-3');
+    }
+    const bat3 = (await fx.api('/api/quests/BAT-3')).body.quest;
+    assert.equal(bat3.batch, undefined, 'the waitingOn target is not part of the batch unless listed');
+  });
+
+  it('refuses a single-card batch and says why', async () => {
+    const bad = await atBoard(['batch', 'BAT-1']);
+    assert.notEqual(bad.status, 0);
+    assert.match(bad.stderr + bad.stdout, /一批至少两张/);
+  });
+});

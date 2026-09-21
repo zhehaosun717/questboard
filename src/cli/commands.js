@@ -87,6 +87,8 @@ export function questDetailText(quest) {
   const VERDICT_ZH = { PASS: '通过', FAIL: '不通过', findings: '通过但有问题' };
   const lines = [questLine(quest)];
   lines.push(`  第 ${quest.revision || 0} 版 · priority ${quest.priority} · brief ${quest.brief || '无'}`);
+  // FB2-04 item 5: the batch roster and the delivery it waits for.
+  if ((quest.batch || []).length > 1) lines.push(`  一批: 和 ${quest.batch.filter((id) => id !== quest.id && id !== quest.waitingOn).join('、')}${quest.waitingOn ? ` · 等 ${quest.waitingOn}` : ''}`);
   if (quest.lastDetail) lines.push(`  最近: ${quest.lastDetail}`);
   // The attempt's own report reference, verdict and first paragraph (items 7/12/34), as the detail route
   // exposes them. Null on legacy rows and stale attempts; a capture that found nothing still says why.
@@ -259,6 +261,26 @@ export const commands = {
     }
     const { quest } = await request(base, `/api/quests/${encodeURIComponent(id)}/metadata`, 'POST', payload);
     out(questLine(quest));
+  },
+
+  // FB2-04 item 5: questboard batch FIX-44,FIX-45 --waiting-on FIX-48 marks every listed quest with the
+  // batch roster and the one delivery they wait for; the card face reads 「和 X、Y 一批 · 等 Z」 and the
+  // waitingOn quest's delivery reminds the coordinator the batch is ready for acceptance.
+  async batch(args) {
+    const { base } = context(args);
+    const id = positional(args, ['--waiting-on', '--by', '--project', '--url']);
+    const ids = (id || '').split(',').map((part) => part.trim()).filter(Boolean);
+    if (ids.length < 2) {
+      throw new Error('usage: questboard batch <FIX-44,FIX-45,...> [--waiting-on FIX-48] [--by who]　一批至少两张卡；卡面会显示「和 … 一批 · 等 …」');
+    }
+    const waitingOn = option(args, '--waiting-on');
+    for (const questId of ids) {
+      const payload = { batch: ids.join(','), by: option(args, '--by') || 'owner' };
+      if (waitingOn !== undefined) payload.waitingOn = waitingOn;
+      const { quest } = await request(base, `/api/quests/${encodeURIComponent(questId)}/metadata`, 'POST', payload);
+      const mates = ids.filter((other) => other !== questId);
+      out(questLine(quest) + '　一批: 和 ' + mates.join('、') + (waitingOn ? ' · 等 ' + waitingOn : ''));
+    }
   },
 
   async list(args) {

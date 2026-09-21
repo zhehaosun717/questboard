@@ -72,3 +72,22 @@ describe('check column red line (FB2-04 item 4)', () => {
     expect(html).not.toContain('qb-overdue');
   });
 });
+
+describe('batch card face (FB2-04 item 5)', () => {
+  it('shows 和 X、Y 一批 · 等 Z on a batched quest', () => {
+    const quest = makeQuest({ id: 'B-1', batch: ['B-1', 'B-2', 'B-4'], waitingOn: 'B-3' });
+    const html = renderToStaticMarkup(
+      <QuestCard quest={quest} index={0} snap={makeSnapshot({ quests: [quest] })} pickingCardId={null} isNew={false} statusChanged={false} onSelect={noop} onDropCard={noop} />,
+    );
+    expect(html).toContain('和 B-2、B-4 一批');
+    expect(html).toContain('等 B-3');
+  });
+
+  it('a lone quest shows no batch line', () => {
+    const quest = makeQuest({ id: 'B-9' });
+    const html = renderToStaticMarkup(
+      <QuestCard quest={quest} index={0} snap={makeSnapshot({ quests: [quest] })} pickingCardId={null} isNew={false} statusChanged={false} onSelect={noop} onDropCard={noop} />,
+    );
+    expect(html).not.toContain('一批');
+  });
+});

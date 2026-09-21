@@ -84,6 +84,7 @@
         <span class="stamp${previous && previous !== q.status ? ' thunk' : ''}">${esc(STATUS[q.status] || q.status)}</span>
         ${detail}
         ${q.hold ? `<div class="q-ask">⏸ 挂起：${esc(q.hold)}</div>` : ''}
+        ${(q.batch || []).length > 1 ? `<div class="q-ask">和 ${esc(q.batch.filter((id) => id !== q.id && id !== q.waitingOn).join('、'))} 一批${q.waitingOn ? ` · 等 ${esc(q.waitingOn)}` : ''}</div>` : ''}
         ${q.needsOwner ? `<div class="q-ask">❓ ${esc(q.needsOwner)}</div>` : ''}
         ${q.supersededBy ? `<div class="q-ask">已被 ${esc(q.supersededBy)} 取代</div>` : ''}
         ${(q.supersedes || []).length ? `<div class="q-ask">取代了 ${esc(q.supersedes.join('、'))}</div>` : ''}

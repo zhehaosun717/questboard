@@ -106,6 +106,9 @@ export interface Quest {
   supersedes?: string[];
   supersededBy?: string;
   filesOverride?: string[];
+  // FB2-04 item 5: the batch this quest ships with (includes itself) and the delivery it waits for.
+  batch?: string[];
+  waitingOn?: string;
   // Detail-route only (FB2-02 item 6): the review-page annotation summary; null/absent elsewhere.
   annotationSummary?: { page: string; total?: number; pass?: number; fail?: number; fix?: number; other?: number; first?: { verdict: string; note: string }[]; error?: string } | null;
   assignee: Assignee | null;
