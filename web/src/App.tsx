@@ -157,6 +157,7 @@ export function App() {
               unpostedBriefs={snap?.unpostedBriefs}
               briefDiscovery={snap?.briefDiscovery}
               onRescan={refresh}
+              pushToast={pushToast}
             />
           </main>
           {snap && (

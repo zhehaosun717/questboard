@@ -9,9 +9,10 @@
 // it instead of silently allowing it through an empty file list.
 import fs from 'node:fs';
 import path from 'node:path';
-import { packageFromFileName } from './patterns.js';
+import { packageFromFileName, packageIdPattern } from './patterns.js';
 import { realpathContainmentIssue } from './config.js';
 import { holdsSlot } from './rules.js';
+import { readJsonLines, appendJsonLine, writeJsonAtomic } from './jsonl.js';
 
 const HEADING = /^#{1,6}\s/;
 const PATH_TOKEN = /`([^`\s]+\/[^`\s]*|[^`\s/]+\.(?:cs|md|js|mjs|cjs|ts|tsx|json|asset|shader|uss|uxml|lua|sh|html|gd|tscn|py|rs))`/g;
@@ -322,6 +323,70 @@ function scanDirectory(directory) {
   };
 }
 
+// FB2-08 item 1: briefs the owner has finished or dismissed outside the board. One jsonl record per
+// physical copy — {at, package, brief, by, note} — stored under the project's data dir, deliberately outside
+// the events namespace (it is shelf bookkeeping, not a quest event; coordinators' event tails must not see
+// it). A record without brief dismisses the whole package, whatever files may appear under that id later;
+// a record with brief dismisses only that physical file, so two copies of one id are dismissed (and
+// counted) independently. Corrupt lines fail loudly like every other jsonl this project reads.
+export const DISMISSED_BRIEFS_FILE = 'brief-dismissed.jsonl';
+
+export function dismissedBriefsFile(config) {
+  return path.join(config.paths.data, DISMISSED_BRIEFS_FILE);
+}
+
+export function readDismissedBriefs(config) {
+  const file = dismissedBriefsFile(config);
+  const records = readJsonLines(file);
+  records.forEach((record, index) => {
+    if (!record || typeof record.package !== 'string' || !record.package.trim()) {
+      throw new Error(file + ':' + (index + 1) + ' 不是合法的 dismiss 记录（缺 package）');
+    }
+    if (record.brief !== undefined && record.brief !== null && typeof record.brief !== 'string') {
+      throw new Error(file + ':' + (index + 1) + ' 不是合法的 dismiss 记录（brief 必须是文本）');
+    }
+  });
+  return records;
+}
+
+export function writeDismissedBrief(config, { package: pkg, brief = null, by = 'owner', note = '' }) {
+  if (!packageIdPattern(config).test(pkg)) throw new Error(pkg + ' 不像委托编号，不能归档');
+  const record = {
+    at: new Date().toISOString(),
+    package: pkg,
+    ...(brief ? { brief: String(brief).split(path.sep).join('/') } : {}),
+    by: String(by || 'owner').slice(0, 40),
+    note: String(note || '').trim().slice(0, 300),
+  };
+  appendJsonLine(dismissedBriefsFile(config), record);
+  return record;
+}
+
+// Removes the matching dismissal(s): a bare package restores every copy; a named brief restores that copy
+// (plus any whole-package record, since it would keep the copy hidden). Rewritten atomically only when
+// something actually changed, so an undo that matches nothing leaves the file byte-for-byte as it was.
+export function removeDismissedBrief(config, { package: pkg, brief = null }) {
+  const records = readDismissedBriefs(config);
+  const kept = records.filter((record) => !(record.package === pkg && (brief === null ? true : record.brief === brief || !record.brief)));
+  if (kept.length === records.length) return 0;
+  // JSON lines, not a JSON document: the file stays readable by readJsonLines after the rewrite. Same
+  // temp-then-rename retry writeJsonAtomic uses, so a locked file on Windows does not lose the store.
+  const file = dismissedBriefsFile(config);
+  const temp = file + '.tmp';
+  const content = kept.map((record) => JSON.stringify(record)).join('\n') + '\n';
+  fs.writeFileSync(temp, content, 'utf8');
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      fs.renameSync(temp, file);
+      break;
+    } catch (error) {
+      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(error.code)) throw new Error('cannot save ' + file + ': ' + error.message);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * attempt);
+    }
+  }
+  return records.length - kept.length;
+}
+
 // The full picture behind "brief discovery": which briefs are ready to post (items), and, honestly, every
 // file that was looked at and skipped, with why (excluded), plus which configured folders could not be
 // scanned at all (errors) — so an empty items list reads as "nothing new" and never as "discovery is broken"
@@ -332,9 +397,18 @@ function scanDirectory(directory) {
 // ready/old/posted/dispatched — the newest copy governs even when it is the one that turns out to be
 // oversized or unreadable, so a stale but readable older copy is never presented as ready just because a
 // newer, broken copy loses a read attempt. Every other copy is reported as `duplicate`, pointing at primary.
-export function discoverBriefs(config, { postedIds, dispatchedIds, now = Date.now() }) {
+export function discoverBriefs(config, { postedIds, dispatchedIds, now = Date.now(), dismissed = [], unlimited = false }) {
   const dirs = normalizedFolders(config.briefs.dispatchDirs);
   const excluded = [];
+  // FB2-08: dismissed files are checked at collection time — before the same-id dedup below — so a
+  // dismissed newest copy steps aside and the next-newest copy becomes the ready one, and each dismissed
+  // physical file keeps its own excluded row (kind dismissed) instead of being folded into duplicates.
+  const dismissedPaths = new Set(dismissed.filter((r) => r && r.brief).map((r) => r.brief));
+  const dismissedPackages = new Set(dismissed.filter((r) => r && !r.brief).map((r) => r.package));
+  const noteFor = (pkg, brief) => {
+    const record = dismissed.find((r) => r.package === pkg && (r.brief === brief || !r.brief));
+    return record && record.note ? '（' + record.note + '）' : '';
+  };
   const errors = [];
   let truncated = false;
   const candidates = new Map();
@@ -364,6 +438,10 @@ export function discoverBriefs(config, { postedIds, dispatchedIds, now = Date.no
       const brief = `${dir}/${name}`;
       const id = packageFromFileName(config, name);
       if (!id) { excluded.push({ brief, reason: '文件名不像委托编号', kind: 'badId' }); continue; }
+      if (dismissedPaths.has(brief) || dismissedPackages.has(id)) {
+        excluded.push({ package: id, brief, reason: '已在板外完成/忽略' + noteFor(id, brief), kind: 'dismissed' });
+        continue;
+      }
       const full = path.join(directory, name);
       let stat;
       try {
@@ -395,6 +473,9 @@ export function discoverBriefs(config, { postedIds, dispatchedIds, now = Date.no
         brief: dup.brief,
         ...(dup.error ? {} : { title: dup.title, writtenAt: new Date(dup.mtimeMs).toISOString() }),
         reason: `已被同编号的更新副本取代：${primary.brief}`,
+        // FB2-08 item 2: which copy is the primary, so the shelf can label this row 「与 <主副本> 同编号」
+        // without parsing the prose reason.
+        primary: primary.brief,
         kind: 'duplicate',
       });
     }
@@ -430,9 +511,9 @@ export function discoverBriefs(config, { postedIds, dispatchedIds, now = Date.no
 
   return {
     items: items.map(({ mtimeMs, ...rest }) => rest),
-    excluded: [...revealable, ...hardDiagnostics].slice(0, MAX_EXCLUDED),
+    excluded: unlimited ? [...revealable, ...hardDiagnostics] : [...revealable, ...hardDiagnostics].slice(0, MAX_EXCLUDED),
     excludedTotal,
-    excludedTruncated: excludedTotal > MAX_EXCLUDED,
+    excludedTruncated: !unlimited && excludedTotal > MAX_EXCLUDED,
     byKind,
     errors,
     truncated,

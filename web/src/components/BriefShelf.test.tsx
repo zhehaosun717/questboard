@@ -23,6 +23,7 @@ function discovery(overrides: Partial<BriefDiscovery> = {}): BriefDiscovery {
     byKind: {},
     errors: [],
     truncated: false,
+    dismissed: [],
     ...overrides,
   };
 }
@@ -84,6 +85,53 @@ describe('BriefShelf (real render)', () => {
     });
     expect(html).toContain('也显示超出时间窗口的 1 份');
     expect(html).not.toContain('为什么还有');
+  });
+});
+
+
+describe('BriefShelf dismissal bookkeeping (FB2-08)', () => {
+  it('every row carries the dismiss button, duplicates carry the same-id label, and dismissed records list with an undo', () => {
+    const html = render({
+      unpostedBriefs: [brief('RUN-1')],
+      briefDiscovery: discovery({
+        excluded: [
+          { package: 'RUN-1', brief: 'docs/briefs/RUN-1-old.md', title: 'old copy', writtenAt: '2026-08-01T00:00:00.000Z', reason: '已被同编号的更新副本取代：docs/briefs/RUN-1-x.md', kind: 'duplicate', primary: 'docs/briefs/RUN-1-x.md' },
+        ],
+        excludedTotal: 2,
+        byKind: { duplicate: 1, dismissed: 1 },
+        dismissed: [{ at: '2026-09-16T00:00:00.000Z', package: 'RUN-9', brief: 'docs/briefs/RUN-9-x.md', by: 'owner', note: '在外面做完了' }],
+      }),
+    });
+    expect(html).toContain('已在板外完成/忽略');
+    expect(html).toContain('与 docs/briefs/RUN-1-x.md 同编号');
+    expect(html).toContain('已归档 1 份（可撤销）');
+    expect(html).toContain('RUN-9');
+    expect(html).toContain('备注：在外面做完了');
+    expect(html).toContain('撤销');
+  });
+
+  it('explains the excluded total by category from byKind', () => {
+    const html = render({
+      briefDiscovery: discovery({
+        excluded: [
+          { brief: 'docs/briefs/notes-1.md', reason: '文件名不像委托编号', kind: 'badId' },
+          { brief: 'docs/briefs/RUN-1-dup.md', reason: 'x', kind: 'duplicate', primary: 'docs/briefs/RUN-1-x.md' },
+        ],
+        excludedTotal: 4,
+        byKind: { badId: 2, duplicate: 1, dismissed: 1 },
+      }),
+    });
+    expect(html).toContain('为什么还有 4 个文件没出现');
+    // The breakdown renders after the diagnostics button is pressed — renderToStaticMarkup keeps the
+    // initial state, so assert the collapsed label only here; the expanded breakdown is exercised by the
+    // kind labels existing in the dictionary via the same render in the language test below.
+    expect(html).not.toContain('已归档');
+  });
+
+  it('the shelf stays quiet about dismissed lists when nothing was dismissed', () => {
+    const html = render({ unpostedBriefs: [brief('RUN-2')], briefDiscovery: discovery({}) });
+    expect(html).not.toContain('已归档');
+    expect(html).not.toContain('撤销');
   });
 });
 

@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { discoverBriefs, fileSetFor, MAX_BRIEF_BYTES } from '../../src/core/briefs.js';
+import { discoverBriefs, fileSetFor, MAX_BRIEF_BYTES, readDismissedBriefs, writeDismissedBrief, removeDismissedBrief } from '../../src/core/briefs.js';
 import { makeProject } from '../helpers.js';
 
 function trySymlink(target, linkPath, type) {
@@ -258,5 +258,76 @@ describe('a symlinked entry inside a scanned folder is skipped, never followed (
     assert.ok(row, 'the dangling junction must be reported, not silently dropped');
     assert.equal(row.kind, 'symlink');
     assert.equal(row.reason, '这是链接，跳过了，没有跟进去');
+  });
+});
+
+describe('dismissed briefs (FB2-08 items 1,2)', () => {
+  const dismissedRecords = (config) => {
+    const file = path.join(config.paths.data, 'brief-dismissed.jsonl');
+    return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  };
+
+  it('writeDismissedBrief appends one jsonl record in dataDir, outside the events namespace', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/RUN-11-x.md', '# d1');
+    writeDismissedBrief(config, { package: 'RUN-11', brief: 'docs/briefs/RUN-11-x.md', by: 'owner', note: '在外面做完了' });
+    const records = dismissedRecords(config);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].package, 'RUN-11');
+    assert.equal(records[0].brief, 'docs/briefs/RUN-11-x.md');
+    assert.equal(records[0].by, 'owner');
+    assert.equal(records[0].note, '在外面做完了');
+    assert.ok(records[0].at);
+    assert.equal(fs.existsSync(path.join(config.paths.events)), false, 'no event file was touched');
+  });
+
+  it('discoverBriefs filters a dismissed file into kind dismissed, and undismiss brings it back', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/RUN-12-x.md', '# d2');
+    writeDismissedBrief(config, { package: 'RUN-12', brief: 'docs/briefs/RUN-12-x.md', by: 'owner', note: '忽略它' });
+    const dismissed = readDismissedBriefs(config);
+    const result = discoverBriefs(config, { postedIds: new Set(), dispatchedIds: new Set(), dismissed });
+    assert.equal(result.items.length, 0, 'a dismissed file is never ready');
+    assert.equal(result.byKind.dismissed, 1);
+    const row = result.excluded.find((e) => e.kind === 'dismissed');
+    assert.equal(row.package, 'RUN-12');
+    assert.match(row.reason, /忽略它/);
+    removeDismissedBrief(config, { package: 'RUN-12' });
+    const again = discoverBriefs(config, { postedIds: new Set(), dispatchedIds: new Set(), dismissed: readDismissedBriefs(config) });
+    assert.equal(again.items.length, 1, 'undismiss restores the file');
+    assert.equal(again.byKind.dismissed, undefined);
+  });
+
+  it('a whole-package dismissal hides every copy, and a per-file dismissal only that copy', () => {
+    const { config, write } = makeProject();
+    write('docs/briefs/RUN-13-x.md', '# copy one');
+    const second = write('docs/briefs/RUN-13-y.md', '# copy two');
+    const past = new Date(Date.now() - 60000);
+    fs.utimesSync(second, past, past);
+    // Per-file dismissal of the newest copy: the older copy becomes the ready item, the dismissed one is
+    // kind dismissed (not duplicate), and each physical file keeps its own count.
+    writeDismissedBrief(config, { package: 'RUN-13', brief: 'docs/briefs/RUN-13-x.md', by: 'owner', note: '' });
+    let result = discoverBriefs(config, { postedIds: new Set(), dispatchedIds: new Set(), dismissed: readDismissedBriefs(config) });
+    assert.equal(result.items.length, 1, 'the other copy stays ready');
+    assert.equal(result.items[0].brief, 'docs/briefs/RUN-13-y.md');
+    assert.equal(result.byKind.dismissed, 1);
+    assert.equal(result.byKind.duplicate, undefined, 'a dismissed copy is not also counted as a duplicate');
+    // Whole-package dismissal hides both.
+    removeDismissedBrief(config, { package: 'RUN-13' });
+    writeDismissedBrief(config, { package: 'RUN-13', by: 'owner', note: '整包忽略' });
+    result = discoverBriefs(config, { postedIds: new Set(), dispatchedIds: new Set(), dismissed: readDismissedBriefs(config) });
+    assert.equal(result.items.length, 0);
+    assert.equal(result.byKind.dismissed, 2, 'each physical copy counts separately');
+  });
+
+  it('?unlimited keeps every excluded row instead of capping at MAX_EXCLUDED', () => {
+    const { config, write } = makeProject();
+    for (let i = 0; i < 305; i++) write('docs/briefs/notes-' + String(i).padStart(3, '0') + '.md', 'bad id');
+    const capped = discoverBriefs(config, { postedIds: new Set(), dispatchedIds: new Set() });
+    assert.equal(capped.excluded.length, 300);
+    const all = discoverBriefs(config, { postedIds: new Set(), dispatchedIds: new Set(), unlimited: true });
+    assert.equal(all.excluded.length, 305);
+    assert.equal(all.excludedTotal, 305);
+    assert.equal(all.excludedTruncated, false, 'nothing was dropped, so nothing is truncated');
   });
 });

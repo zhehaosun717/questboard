@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { eligibility } from './rules.js';
 import { liveByName } from './sync.js';
 import { effectiveRoster, visibleLaneLimits } from './overlay.js';
-import { withFileSets, discoverBriefs, briefUsable, briefUnusableInfo } from './briefs.js';
+import { withFileSets, discoverBriefs, briefUsable, briefUnusableInfo, readDismissedBriefs } from './briefs.js';
 import { isReviewable, reviewEligibility } from './reviewRequest.js';
 import { recentFailuresByCard } from './failureContext.js';
 import { reportSnapshot, attemptOf } from './reportEvidence.js';
@@ -178,7 +178,8 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
     if (isReviewable(quest)) forReview[quest.id] = reviewEligibility({ parent: quest, roster, quests, policy: config.policy, env });
   }
   const laneRows = (lanes && lanes.packages) || [];
-  const briefScan = discoverBriefs(config, { postedIds: new Set(quests.map((q) => q.id)), dispatchedIds: new Set(laneRows.map((row) => row.package)) });
+  const dismissedBriefs = readDismissedBriefs(config);
+  const briefScan = discoverBriefs(config, { postedIds: new Set(quests.map((q) => q.id)), dispatchedIds: new Set(laneRows.map((row) => row.package)), dismissed: dismissedBriefs });
   // withFileSets' internal-only fields (the unknown-brief conflict key rules.js's runningConflict reads, and
   // the reason text it resolves to) exist purely to drive that one check — never sent to a client. A public
   // quest keeps its real .files only; conflictKeys/briefUnknownReason are never public, whatever kind of
@@ -226,6 +227,9 @@ export function buildSnapshot({ config, store, adventurers, boardStore, lanes, d
       byKind: briefScan.byKind,
       errors: briefScan.errors,
       truncated: briefScan.truncated,
+      // FB2-08 item 1: the dismissal records themselves (one per physical copy, or a whole package), so the
+      // shelf can list what is ignored and offer an undo for each — bookkeeping, never quest events.
+      dismissed: dismissedBriefs,
     },
   };
 }

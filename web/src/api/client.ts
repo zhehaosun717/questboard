@@ -78,6 +78,12 @@ export const api = {
   // Frees a stalled quest after the owner confirmed its worker is gone; refused (409) for anything else.
   releaseWorker: (questId: string, detail: string) => call<{ quest: Quest }>(`${quest(questId)}/release`, 'POST', { detail, ack: true, by: 'owner' }),
   resolveWorker: (questId: string, reason: string) => call<{ quest: Quest }>(`${quest(questId)}/resolve`, 'POST', { reason, ack: true }),
+  // FB2-08: the brief shelf's bookkeeping — dismiss one physical copy (brief given) or a whole package,
+  // and undo it. Plain jsonl under the project's data dir, never quest events.
+  dismissBrief: (pkg: string, brief?: string, note = '') =>
+    call<{ dismissed: { at: string; package: string; brief?: string; by: string; note: string } }>('/api/briefs/dismiss', 'POST', { package: pkg, ...(brief ? { brief } : {}), note, by: 'owner' }),
+  undismissBrief: (pkg: string, brief?: string) =>
+    call<{ removed: number }>('/api/briefs/undismiss', 'POST', { package: pkg, ...(brief ? { brief } : {}), by: 'owner' }),
   setCardStatus: (cardId: string, status: CardStatus, reason: string) =>
     call<{ status: Pick<Card, 'status'> }>(`/api/roster/${encodeURIComponent(cardId)}/status`, 'POST', { status, reason, setBy: 'owner' }),
 

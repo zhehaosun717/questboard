@@ -34,6 +34,7 @@
 //   questboard card edit <id> [--name X] [--model M] [--variant V] [--note "..."] [--env KEY=VALUE ...]   (写前留带时间的名册备份)
 //   questboard card status <id> <available|limited|broke|paused|disabled> [--reason "..."] [--by who]
 //   questboard roster path | roster import <old roster.json> [--dry-run | --force (merge) | --replace --force (full swap)]
+//   questboard brief dismiss <package> [--brief <path>] [--note "..."]   (货架归档：板外完成/忽略；brief undismiss <package> 撤销)
 //   questboard board post --title "..." --body "..." [--tag t] [--author coordinator]   (--author defaults to coordinator)
 //   questboard board reply --thread <id> --body "..." [--author coordinator] | list | read | close | inbox [options]
 //   questboard watch [--from-start]                                 (one JSON event per line; for Monitor)
@@ -64,6 +65,7 @@ const USAGE = {
   doctor: 'usage: questboard doctor [--project <dir>]\n  只读的装机检查：路径、派遣脚本、Git Bash、名册、密钥来源、正在跑的看板。',
   card: 'usage: questboard card list | card add --id x --name X --provider P --lane codex --model m [--family m] [--variant high]\n  [--agent build] [--billing subscription|plan|payg|free] [--max-parallel 1] [--strengths code,review] [--notes "..."] [--env KEY=VALUE ...]\n  | card edit <id> [--name X] [--model M] [--variant V] [--note "..."] [--env KEY=VALUE ...]\n  | card status <id> <available|limited|broke|paused|disabled> [--reason "..."] [--by who]\n  --env 可重复，值不许像密钥（密钥放本机环境变量）；card edit 写前先留一份带时间的名册备份。',
   roster: 'usage: questboard roster path | roster init [--force] | roster import <旧 roster.json> [--dry-run] [--force] [--replace --force]\n  名册文件在哪、建空名册、或从旧文件导入（默认合并，--replace 整体换掉）。',
+  brief: 'usage: questboard brief dismiss <package> [--brief <path>] [--note "..."] [--by who] | brief undismiss <package> [--brief <path>]\n  货架归档：已在板外完成/忽略的 brief 从货架收起（可撤销）；undismiss 撤销。',
   board: 'usage: questboard board post --title "..." --body "..." [--tag t] [--author coordinator]\n  | board reply --thread <id> --body "..." [--author coordinator] | board list | board read | board close | board inbox\n  留言板。--author 默认 coordinator。',
   watch: 'usage: questboard watch [--from-start] [--project <dir>]\n  事件文件每行一个 JSON，给 Monitor 用。',
   mcp: 'usage: questboard mcp [--author coordinator] [--url http://127.0.0.1:6097]\n  走 stdio 的 MCP 服务。',

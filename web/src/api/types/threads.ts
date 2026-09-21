@@ -30,7 +30,7 @@ export interface UnpostedBrief {
 // duplicate) — those are the ones a viewer may choose to reveal anyway; "already posted", an unrecognized
 // file name, an oversized file and an unreadable one never carry them, since there is nothing useful (or,
 // for oversized, nothing safe) to show for a file that cannot become an unposted brief either way.
-export type BriefExclusionKind = 'badId' | 'unreadable' | 'oversized' | 'posted' | 'dispatched' | 'old' | 'symlink' | 'duplicate';
+export type BriefExclusionKind = 'badId' | 'unreadable' | 'oversized' | 'posted' | 'dispatched' | 'old' | 'symlink' | 'duplicate' | 'dismissed';
 
 export interface BriefExclusion {
   package?: string;
@@ -39,6 +39,19 @@ export interface BriefExclusion {
   writtenAt?: string;
   reason: string;
   kind: BriefExclusionKind;
+  // FB2-08 item 2: the primary copy this duplicate was superseded by — the shelf labels the row
+  // 「与 <主副本> 同编号」 from this, never by parsing the prose reason.
+  primary?: string;
+}
+
+// FB2-08 item 1: one dismissal record — per physical copy, or a whole package when brief is absent.
+// Bookkeeping, never a quest event; the shelf lists these with an undo each.
+export interface BriefDismissal {
+  at: string;
+  package: string;
+  brief?: string;
+  by: string;
+  note: string;
 }
 
 export interface BriefDiscoveryError {
@@ -61,6 +74,7 @@ export interface BriefDiscovery {
   byKind: Partial<Record<BriefExclusionKind, number>>;
   errors: BriefDiscoveryError[];
   truncated: boolean;
+  dismissed: BriefDismissal[];
 }
 
 // Message board (src/server/boardStore.js). Thread lists carry no messages; a single thread does.

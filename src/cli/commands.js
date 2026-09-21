@@ -727,6 +727,29 @@ export const commands = {
     runMcp({ config, base, author: option(args, '--author') || 'coordinator' });
   },
 
+  // FB2-08 item 1: the brief shelf's bookkeeping from the terminal. Dismiss marks a brief done/ignored
+  // outside the board (a jsonl record under the project's data dir — never a quest event); undismiss
+  // takes it back. A bare package covers every current copy; --brief names one physical copy.
+  async brief(args) {
+    const { base } = context(args);
+    const sub = args[0];
+    const pkg = positional(args.slice(1), ['--note', '--brief', '--by', '--project', '--url']);
+    if ((sub === 'dismiss' || sub === 'undismiss') && pkg) {
+      const body = { package: pkg, by: option(args, '--by') || 'owner' };
+      const brief = option(args, '--brief');
+      if (brief !== undefined) body.brief = brief;
+      if (sub === 'dismiss') {
+        const { dismissed } = await request(base, '/api/briefs/dismiss', 'POST', { ...body, note: option(args, '--note') || '' });
+        out('已归档 ' + dismissed.package + (dismissed.brief ? ' ' + dismissed.brief : '') + '（brief undismiss ' + dismissed.package + ' 撤销）');
+      } else {
+        const { removed } = await request(base, '/api/briefs/undismiss', 'POST', body);
+        out(removed > 0 ? '已撤销归档 ' + pkg + '（' + removed + ' 条）' : '没有 ' + pkg + ' 的归档记录');
+      }
+      return;
+    }
+    throw new Error('usage: questboard brief dismiss <package> [--brief <path>] [--note "..."] [--by who]　已在板外完成/忽略的 brief，从货架收起（可撤销）；brief undismiss <package> [--brief <path>] 撤销');
+  },
+
   async watch(args) {
     const config = projectConfig(args);
     watchEvents(config.paths.events, { fromStart: args.includes('--from-start'), write: (line) => out(line) });

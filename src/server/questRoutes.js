@@ -9,7 +9,7 @@ import { QUEST_STATUSES } from '../core/store.js';
 import { createDispatcher } from './dispatcher.js';
 import { eventsAfter } from '../core/events.js';
 import { isReviewable, requestReview, reviewEligibility } from '../core/reviewRequest.js';
-import { withFileSets } from '../core/briefs.js';
+import { withFileSets, discoverBriefs, readDismissedBriefs, writeDismissedBrief, removeDismissedBrief } from '../core/briefs.js';
 import { briefExists, briefUnusable, lockPresent, projectId } from '../core/snapshot.js';
 import { laneServers } from '../core/laneServer.js';
 import { attemptOf, questReportView, readCapturedReport } from '../core/reportEvidence.js';
@@ -448,7 +448,7 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
 
   async function handle(request, response, url, parts) {
     if (parts[0] === 'api' && parts[1] === 'roster' && parts[2] === 'bulk') return rosterBulkRoutes.handle(request, response, url, parts);
-    if (parts[0] !== 'api' || !['quests', 'roster', 'lanes', 'events'].includes(parts[1])) return false;
+    if (parts[0] !== 'api' || !['quests', 'roster', 'lanes', 'events', 'briefs'].includes(parts[1])) return false;
     try {
       if (url.pathname === '/api/events' && request.method === 'GET') {
         // Forward pagination by seq; pass the last seq you saw as `after`.
@@ -561,9 +561,43 @@ export function createQuestRoutes({ config, store, boardStore, statusLog, roster
         // B5: the history tab reads this route, so it must hide the same cleared limits the snapshot hides.
         const laneLimits = visibleLaneLimits(lanes.laneLimits, effectiveRoster(adventurers(), lanes)).laneLimits;
         sendJson(response, 200, { ...lanes, laneLimits, board: { openQuestions: boardStore ? boardStore.listThreads({ status: 'open', tag: 'question' }).length : 0 } });
+      } else if (url.pathname === '/api/briefs/excluded' && request.method === 'GET') {
+        // FB2-08 item 3: the full uncapped exclusion list on demand (?all=1), the capped slice by default —
+        // the snapshot's briefDiscovery stays small for every poll while the shelf can still ask for all.
+        const all = url.searchParams.get('all') === '1';
+        const scan = discoverBriefs(config, {
+          postedIds: new Set(store.list().map((q) => q.id)),
+          dispatchedIds: new Set(((getLanes() || {}).packages || []).map((row) => row.package)),
+          dismissed: readDismissedBriefs(config),
+          unlimited: all,
+        });
+        sendJson(response, 200, {
+          excluded: scan.excluded,
+          excludedTotal: scan.excludedTotal,
+          excludedTruncated: scan.excludedTruncated,
+          byKind: scan.byKind,
+        });
       } else if (request.method === 'POST') {
         const refusal = writeRefusal(request);
-        if (refusal) sendJson(response, 403, { error: refusal }); else await post(request, response, parts);
+        if (refusal) sendJson(response, 403, { error: refusal }); else if (parts[1] === 'briefs' && (parts[2] === 'dismiss' || parts[2] === 'undismiss')) {
+          const body = await readJsonBody(request, 64 * 1024);
+          const pkg = String(body.package || '').trim();
+          const brief = body.brief === undefined || body.brief === null || body.brief === '' ? null : String(body.brief);
+          const by = String(body.by || 'owner').slice(0, 40);
+          if (!pkg) { sendJson(response, 400, { error: 'package is required' }); return true; }
+          try {
+            if (parts[2] === 'dismiss') {
+              const record = writeDismissedBrief(config, { package: pkg, brief, by, note: String(body.note || '') });
+              sendJson(response, 200, { dismissed: record });
+            } else {
+              const removed = removeDismissedBrief(config, { package: pkg, brief });
+              sendJson(response, 200, { removed });
+            }
+          } catch (error) {
+            sendJson(response, 400, { error: error.message });
+          }
+          return true;
+        } else await post(request, response, parts);
       } else {
         sendJson(response, 404, { error: 'not found' });
       }

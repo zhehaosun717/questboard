@@ -148,3 +148,37 @@ describe('questboard status/cancel/resolve flag shapes (FB2-06)', () => {
     assert.match(requested.stdout, /取消结果：/);
   });
 });
+
+describe('brief shelf bookkeeping (FB2-08)', () => {
+  it('brief dismiss hides a brief from the shelf and brief undismiss restores it', async () => {
+    fx.project.write('docs/briefs/CA-30-x.md', '# CA-30');
+    const dismissed = await atBoard(['brief', 'dismiss', 'CA-30', '--note', '外面做完了']);
+    assert.equal(dismissed.status, 0, dismissed.stderr);
+    assert.match(dismissed.stdout, /已归档 CA-30/);
+    let snap = (await fx.api('/api/quests')).body;
+    assert.equal(snap.unpostedBriefs.some((b) => b.package === 'CA-30'), false, 'dismissed briefs leave the shelf');
+    assert.equal(snap.briefDiscovery.dismissed.some((r) => r.package === 'CA-30' && r.note === '外面做完了'), true);
+    assert.equal(snap.briefDiscovery.byKind.dismissed, 1);
+    const undone = await atBoard(['brief', 'undismiss', 'CA-30']);
+    assert.equal(undone.status, 0, undone.stderr);
+    snap = (await fx.api('/api/quests')).body;
+    assert.equal(snap.unpostedBriefs.some((b) => b.package === 'CA-30'), true, 'undismiss restores the brief');
+  });
+
+  it('brief with no subcommand shows usage', async () => {
+    const no = await atBoard(['brief']);
+    assert.equal(no.status, 1);
+    assert.match(no.stderr, /usage: questboard brief/);
+  });
+
+  it('the excluded endpoint caps by default and returns everything with ?all=1', async () => {
+    for (let i = 0; i < 305; i++) fx.project.write('docs/briefs/notes-' + String(i).padStart(3, '0') + '.md', 'bad id');
+    const capped = (await fx.api('/api/briefs/excluded')).body;
+    assert.equal(capped.excluded.length, 300);
+    assert.equal(capped.excludedTotal > 300, true);
+    assert.equal(capped.excludedTruncated, true);
+    const all = (await fx.api('/api/briefs/excluded?all=1')).body;
+    assert.equal(all.excluded.length, all.excludedTotal, '?all=1 returns the full list');
+    assert.equal(all.excludedTruncated, false);
+  });
+});
